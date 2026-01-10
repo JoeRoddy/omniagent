@@ -9,7 +9,9 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "vite build",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "keywords": [
     "ai",
@@ -34,7 +36,9 @@
   "devDependencies": {
     "@types/node": "^20.19.28",
     "@types/yargs": "^17.0.35",
+    "@vitest/coverage-v8": "^4.0.16",
     "typescript": "^5.9.3",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "vitest": "^4.0.16"
   }
 }
