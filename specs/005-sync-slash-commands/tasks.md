@@ -50,13 +50,13 @@ description: "Task list template for feature implementation"
 
 ## Phase 3: User Story 1 - Sync commands to supported agents (Priority: P1) 🎯 MVP
 
-**Goal**: Sync canonical Claude Code-format commands to supported agents (Claude + Gemini) with scope selection, conflict handling, and previews.
+**Goal**: Sync canonical Claude Code-format commands to supported agents (Claude + Gemini) with default local scope, conflict handling, and previews.
 
-**Independent Test**: Run `sync-commands` with two commands and verify Claude/Gemini outputs are created at the chosen scopes with a correct summary.
+**Independent Test**: Run `sync-commands` with two commands and verify Claude/Gemini outputs are created at the default local scope with a correct summary.
 
 ### Implementation for User Story 1
 
-- [X] T007 [US1] Implement CLI options + prompt flow (targets, scopes, conflicts, preview/confirm, --yes, --json) in `src/cli/commands/sync-commands.ts`
+- [X] T007 [US1] Implement CLI options + prompt flow (targets, conflicts, preview/confirm, --yes, --json) in `src/cli/commands/sync-commands.ts`
 - [X] T008 [P] [US1] Register `sync-commands` in `src/cli/index.ts`
 - [X] T009 [US1] Invoke sync engine + print per-target summary in `src/cli/commands/sync-commands.ts`
 
@@ -64,15 +64,15 @@ description: "Task list template for feature implementation"
 
 ---
 
-## Phase 4: User Story 2 - Choose fallbacks for unsupported agents (Priority: P2)
+## Phase 4: User Story 2 - Default fallback for unsupported agents (Priority: P2)
 
-**Goal**: Provide a fallback path for unsupported agents (Copilot) via skill conversion or skipping.
+**Goal**: Provide a fallback path for unsupported agents (Copilot) via default skill conversion (skip by excluding the target).
 
 **Independent Test**: Select Copilot in `sync-commands`, choose convert-to-skills, and verify skills are created with a conversion summary.
 
 ### Implementation for User Story 2
 
-- [X] T010 [US2] Add unsupported-target fallback prompt + defaults in `src/cli/commands/sync-commands.ts`
+- [X] T010 [US2] Add unsupported-target default conversion in `src/cli/commands/sync-commands.ts`
 - [X] T011 [US2] Implement slash-command-to-skill conversion + summary updates in `src/lib/slash-commands/sync.ts`
 
 **Checkpoint**: User Story 2 should be independently testable with unsupported targets
@@ -81,15 +81,15 @@ description: "Task list template for feature implementation"
 
 ## Phase 5: User Story 3 - Make the Codex-specific choice (Priority: P3)
 
-**Goal**: Warn about Codex project-scope limits and offer global prompts, skill conversion, or skip.
+**Goal**: Warn about Codex project-scope limits and offer global prompts or skill conversion.
 
 **Independent Test**: Select Codex, observe warning, choose global prompts, and verify prompts are written under the Codex home directory with summary updates.
 
 ### Implementation for User Story 3
 
-- [X] T012 [US3] Add Codex warning + option selection (global prompts vs convert to skills vs skip) in `src/cli/commands/sync-commands.ts`
+- [X] T012 [US3] Add Codex warning + option selection (global prompts vs convert to skills) in `src/cli/commands/sync-commands.ts`
 - [X] T013 [US3] Implement Codex prompt writer + integration in `src/lib/slash-commands/formatting.ts`
-- [X] T014 [US3] Handle Codex conversion scope prompt + defaults in `src/lib/slash-commands/sync.ts`
+- [X] T014 [US3] Apply Codex conversion defaults in `src/lib/slash-commands/sync.ts`
 
 **Checkpoint**: User Story 3 should be independently testable for Codex flows
 

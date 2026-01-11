@@ -10,11 +10,12 @@
 Add a `sync-commands` CLI flow that reads canonical slash commands from
 `/Users/joeroddy/Documents/dev/projects/open-source/agentctl/agents/commands/`
 in Claude Code's command definition format and ports them to Gemini CLI, Codex,
-and other targets. The flow includes per-target scope selection, conflict
-handling, safe removal of previously synced commands, and a `--yes` mode that
-accepts defaults. Unsupported targets (Copilot CLI) prompt for skill conversion
-or skip, and Codex warns about the lack of project-level prompts while offering
-options for global prompts or skill conversion.
+and other targets. The flow includes default local scope (project) for
+Claude/Gemini, conflict handling, safe removal of previously synced commands,
+and a `--yes` mode that accepts defaults. Unsupported targets (Copilot CLI)
+default to skill conversion (skip by excluding the target), and Codex warns
+about the lack of project-level prompts while offering options for global
+prompts or skill conversion.
 
 ## Technical Context
 
@@ -26,7 +27,7 @@ options for global prompts or skill conversion.
 **Project Type**: Single CLI project
 **Performance Goals**: Sync up to 25 commands across 4 targets in <2s (excluding prompts)
 **Constraints**: No external CLI tools; non-destructive for non-managed files; explicit lossy-mapping warnings; continue after per-target failures; JSON and human output; Claude Code command format as canonical source
-**Scale/Scope**: 4 initial targets, per-target scope selection, local filesystem-only sync
+**Scale/Scope**: 4 initial targets, default local scope for Claude/Gemini, local filesystem-only sync
 
 ## Constitution Check
 
@@ -40,12 +41,12 @@ options for global prompts or skill conversion.
   human-readable with JSON option; generated files include provenance comments
   where supported.
 - **III. Explicit Lossy Mapping Transparency**: PASS. The plan includes warnings
-  for unsupported targets and Codex project-scope limitations, plus opt-in skill
-  conversion.
+  for unsupported targets and Codex project-scope limitations, plus default
+  skill conversion.
 - **IV. Test-Driven Validation**: PASS. Planned unit/integration coverage for
   parsing, mapping, conflict handling, deletion, and per-target outputs.
 - **V. Predictable Resolution Order**: PASS. Canonical source is repo-local with
-  per-target scope explicitly selected and documented in output.
+  default scopes applied consistently and documented in output.
 
 **Post-Phase 1 Re-check**: PASS. Design artifacts include manifest-based state
 tracking, explicit warnings, and contract outputs aligned with the constitution.

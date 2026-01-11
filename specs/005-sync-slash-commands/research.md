@@ -31,15 +31,16 @@
 
 ## Codex Custom Prompts
 - Decision: Map commands to `~/.codex/prompts/*.md` only. Project-level prompts
-  are not supported; offer conversion to skills or skip for project sharing.
+  are not supported; offer conversion to skills as an alternative (skip by
+  excluding the target).
 - Rationale: Codex loads prompts from the local Codex home directory, ignores
   subdirectories, and does not share prompts via the repository.
 - Alternatives considered: Writing prompts into a project directory (not
   supported by Codex).
 
 ## GitHub Copilot CLI
-- Decision: Treat custom slash commands as unsupported for Copilot CLI and offer
-  opt-in conversion to skills or skipping the target.
+- Decision: Treat custom slash commands as unsupported for Copilot CLI and
+  convert commands to skills by default (skip by excluding the target).
 - Rationale: Copilot CLI currently exposes only built-in slash commands, and a
   feature request to read `.github/prompts` is still open.
 - Alternatives considered: Implementing `.github/prompts` mapping immediately
@@ -56,8 +57,8 @@
 ## Non-Interactive Defaults
 - Decision: Support `--yes` to accept defaults for all prompts. Defaults are:
   project scope for agents that support project/global, global scope for Codex
-  conversions, skip for unsupported agents, and skip on conflicts.
+  conversions, convert-to-skills for unsupported agents, and skip on conflicts.
 - Rationale: Safe-by-default behavior avoids destructive changes in
   non-interactive runs while keeping the flow predictable.
-- Alternatives considered: Overwrite by default or always convert unsupported
-  agents (riskier behavior).
+- Alternatives considered: Overwrite by default for conflicts (riskier
+  behavior).

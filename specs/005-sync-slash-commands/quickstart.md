@@ -30,8 +30,8 @@ CMD
 node /Users/joeroddy/Documents/dev/projects/open-source/agentctl/dist/cli.js sync
 ```
 
-Expected: prompts for per-target scope (project/global where available) and
-conflict handling, followed by a per-target summary.
+Expected: prompts for Codex handling and conflict resolution, with default local
+scope (project) for Claude/Gemini, followed by a per-target summary.
 
 ## Sync Commands with Defaults
 
@@ -40,7 +40,7 @@ node /Users/joeroddy/Documents/dev/projects/open-source/agentctl/dist/cli.js syn
 ```
 
 Expected: defaults are applied (project scope for Gemini/Claude, global prompts
-for Codex, skip for unsupported targets) and a summary is printed.
+for Codex, convert-to-skills for unsupported targets) and a summary is printed.
 
 ## Limit Targets
 
