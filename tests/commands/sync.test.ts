@@ -149,7 +149,7 @@ describe.sequential("sync command", () => {
 		});
 	});
 
-	it("reports missing source paths using the repo root", async () => {
+	it("reports missing source paths as skipped without exiting", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
 			await mkdir(path.join(root, "subdir"), { recursive: true });
@@ -160,11 +160,27 @@ describe.sequential("sync command", () => {
 				await runCli(["node", "agentctrl", "sync"]);
 			});
 
-			expect(errorSpy).toHaveBeenCalledWith(
-				`Error: Canonical config source not found at ${skillsPath}. ` +
-					`Command catalog directory not found at ${commandsPath}.`,
-			);
-			expect(exitSpy).toHaveBeenCalledWith(1);
+			const loggedMessages = logSpy.mock.calls
+				.map(([message]) => (typeof message === "string" ? message : ""))
+				.join("\n");
+
+			expect(loggedMessages).toContain(`Canonical config source not found at ${skillsPath}.`);
+			expect(loggedMessages).toContain(`Command catalog directory not found at ${commandsPath}.`);
+			expect(errorSpy).not.toHaveBeenCalled();
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	it("allows subagent-only sync when the catalog is missing", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "agentctrl", "sync", "--only", "codex", "--yes"]);
+			});
+
+			expect(errorSpy).not.toHaveBeenCalled();
+			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});
 

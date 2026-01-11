@@ -212,7 +212,8 @@ export async function loadSubagentCatalog(repoRoot: string): Promise<SubagentCat
 		const existingPath = seenNames.get(nameKey);
 		if (existingPath) {
 			throw new Error(
-				`Duplicate subagent name "${resolvedName}" (case-insensitive). Also found: ${existingPath}.`,
+				`Duplicate subagent name "${resolvedName}" (case-insensitive) found in: ` +
+					`${existingPath} and ${filePath}.`,
 			);
 		}
 		seenNames.set(nameKey, filePath);

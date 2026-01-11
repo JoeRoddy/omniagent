@@ -1,5 +1,4 @@
 import { readdir, stat } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import type { CommandModule } from "yargs";
@@ -24,7 +23,6 @@ import {
 	type Scope,
 	SLASH_COMMAND_TARGETS,
 } from "../../lib/slash-commands/targets.js";
-import { resolveManifestPath as resolveSubagentManifestPath } from "../../lib/subagents/manifest.js";
 import {
 	applySubagentSync,
 	formatSubagentSummary,
@@ -98,23 +96,6 @@ async function assertSourceDirectory(sourcePath: string): Promise<boolean> {
 	} catch {
 		return false;
 	}
-}
-
-async function hasSubagentManifest(
-	repoRoot: string,
-	targets: SubagentTargetName[],
-): Promise<boolean> {
-	const homeDir = os.homedir();
-	for (const targetName of targets) {
-		const manifestPath = resolveSubagentManifestPath(repoRoot, targetName, homeDir);
-		try {
-			await stat(manifestPath);
-			return true;
-		} catch {
-			// ignore missing manifest
-		}
-	}
-	return false;
 }
 
 async function hasMarkdownFiles(root: string): Promise<boolean> {
@@ -675,7 +656,6 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 
 		const skillsSourcePath = path.join(repoRoot, "agents", "skills");
 		const commandsSourcePath = path.join(repoRoot, "agents", "commands");
-		const subagentsSourcePath = path.join(repoRoot, "agents", "agents");
 
 		const skillsAvailable =
 			selectedSkillTargets.length > 0 ? await assertSourceDirectory(skillsSourcePath) : false;
@@ -684,17 +664,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				? await getCommandCatalogStatus(commandsSourcePath)
 				: ({ available: true } as CatalogStatus);
 
-		const subagentsAvailable =
-			selectedSubagentTargets.length > 0 ? await assertSourceDirectory(subagentsSourcePath) : false;
-		const subagentsHaveManifest =
-			selectedSubagentTargets.length > 0
-				? await hasSubagentManifest(repoRoot, selectedSubagentTargets)
-				: false;
-
 		const hasSkillsToSync = selectedSkillTargets.length > 0 && skillsAvailable;
 		const hasCommandsToSync = selectedCommandTargets.length > 0 && commandsStatus.available;
-		const hasSubagentsToSync =
-			selectedSubagentTargets.length > 0 && (subagentsAvailable || subagentsHaveManifest);
+		const hasSubagentsToSync = selectedSubagentTargets.length > 0;
 
 		if (!hasSkillsToSync && !hasCommandsToSync && !hasSubagentsToSync) {
 			const missingMessages: string[] = [];

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadSubagentCatalog, type SubagentDefinition } from "./catalog.js";
@@ -105,6 +105,61 @@ function normalizeName(name: string): string {
 	return name.toLowerCase();
 }
 
+function normalizeSkillKey(name: string): string {
+	return path.normalize(name).replace(/\\/g, "/").toLowerCase();
+}
+
+async function listSkillDirectories(root: string): Promise<string[]> {
+	const entries = await readdir(root, { withFileTypes: true });
+	const directories: string[] = [];
+	let hasSkillFile = false;
+
+	for (const entry of entries) {
+		if (entry.isFile() && entry.name.toLowerCase() === "skill.md") {
+			hasSkillFile = true;
+		}
+	}
+
+	if (hasSkillFile) {
+		directories.push(root);
+	}
+
+	for (const entry of entries) {
+		if (entry.isDirectory()) {
+			directories.push(...(await listSkillDirectories(path.join(root, entry.name))));
+		}
+	}
+
+	return directories;
+}
+
+async function loadCanonicalSkillIndex(repoRoot: string): Promise<Map<string, string>> {
+	const skillsRoot = path.join(repoRoot, "agents", "skills");
+	let directories: string[] = [];
+	try {
+		directories = await listSkillDirectories(skillsRoot);
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ENOENT" || code === "ENOTDIR") {
+			return new Map();
+		}
+		throw error;
+	}
+
+	const index = new Map<string, string>();
+	for (const directory of directories) {
+		const relative = path.relative(skillsRoot, directory);
+		if (!relative) {
+			continue;
+		}
+		const key = normalizeSkillKey(relative);
+		if (!index.has(key)) {
+			index.set(key, relative);
+		}
+	}
+	return index;
+}
+
 function areManagedSubagentsEqual(
 	left: Map<string, ManagedSubagent>,
 	right: Map<string, ManagedSubagent>,
@@ -192,6 +247,7 @@ async function buildTargetPlan(
 		subagents: SubagentDefinition[];
 		removeMissing: boolean;
 		timestamp: string;
+		canonicalSkills: Map<string, string>;
 	},
 	targetName: SubagentTargetName,
 ): Promise<TargetPlan> {
@@ -205,6 +261,7 @@ async function buildTargetPlan(
 	const warnings: string[] = [];
 	const summary = emptySummaryCounts();
 	const actions: SubagentSyncPlanAction[] = [];
+	const canonicalSkillsRoot = path.join(request.repoRoot, "agents", "skills");
 
 	if (!profile.supportsSubagents && subagents.length > 0) {
 		warnings.push(
@@ -226,6 +283,32 @@ async function buildTargetPlan(
 	for (const subagent of subagents) {
 		const nameKey = normalizeName(subagent.resolvedName);
 		catalogNames.add(nameKey);
+		const canonicalSkillKey =
+			outputKind === "skill" ? normalizeSkillKey(subagent.resolvedName) : null;
+		const canonicalSkillRelative =
+			canonicalSkillKey && params.canonicalSkills.get(canonicalSkillKey);
+		if (outputKind === "skill" && canonicalSkillRelative) {
+			const { destinationPath } = resolveOutputPaths(
+				outputKind,
+				destinationDir,
+				subagent.resolvedName,
+			);
+			const canonicalSkillPath = path.join(canonicalSkillsRoot, canonicalSkillRelative, "SKILL.md");
+			actions.push({
+				targetName,
+				action: "skip",
+				subagentName: subagent.resolvedName,
+				destinationPath,
+				conflict: true,
+			});
+			summary.skipped += 1;
+			warnings.push(
+				`Skipped ${profile.displayName} skill "${
+					subagent.resolvedName
+				}" because canonical skill exists at ${canonicalSkillPath}.`,
+			);
+			continue;
+		}
 
 		const output = subagent.rawContents;
 		const outputHash = hashContent(output);
@@ -278,7 +361,7 @@ async function buildTargetPlan(
 		}
 
 		if (previousEntry) {
-			const actionType = outputKind === "skill" ? "convert" : "update";
+			const actionType = "update";
 			const managedEntry = {
 				name: subagent.resolvedName,
 				hash: outputHash,
@@ -292,11 +375,7 @@ async function buildTargetPlan(
 				contents: output,
 				hash: outputHash,
 			});
-			if (actionType === "update") {
-				summary.updated += 1;
-			} else {
-				summary.converted += 1;
-			}
+			summary.updated += 1;
 			nextManaged.set(nameKey, managedEntry);
 			continue;
 		}
@@ -326,6 +405,31 @@ async function buildTargetPlan(
 				outputKind === "skill"
 					? path.join(destinationDir, entry.name)
 					: path.join(destinationDir, removalBase);
+			if (outputKind === "skill") {
+				const canonicalSkillKey = normalizeSkillKey(entry.name);
+				const canonicalSkillRelative = params.canonicalSkills.get(canonicalSkillKey);
+				if (canonicalSkillRelative) {
+					const canonicalSkillPath = path.join(
+						canonicalSkillsRoot,
+						canonicalSkillRelative,
+						"SKILL.md",
+					);
+					actions.push({
+						targetName,
+						action: "skip",
+						subagentName: entry.name,
+						destinationPath: removalPath,
+						conflict: true,
+					});
+					summary.skipped += 1;
+					warnings.push(
+						`Skipped removing ${profile.displayName} skill "${
+							entry.name
+						}" because canonical skill exists at ${canonicalSkillPath}.`,
+					);
+					continue;
+				}
+			}
 			actions.push({
 				targetName,
 				action: "remove",
@@ -361,6 +465,7 @@ export async function planSubagentSync(
 	request: SubagentSyncRequest,
 ): Promise<SubagentSyncPlanDetails> {
 	const catalog = await loadSubagentCatalog(request.repoRoot);
+	const canonicalSkills = await loadCanonicalSkillIndex(request.repoRoot);
 	const selectedTargets =
 		request.targets && request.targets.length > 0
 			? request.targets
@@ -372,7 +477,7 @@ export async function planSubagentSync(
 	for (const targetName of selectedTargets) {
 		targetPlans.push(
 			await buildTargetPlan(
-				{ request, subagents: catalog.subagents, removeMissing, timestamp },
+				{ request, subagents: catalog.subagents, removeMissing, timestamp, canonicalSkills },
 				targetName,
 			),
 		);
