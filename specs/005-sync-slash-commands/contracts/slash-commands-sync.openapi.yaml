@@ -1,0 +1,221 @@
+openapi: 3.1.0
+info:
+  title: agentctl slash command sync contract
+  version: 1.0.0
+  description: Contract for previewing and applying custom slash command sync.
+paths:
+  /slash-commands/sync/preview:
+    post:
+      summary: Preview slash command sync actions
+      operationId: previewSlashCommandSync
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncRequest"
+      responses:
+        "200":
+          description: Preview generated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncPlan"
+        "400":
+          description: Invalid options or no commands found.
+        "404":
+          description: Canonical command directory not found.
+  /slash-commands/sync:
+    post:
+      summary: Apply slash command sync
+      operationId: applySlashCommandSync
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncRequest"
+      responses:
+        "200":
+          description: Sync completed with no failures.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncSummary"
+        "207":
+          description: Sync completed with one or more target failures.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncSummary"
+        "400":
+          description: Invalid options or conflicts without resolution.
+        "404":
+          description: Canonical command directory not found.
+        "500":
+          description: Unexpected file write error.
+components:
+  schemas:
+    TargetName:
+      type: string
+      enum:
+        - claude
+        - codex
+        - gemini
+        - copilot
+    Scope:
+      type: string
+      enum:
+        - project
+        - global
+    ConflictResolution:
+      type: string
+      enum:
+        - overwrite
+        - rename
+        - skip
+    UnsupportedFallback:
+      type: string
+      enum:
+        - convert_to_skills
+        - skip
+    CodexConversionChoice:
+      type: string
+      enum:
+        - global
+        - project
+        - skip
+    SyncRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/TargetName"
+        scopeByTarget:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/Scope"
+        conflictResolution:
+          $ref: "#/components/schemas/ConflictResolution"
+        removeMissing:
+          type: boolean
+          default: true
+        unsupportedFallback:
+          $ref: "#/components/schemas/UnsupportedFallback"
+        codexConversionChoice:
+          $ref: "#/components/schemas/CodexConversionChoice"
+        nonInteractive:
+          type: boolean
+          default: false
+        useDefaults:
+          type: boolean
+          default: false
+      description: Options that mirror CLI prompts and flags.
+    SyncPlanAction:
+      type: object
+      additionalProperties: false
+      properties:
+        targetName:
+          $ref: "#/components/schemas/TargetName"
+        action:
+          type: string
+          enum:
+            - create
+            - update
+            - remove
+            - convert
+            - skip
+            - fail
+        commandName:
+          type: string
+        scope:
+          oneOf:
+            - $ref: "#/components/schemas/Scope"
+            - type: "null"
+      required:
+        - targetName
+        - action
+        - commandName
+    SyncPlan:
+      type: object
+      additionalProperties: false
+      properties:
+        actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SyncPlanAction"
+        summary:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: false
+            properties:
+              create:
+                type: integer
+              update:
+                type: integer
+              remove:
+                type: integer
+              convert:
+                type: integer
+              skip:
+                type: integer
+      required:
+        - actions
+        - summary
+    SyncResult:
+      type: object
+      additionalProperties: false
+      properties:
+        targetName:
+          $ref: "#/components/schemas/TargetName"
+        status:
+          type: string
+          enum:
+            - synced
+            - skipped
+            - failed
+            - partial
+        message:
+          type: string
+        error:
+          type: string
+          nullable: true
+        counts:
+          type: object
+          additionalProperties: false
+          properties:
+            created:
+              type: integer
+            updated:
+              type: integer
+            removed:
+              type: integer
+            converted:
+              type: integer
+            skipped:
+              type: integer
+      required:
+        - targetName
+        - status
+        - message
+        - counts
+    SyncSummary:
+      type: object
+      additionalProperties: false
+      properties:
+        sourcePath:
+          type: string
+          description: Absolute path to the canonical command directory.
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/SyncResult"
+        hadFailures:
+          type: boolean
+      required:
+        - sourcePath
+        - results
+        - hadFailures

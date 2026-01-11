@@ -1,18 +1,63 @@
-import { stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { createInterface } from "node:readline/promises";
 import type { CommandModule } from "yargs";
 import { findRepoRoot } from "../../lib/repo-root.js";
+import {
+	applySlashCommandSync,
+	type CodexConversionScope,
+	type CodexOption,
+	type SyncSummary as CommandSyncSummary,
+	type ConflictResolution,
+	formatSyncSummary as formatCommandSummary,
+	formatPlanSummary,
+	planSlashCommandSync,
+	type SyncPlanDetails,
+	type UnsupportedFallback,
+} from "../../lib/slash-commands/sync.js";
+import {
+	type TargetName as CommandTargetName,
+	getDefaultScope,
+	getTargetProfile,
+	isSlashCommandTargetName,
+	type Scope,
+	SLASH_COMMAND_TARGETS,
+} from "../../lib/slash-commands/targets.js";
 import { copyDirectory } from "../../lib/sync-copy.js";
-import { buildSummary, formatSummary, type SyncResult } from "../../lib/sync-results.js";
-import { isTargetName, TARGETS, type TargetName } from "../../lib/sync-targets.js";
+import {
+	buildSummary,
+	formatSummary,
+	type SyncResult,
+	type SyncSummary,
+} from "../../lib/sync-results.js";
+import { isTargetName, TARGETS } from "../../lib/sync-targets.js";
 
 type SyncArgs = {
 	skip?: string | string[];
 	only?: string | string[];
 	json: boolean;
+	yes: boolean;
+	removeMissing: boolean;
+	conflicts?: string;
 };
 
-const SUPPORTED_TARGETS = TARGETS.map((target) => target.name).join(", ");
+type SkillTarget = (typeof TARGETS)[number];
+
+const SKILL_TARGET_NAMES = new Set(TARGETS.map((target) => target.name));
+const ALL_TARGETS = [
+	...TARGETS.map((target) => target.name),
+	...SLASH_COMMAND_TARGETS.map((target) => target.name).filter(
+		(name) => !SKILL_TARGET_NAMES.has(name),
+	),
+];
+const SUPPORTED_TARGETS = ALL_TARGETS.join(", ");
+
+type CatalogStatus =
+	| { available: true }
+	| {
+			available: false;
+			reason: string;
+	  };
 
 function parseList(value?: string | string[]): string[] {
 	if (!value) {
@@ -41,6 +86,49 @@ async function assertSourceDirectory(sourcePath: string): Promise<boolean> {
 	}
 }
 
+async function hasMarkdownFiles(root: string): Promise<boolean> {
+	const entries = await readdir(root, { withFileTypes: true });
+	for (const entry of entries) {
+		const entryPath = path.join(root, entry.name);
+		if (entry.isDirectory()) {
+			if (await hasMarkdownFiles(entryPath)) {
+				return true;
+			}
+			continue;
+		}
+		if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
+			return true;
+		}
+	}
+	return false;
+}
+
+async function getCommandCatalogStatus(commandsPath: string): Promise<CatalogStatus> {
+	try {
+		const stats = await stat(commandsPath);
+		if (!stats.isDirectory()) {
+			return {
+				available: false,
+				reason: `Command catalog path is not a directory: ${commandsPath}.`,
+			};
+		}
+	} catch {
+		return {
+			available: false,
+			reason: `Command catalog directory not found at ${commandsPath}.`,
+		};
+	}
+
+	if (!(await hasMarkdownFiles(commandsPath))) {
+		return {
+			available: false,
+			reason: `No slash command definitions found in ${commandsPath}.`,
+		};
+	}
+
+	return { available: true };
+}
+
 function formatResultMessage(
 	status: "synced" | "skipped" | "failed",
 	sourceDisplay: string,
@@ -52,9 +140,339 @@ function formatResultMessage(
 	return `${verb} ${sourceDisplay} -> ${destDisplay}${suffix}`;
 }
 
+function logWithChannel(message: string, jsonOutput: boolean) {
+	if (jsonOutput) {
+		console.error(message);
+		return;
+	}
+	console.log(message);
+}
+
+function logNonInteractiveNotices(options: {
+	targets: CommandTargetName[];
+	jsonOutput: boolean;
+	scopeByTarget: Partial<Record<CommandTargetName, Scope>>;
+	unsupportedFallback?: UnsupportedFallback;
+	codexOption?: CodexOption;
+	codexConversionScope?: CodexConversionScope;
+}) {
+	const unsupportedFallback = options.unsupportedFallback ?? "skip";
+	const codexOption = options.codexOption ?? "prompts";
+	const codexConversionScope = options.codexConversionScope ?? "global";
+
+	for (const targetName of options.targets) {
+		const profile = getTargetProfile(targetName);
+		if (!profile.supportsSlashCommands) {
+			const fallbackLabel =
+				unsupportedFallback === "convert_to_skills" ? "convert to skills" : "skip";
+			logWithChannel(
+				`${profile.displayName} does not support slash commands; will ${fallbackLabel}.`,
+				options.jsonOutput,
+			);
+			continue;
+		}
+
+		if (targetName === "codex") {
+			logWithChannel(
+				"Codex only supports global prompts (no project-level custom commands).",
+				options.jsonOutput,
+			);
+			if (codexOption === "convert_to_skills") {
+				logWithChannel(
+					`Converting Codex commands to ${codexConversionScope} skills.`,
+					options.jsonOutput,
+				);
+			} else if (codexOption === "skip") {
+				logWithChannel("Skipping Codex slash commands.", options.jsonOutput);
+			} else {
+				logWithChannel("Using Codex global prompts.", options.jsonOutput);
+			}
+			continue;
+		}
+
+		if (profile.supportedScopes.length > 1) {
+			const scope = options.scopeByTarget[targetName] ?? getDefaultScope(profile);
+			logWithChannel(
+				`Using ${scope} scope for ${profile.displayName} commands.`,
+				options.jsonOutput,
+			);
+		}
+	}
+}
+
+async function withPrompter<T>(fn: (ask: (prompt: string) => Promise<string>) => Promise<T>) {
+	const rl = createInterface({ input: process.stdin, output: process.stderr });
+	try {
+		return await fn((prompt) => rl.question(prompt));
+	} finally {
+		rl.close();
+	}
+}
+
+async function promptChoice(
+	ask: (prompt: string) => Promise<string>,
+	question: string,
+	choices: string[],
+	defaultValue: string,
+): Promise<string> {
+	const normalizedChoices = new Map(choices.map((choice) => [choice.toLowerCase(), choice]));
+	while (true) {
+		const answer = (await ask(question)).trim();
+		if (!answer) {
+			return defaultValue;
+		}
+		const normalized = answer.toLowerCase();
+		const match = normalizedChoices.get(normalized);
+		if (match) {
+			return match;
+		}
+		console.error(`Please enter one of: ${choices.join(", ")}.`);
+	}
+}
+
+async function promptConfirm(
+	ask: (prompt: string) => Promise<string>,
+	question: string,
+	defaultValue: boolean,
+): Promise<boolean> {
+	const choices = ["yes", "no"];
+	const defaultLabel = defaultValue ? "yes" : "no";
+	const answer = await promptChoice(
+		ask,
+		`${question} (${choices.join("/")}) [${defaultLabel}]: `,
+		choices,
+		defaultLabel,
+	);
+	return answer.toLowerCase() === "yes";
+}
+
+function emptyCommandCounts(): CommandSyncSummary["results"][number]["counts"] {
+	return { created: 0, updated: 0, removed: 0, converted: 0, skipped: 0 };
+}
+
+function buildCommandSummary(
+	sourcePath: string,
+	targets: CommandTargetName[],
+	status: "skipped" | "failed",
+	message: string,
+): CommandSyncSummary {
+	return {
+		sourcePath,
+		results: targets.map((targetName) => {
+			const displayName = getTargetProfile(targetName).displayName;
+			const verb = status === "failed" ? "Failed" : "Skipped";
+			return {
+				targetName,
+				status,
+				message: `${verb} ${displayName}: ${message}`,
+				error: message,
+				counts: emptyCommandCounts(),
+			};
+		}),
+		hadFailures: status === "failed",
+	};
+}
+
+function buildSkillsSummary(
+	repoRoot: string,
+	sourcePath: string,
+	targets: SkillTarget[],
+	status: "skipped" | "failed",
+	reason: string,
+): SyncSummary {
+	const sourceDisplay = formatDisplayPath(repoRoot, sourcePath);
+	const results: SyncResult[] = targets.map((target) => {
+		const destPath = path.join(repoRoot, target.relativePath);
+		const destDisplay = formatDisplayPath(repoRoot, destPath);
+		return {
+			targetName: target.name,
+			status,
+			message: formatResultMessage(status, sourceDisplay, destDisplay, reason),
+			error: reason,
+		};
+	});
+	return buildSummary(sourcePath, results);
+}
+
+async function syncSkills(
+	repoRoot: string,
+	targets: SkillTarget[],
+	sourceAvailable: boolean,
+): Promise<SyncSummary> {
+	const sourcePath = path.join(repoRoot, "agents", "skills");
+	if (targets.length === 0) {
+		return buildSummary(sourcePath, []);
+	}
+	if (!sourceAvailable) {
+		const reason = `Canonical config source not found at ${sourcePath}.`;
+		return buildSkillsSummary(repoRoot, sourcePath, targets, "skipped", reason);
+	}
+
+	const results: SyncResult[] = [];
+	const sourceDisplay = formatDisplayPath(repoRoot, sourcePath);
+
+	for (const target of targets) {
+		const destPath = path.join(repoRoot, target.relativePath);
+		const destDisplay = formatDisplayPath(repoRoot, destPath);
+
+		try {
+			await copyDirectory(sourcePath, destPath);
+			results.push({
+				targetName: target.name,
+				status: "synced",
+				message: formatResultMessage("synced", sourceDisplay, destDisplay),
+			});
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			results.push({
+				targetName: target.name,
+				status: "failed",
+				message: formatResultMessage("failed", sourceDisplay, destDisplay, errorMessage),
+				error: errorMessage,
+			});
+		}
+	}
+
+	return buildSummary(sourcePath, results);
+}
+
+type CommandSyncOptions = {
+	repoRoot: string;
+	targets: CommandTargetName[];
+	jsonOutput: boolean;
+	yes: boolean;
+	removeMissing: boolean;
+	conflicts?: string;
+	catalogStatus: CatalogStatus;
+};
+
+async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSyncSummary> {
+	const sourcePath = path.join(options.repoRoot, "agents", "commands");
+	if (options.targets.length === 0) {
+		return { sourcePath, results: [], hadFailures: false };
+	}
+	if (!options.catalogStatus.available) {
+		return buildCommandSummary(
+			sourcePath,
+			options.targets,
+			"skipped",
+			options.catalogStatus.reason,
+		);
+	}
+
+	const nonInteractive = options.yes || !process.stdin.isTTY;
+	const scopeByTarget: Partial<Record<CommandTargetName, Scope>> = {};
+	let unsupportedFallback: UnsupportedFallback | undefined;
+	let codexOption: CodexOption | undefined;
+	let codexConversionScope: CodexConversionScope | undefined;
+
+	for (const targetName of options.targets) {
+		const profile = getTargetProfile(targetName);
+		if (profile.supportedScopes.includes("project")) {
+			scopeByTarget[targetName] = "project";
+		}
+		if (targetName === "copilot") {
+			unsupportedFallback = "convert_to_skills";
+		}
+	}
+
+	if (!nonInteractive) {
+		if (options.targets.includes("codex")) {
+			await withPrompter(async (ask) => {
+				logWithChannel(
+					"Codex only supports global prompts (no project-level custom commands).",
+					options.jsonOutput,
+				);
+				const choice = await promptChoice(
+					ask,
+					"Choose Codex option (global/convert) [global]: ",
+					["global", "convert"],
+					"global",
+				);
+				codexOption = choice === "convert" ? "convert_to_skills" : "prompts";
+			});
+		}
+	}
+
+	if (nonInteractive) {
+		logNonInteractiveNotices({
+			targets: options.targets,
+			jsonOutput: options.jsonOutput,
+			scopeByTarget,
+			unsupportedFallback,
+			codexOption,
+			codexConversionScope,
+		});
+	}
+
+	const conflictResolution = options.conflicts as ConflictResolution | undefined;
+	const planRequestBase = {
+		repoRoot: options.repoRoot,
+		targets: options.targets,
+		scopeByTarget,
+		removeMissing: options.removeMissing,
+		unsupportedFallback: unsupportedFallback ?? (nonInteractive ? "skip" : undefined),
+		codexOption: codexOption ?? (nonInteractive ? "prompts" : undefined),
+		codexConversionScope: codexConversionScope ?? (nonInteractive ? "global" : undefined),
+		conflictResolution: conflictResolution ?? "skip",
+		useDefaults: options.yes,
+		nonInteractive,
+	};
+
+	let planDetails: SyncPlanDetails;
+	try {
+		planDetails = await planSlashCommandSync(planRequestBase);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return buildCommandSummary(sourcePath, options.targets, "failed", message);
+	}
+
+	if (!nonInteractive && !conflictResolution && planDetails.conflicts > 0) {
+		await withPrompter(async (ask) => {
+			const resolution = await promptChoice(
+				ask,
+				"Conflicts detected. Choose resolution (overwrite/rename/skip) [skip]: ",
+				["overwrite", "rename", "skip"],
+				"skip",
+			);
+			planDetails = await planSlashCommandSync({
+				...planRequestBase,
+				conflictResolution: resolution as ConflictResolution,
+			});
+		});
+	}
+
+	logWithChannel(
+		formatPlanSummary(planDetails.plan, planDetails.targetSummaries),
+		options.jsonOutput,
+	);
+
+	const hasPlannedChanges = planDetails.targetPlans.some((plan) => {
+		const counts = plan.summary;
+		return counts.create + counts.update + counts.remove + counts.convert > 0;
+	});
+
+	if (!nonInteractive && !options.yes && hasPlannedChanges) {
+		const shouldApply = await withPrompter((ask) =>
+			promptConfirm(ask, "Apply these changes?", false),
+		);
+		if (!shouldApply) {
+			logWithChannel("Aborted.", options.jsonOutput);
+			return buildCommandSummary(sourcePath, options.targets, "skipped", "Aborted by user.");
+		}
+	}
+
+	try {
+		return await applySlashCommandSync(planDetails);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return buildCommandSummary(sourcePath, options.targets, "failed", message);
+	}
+}
+
 export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 	command: "sync",
-	describe: "Sync canonical agent config to supported targets",
+	describe: "Sync canonical skills and slash commands to supported targets",
 	builder: (yargs) =>
 		yargs
 			.usage("agentctl sync [options]")
@@ -66,6 +484,21 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				type: "string",
 				describe: `Comma-separated targets to sync (${SUPPORTED_TARGETS})`,
 			})
+			.option("yes", {
+				type: "boolean",
+				default: false,
+				describe: "Accept defaults and skip confirmation prompts",
+			})
+			.option("remove-missing", {
+				type: "boolean",
+				default: true,
+				describe: "Remove previously synced commands missing from the catalog",
+			})
+			.option("conflicts", {
+				type: "string",
+				choices: ["overwrite", "rename", "skip"],
+				describe: "Conflict resolution strategy for slash commands",
+			})
 			.option("json", {
 				type: "boolean",
 				default: false,
@@ -75,7 +508,8 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			.example("agentctl sync", "Sync all targets")
 			.example("agentctl sync --skip codex", "Skip a target")
 			.example("agentctl sync --only claude", "Sync only one target")
-			.example("agentctl sync --only gemini", "Sync only Gemini"),
+			.example("agentctl sync --yes", "Accept defaults and apply changes")
+			.example("agentctl sync --json", "Output a JSON summary"),
 	handler: async (argv) => {
 		const skipList = parseList(argv.skip);
 		const onlyList = parseList(argv.only);
@@ -86,7 +520,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			return;
 		}
 
-		const unknownTargets = [...skipList, ...onlyList].filter((name) => !isTargetName(name));
+		const unknownTargets = [...skipList, ...onlyList].filter(
+			(name) => !isTargetName(name) && !isSlashCommandTargetName(name),
+		);
 		if (unknownTargets.length > 0) {
 			const unknownList = unknownTargets.join(", ");
 			console.error(
@@ -96,15 +532,14 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			return;
 		}
 
-		const skipSet = new Set<TargetName>(skipList as TargetName[]);
-		const onlySet = new Set<TargetName>(onlyList as TargetName[]);
-
-		const selectedTargets = TARGETS.filter((target) => {
+		const skipSet = new Set(skipList);
+		const onlySet = new Set(onlyList);
+		const selectedTargets = ALL_TARGETS.filter((name) => {
 			if (onlySet.size > 0) {
-				return onlySet.has(target.name);
+				return onlySet.has(name);
 			}
 			if (skipSet.size > 0) {
-				return !skipSet.has(target.name);
+				return !skipSet.has(name);
 			}
 			return true;
 		});
@@ -126,55 +561,76 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			return;
 		}
 
-		const sourcePath = path.join(repoRoot, "agents", "skills");
-		if (!(await assertSourceDirectory(sourcePath))) {
-			console.error(`Error: Canonical config source not found at ${sourcePath}.`);
+		const selectedSkillTargets = TARGETS.filter((target) => selectedTargets.includes(target.name));
+		const selectedCommandTargets = SLASH_COMMAND_TARGETS.filter((target) =>
+			selectedTargets.includes(target.name),
+		).map((target) => target.name as CommandTargetName);
+
+		const skillsSourcePath = path.join(repoRoot, "agents", "skills");
+		const commandsSourcePath = path.join(repoRoot, "agents", "commands");
+
+		const skillsAvailable =
+			selectedSkillTargets.length > 0 ? await assertSourceDirectory(skillsSourcePath) : false;
+		const commandsStatus =
+			selectedCommandTargets.length > 0
+				? await getCommandCatalogStatus(commandsSourcePath)
+				: ({ available: true } as CatalogStatus);
+
+		const hasSkillsToSync = selectedSkillTargets.length > 0 && skillsAvailable;
+		const hasCommandsToSync = selectedCommandTargets.length > 0 && commandsStatus.available;
+
+		if (!hasSkillsToSync && !hasCommandsToSync) {
+			const missingMessages: string[] = [];
+			if (selectedSkillTargets.length > 0 && !skillsAvailable) {
+				missingMessages.push(`Canonical config source not found at ${skillsSourcePath}.`);
+			}
+			if (selectedCommandTargets.length > 0 && !commandsStatus.available) {
+				missingMessages.push(commandsStatus.reason);
+			}
+			const message =
+				missingMessages.length > 0 ? missingMessages.join(" ") : "No sources to sync.";
+			console.error(`Error: ${message}`);
 			process.exit(1);
 			return;
 		}
 
-		const results: SyncResult[] = [];
-		const sourceDisplay = formatDisplayPath(repoRoot, sourcePath);
+		const commandsSummary = await syncSlashCommands({
+			repoRoot,
+			targets: selectedCommandTargets,
+			jsonOutput: argv.json,
+			yes: argv.yes,
+			removeMissing: argv.removeMissing,
+			conflicts: argv.conflicts,
+			catalogStatus: commandsStatus,
+		});
 
-		for (const target of TARGETS) {
-			const destPath = path.join(repoRoot, target.relativePath);
-			const destDisplay = formatDisplayPath(repoRoot, destPath);
-			const isSelected = selectedTargets.some((item) => item.name === target.name);
+		// Sync commands first so any command-to-skill conversions don't overwrite canonical skills.
+		const skillsSummary = await syncSkills(repoRoot, selectedSkillTargets, skillsAvailable);
 
-			if (!isSelected) {
-				results.push({
-					targetName: target.name,
-					status: "skipped",
-					message: formatResultMessage("skipped", sourceDisplay, destDisplay),
-				});
-				continue;
+		const combined = {
+			skills: skillsSummary,
+			commands: commandsSummary,
+			hadFailures: skillsSummary.hadFailures || commandsSummary.hadFailures,
+		};
+
+		if (argv.json) {
+			console.log(JSON.stringify(combined, null, 2));
+		} else {
+			const outputs: string[] = [];
+			const skillsOutput = formatSummary(skillsSummary, false);
+			if (skillsOutput.length > 0) {
+				outputs.push(skillsOutput);
 			}
-
-			try {
-				await copyDirectory(sourcePath, destPath);
-				results.push({
-					targetName: target.name,
-					status: "synced",
-					message: formatResultMessage("synced", sourceDisplay, destDisplay),
-				});
-			} catch (error) {
-				const errorMessage = error instanceof Error ? error.message : String(error);
-				results.push({
-					targetName: target.name,
-					status: "failed",
-					message: formatResultMessage("failed", sourceDisplay, destDisplay, errorMessage),
-					error: errorMessage,
-				});
+			const commandOutput = formatCommandSummary(commandsSummary, false);
+			if (commandOutput.length > 0) {
+				outputs.push(commandOutput);
+			}
+			if (outputs.length > 0) {
+				console.log(outputs.join("\n"));
 			}
 		}
 
-		const summary = buildSummary(sourcePath, results);
-		const output = formatSummary(summary, argv.json);
-		if (output.length > 0) {
-			console.log(output);
-		}
-
-		if (summary.hadFailures) {
+		if (combined.hadFailures) {
 			process.exitCode = 1;
 		}
 	},

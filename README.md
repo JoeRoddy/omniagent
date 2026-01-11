@@ -13,10 +13,11 @@ that into a single source of truth and compiles it to each runtime.
 
 ## What it does today
 
-Right now, agentctl focuses on **skills**:
+Right now, agentctl focuses on **skills** and **slash commands**:
 
-- Canonical source: `agents/skills/`
-- `agentctl sync` copies those skills into each supported target's expected location
+- Canonical skills: `agents/skills/`
+- Canonical slash commands: `agents/commands/` (Claude Code format: Markdown with optional YAML frontmatter)
+- `agentctl sync` copies skills and maps slash commands into each supported target's expected location
 
 ## Supported targets (current)
 
@@ -47,6 +48,7 @@ agentctl sync
 agentctl sync --only claude
 agentctl sync --only gemini
 agentctl sync --skip codex
+agentctl sync --yes
 agentctl sync --json
 ```
 
