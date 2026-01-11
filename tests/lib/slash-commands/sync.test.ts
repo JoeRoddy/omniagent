@@ -1,7 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { MANIFEST_FILENAME } from "../../../src/lib/slash-commands/manifest.js";
 import {
 	applySlashCommandSync,
 	planSlashCommandSync,
@@ -9,9 +8,13 @@ import {
 
 async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> {
 	const root = await mkdtemp(path.join(os.tmpdir(), "agentctl-slash-commands-"));
+	const homeDir = path.join(root, "home");
+	await mkdir(homeDir, { recursive: true });
+	const homeSpy = vi.spyOn(os, "homedir").mockReturnValue(homeDir);
 	try {
 		await fn(root);
 	} finally {
+		homeSpy.mockRestore();
 		await rm(root, { recursive: true, force: true });
 	}
 }
@@ -169,8 +172,9 @@ describe("slash command sync planning", () => {
 			});
 			await applySlashCommandSync(firstPlan);
 
-			const manifestPath = path.join(root, ".claude", "commands", MANIFEST_FILENAME);
-			const firstManifest = await readFile(manifestPath, "utf8");
+			const manifestPath = firstPlan.targetPlans[0]?.manifestPath;
+			expect(manifestPath).toBeTruthy();
+			const firstManifest = await readFile(manifestPath ?? "", "utf8");
 
 			const secondPlan = await planSlashCommandSync({
 				repoRoot: root,
@@ -179,7 +183,7 @@ describe("slash command sync planning", () => {
 				removeMissing: true,
 			});
 			const secondSummary = await applySlashCommandSync(secondPlan);
-			const secondManifest = await readFile(manifestPath, "utf8");
+			const secondManifest = await readFile(manifestPath ?? "", "utf8");
 
 			expect(secondManifest).toBe(firstManifest);
 			expect(secondSummary.results[0]?.message).toContain("No changes");

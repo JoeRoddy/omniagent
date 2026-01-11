@@ -145,6 +145,10 @@ function hashContent(content: string): string {
 	return createHash("sha256").update(content).digest("hex");
 }
 
+function hashIdentifier(value: string): string {
+	return createHash("sha256").update(value).digest("hex");
+}
+
 function normalizeName(name: string): string {
 	return name.toLowerCase();
 }
@@ -219,14 +223,40 @@ function getOutputExtension(targetName: TargetName, outputKind: OutputKind): str
 	return ".md";
 }
 
-function resolveSkillManifestPath(
+function resolveProjectManifestPath(
 	targetName: TargetName,
 	scope: Scope,
 	repoRoot: string,
 	homeDir: string,
 ): string {
-	const base = scope === "global" ? homeDir : repoRoot;
-	return path.join(base, ".agentctl", "slash-commands", `${targetName}-${scope}.toml`);
+	const repoHash = hashIdentifier(repoRoot);
+	const baseDir = path.join(homeDir, ".agentctl", "state", "slash-commands", "projects", repoHash);
+	return path.join(baseDir, `${targetName}-${scope}.toml`);
+}
+
+function resolveLegacyProjectManifestPath(
+	targetName: TargetName,
+	scope: Scope,
+	repoRoot: string,
+	homeDir: string,
+): string {
+	const repoHash = hashIdentifier(repoRoot);
+	const baseDir = path.join(homeDir, ".agentctl", "slash-commands", "projects", repoHash);
+	return path.join(baseDir, `${targetName}-${scope}.toml`);
+}
+
+function resolveLegacySkillManifestPath(
+	targetName: TargetName,
+	scope: Scope,
+	repoRoot: string,
+	homeDir: string,
+): string {
+	const baseDir = path.join(homeDir, ".agentctl", "slash-commands", "skills");
+	if (scope === "project") {
+		const repoHash = hashIdentifier(repoRoot);
+		return path.join(baseDir, "projects", repoHash, `${targetName}-project.toml`);
+	}
+	return path.join(baseDir, "global", `${targetName}-global.toml`);
 }
 
 function resolveOutputPath(
@@ -461,10 +491,7 @@ async function buildTargetPlan(
 		modeSelection.mode === "skills"
 			? resolveSkillDestination(targetName, scope, request.repoRoot, homeDir)
 			: resolveCommandDestination(targetName, scope, request.repoRoot, homeDir);
-	const manifestPath =
-		modeSelection.outputKind === "skill"
-			? resolveSkillManifestPath(targetName, scope, request.repoRoot, homeDir)
-			: resolveManifestPath(destinationDir);
+	const manifestPath = resolveProjectManifestPath(targetName, scope, request.repoRoot, homeDir);
 	const extension = getOutputExtension(targetName, modeSelection.outputKind);
 	const existingNames =
 		modeSelection.outputKind === "skill"
@@ -472,10 +499,21 @@ async function buildTargetPlan(
 			: await listExistingNames(destinationDir, extension);
 	const reservedNames = new Set(existingNames);
 
-	const legacyManifestPaths =
-		modeSelection.outputKind === "skill"
-			? [resolveManifestPath(path.dirname(destinationDir)), resolveManifestPath(destinationDir)]
-			: [];
+	const legacyManifestPaths = new Set<string>();
+	legacyManifestPaths.add(resolveManifestPath(destinationDir));
+	legacyManifestPaths.add(
+		path.join(request.repoRoot, ".agentctl", "slash-commands", `${targetName}-${scope}.toml`),
+	);
+	legacyManifestPaths.add(
+		resolveLegacyProjectManifestPath(targetName, scope, request.repoRoot, homeDir),
+	);
+	if (modeSelection.outputKind === "skill") {
+		legacyManifestPaths.add(resolveManifestPath(path.dirname(destinationDir)));
+		legacyManifestPaths.add(
+			resolveLegacySkillManifestPath(targetName, scope, request.repoRoot, homeDir),
+		);
+	}
+	legacyManifestPaths.delete(manifestPath);
 
 	const manifest = await readManifest(manifestPath);
 	const previousManaged = new Map<string, ManagedCommand>();
@@ -723,7 +761,7 @@ async function buildTargetPlan(
 			outputKind: modeSelection.outputKind,
 			destinationDir,
 			manifestPath,
-			legacyManifestPaths,
+			legacyManifestPaths: Array.from(legacyManifestPaths),
 			actions,
 			summary,
 			nextManaged,
