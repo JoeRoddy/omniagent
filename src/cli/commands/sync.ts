@@ -118,7 +118,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 		const repoRoot = await findRepoRoot(startDir);
 
 		if (!repoRoot) {
-			console.error(`Error: Repository root not found starting from ${startDir}.`);
+			console.error(
+				`Error: Repository root not found starting from ${startDir}. Looked for .git or package.json.`,
+			);
 			process.exit(1);
 			return;
 		}
