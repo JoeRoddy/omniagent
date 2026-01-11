@@ -101,6 +101,7 @@ type TargetPlan = {
 	outputKind: OutputKind | null;
 	destinationDir: string | null;
 	manifestPath: string | null;
+	legacyManifestPaths: string[];
 	actions: PlannedAction[];
 	summary: SummaryCounts;
 	nextManaged: Map<string, ManagedCommand>;
@@ -216,6 +217,48 @@ function getOutputExtension(targetName: TargetName, outputKind: OutputKind): str
 		return ".toml";
 	}
 	return ".md";
+}
+
+function resolveSkillManifestPath(
+	targetName: TargetName,
+	scope: Scope,
+	repoRoot: string,
+	homeDir: string,
+): string {
+	const base = scope === "global" ? homeDir : repoRoot;
+	return path.join(base, ".agentctl", "slash-commands", `${targetName}-${scope}.toml`);
+}
+
+function resolveOutputPath(
+	commandName: string,
+	destinationDir: string,
+	outputKind: OutputKind,
+	extension: string,
+): { destinationPath: string; containerDir: string } {
+	if (outputKind === "skill") {
+		const containerDir = path.join(destinationDir, commandName);
+		return {
+			containerDir,
+			destinationPath: path.join(containerDir, "SKILL.md"),
+		};
+	}
+	return {
+		containerDir: destinationDir,
+		destinationPath: path.join(destinationDir, `${commandName}${extension}`),
+	};
+}
+
+async function resolveSkillBackupPath(destinationPath: string): Promise<string> {
+	const dir = path.dirname(destinationPath);
+	let suffix = 0;
+	while (true) {
+		const fileName = suffix === 0 ? "SKILL-backup.md" : `SKILL-backup-${suffix}.md`;
+		const candidate = path.join(dir, fileName);
+		if (!(await pathExists(candidate))) {
+			return candidate;
+		}
+		suffix += 1;
+	}
 }
 
 function renderOutput(
@@ -384,6 +427,7 @@ async function buildTargetPlan(
 				outputKind: null,
 				destinationDir: null,
 				manifestPath: null,
+				legacyManifestPaths: [],
 				actions,
 				summary,
 				nextManaged: new Map(),
@@ -417,21 +461,50 @@ async function buildTargetPlan(
 		modeSelection.mode === "skills"
 			? resolveSkillDestination(targetName, scope, request.repoRoot, homeDir)
 			: resolveCommandDestination(targetName, scope, request.repoRoot, homeDir);
-	const manifestPath = resolveManifestPath(destinationDir);
+	const manifestPath =
+		modeSelection.outputKind === "skill"
+			? resolveSkillManifestPath(targetName, scope, request.repoRoot, homeDir)
+			: resolveManifestPath(destinationDir);
 	const extension = getOutputExtension(targetName, modeSelection.outputKind);
-	const existingNames = await listExistingNames(destinationDir, extension);
+	const existingNames =
+		modeSelection.outputKind === "skill"
+			? new Set<string>()
+			: await listExistingNames(destinationDir, extension);
 	const reservedNames = new Set(existingNames);
+
+	const legacyManifestPaths =
+		modeSelection.outputKind === "skill"
+			? [resolveManifestPath(path.dirname(destinationDir)), resolveManifestPath(destinationDir)]
+			: [];
 
 	const manifest = await readManifest(manifestPath);
 	const previousManaged = new Map<string, ManagedCommand>();
+	const legacyManagedNames = new Set<string>();
 	if (manifest && manifest.targetName === targetName && manifest.scope === scope) {
 		for (const entry of manifest.managedCommands) {
 			previousManaged.set(normalizeName(entry.name), entry);
 		}
 	}
+	for (const legacyPath of legacyManifestPaths) {
+		const legacyManifest = await readManifest(legacyPath);
+		if (
+			legacyManifest &&
+			legacyManifest.targetName === targetName &&
+			legacyManifest.scope === scope
+		) {
+			for (const entry of legacyManifest.managedCommands) {
+				const nameKey = normalizeName(entry.name);
+				if (!previousManaged.has(nameKey)) {
+					previousManaged.set(nameKey, entry);
+				}
+				legacyManagedNames.add(nameKey);
+			}
+		}
+	}
 
 	const nextManaged = new Map<string, ManagedCommand>();
 	const catalogNames = new Set<string>();
+	const legacyCleanupPaths = new Set<string>();
 
 	for (const command of targetCommands) {
 		const nameKey = normalizeName(command.name);
@@ -439,10 +512,26 @@ async function buildTargetPlan(
 
 		const output = renderOutput(command, targetName, modeSelection.outputKind);
 		const outputHash = hashContent(output);
-		const destinationPath = path.join(destinationDir, `${command.name}${extension}`);
+		const { destinationPath } = resolveOutputPath(
+			command.name,
+			destinationDir,
+			modeSelection.outputKind,
+			extension,
+		);
 		const existingContent = await readFileIfExists(destinationPath);
 		const existingHash = existingContent ? hashContent(existingContent) : null;
 		const previousEntry = previousManaged.get(nameKey);
+
+		if (modeSelection.outputKind === "skill") {
+			const legacyPath = path.join(destinationDir, `${command.name}${extension}`);
+			const legacyContent = await readFileIfExists(legacyPath);
+			if (legacyContent) {
+				const legacyHash = hashContent(legacyContent);
+				if (legacyHash === outputHash || legacyManagedNames.has(nameKey)) {
+					legacyCleanupPaths.add(legacyPath);
+				}
+			}
+		}
 
 		if (!existingContent) {
 			const actionType = modeSelection.outputKind === "skill" ? "convert" : "create";
@@ -503,14 +592,18 @@ async function buildTargetPlan(
 
 		let backupPath: string | undefined;
 		if (conflictResolution === "rename") {
-			let suffix = 1;
-			let candidate = `${command.name}-backup`;
-			while (reservedNames.has(normalizeName(candidate))) {
-				suffix += 1;
-				candidate = `${command.name}-backup-${suffix}`;
+			if (modeSelection.outputKind === "skill") {
+				backupPath = await resolveSkillBackupPath(destinationPath);
+			} else {
+				let suffix = 1;
+				let candidate = `${command.name}-backup`;
+				while (reservedNames.has(normalizeName(candidate))) {
+					suffix += 1;
+					candidate = `${command.name}-backup-${suffix}`;
+				}
+				reservedNames.add(normalizeName(candidate));
+				backupPath = path.join(destinationDir, `${candidate}${extension}`);
 			}
-			reservedNames.add(normalizeName(candidate));
-			backupPath = path.join(destinationDir, `${candidate}${extension}`);
 		}
 
 		const actionType = modeSelection.outputKind === "skill" ? "convert" : "update";
@@ -539,20 +632,53 @@ async function buildTargetPlan(
 		reservedNames.add(nameKey);
 	}
 
+	if (legacyCleanupPaths.size > 0) {
+		for (const cleanupPath of legacyCleanupPaths) {
+			actions.push({
+				targetName,
+				action: "remove",
+				commandName: path.basename(cleanupPath, extension),
+				scope,
+				destinationPath: cleanupPath,
+			});
+			summary.remove += 1;
+		}
+	}
+
 	if (params.removeMissing && previousManaged.size > 0) {
 		for (const entry of previousManaged.values()) {
 			if (catalogNames.has(normalizeName(entry.name))) {
 				continue;
 			}
-			const destinationPath = path.join(destinationDir, `${entry.name}${extension}`);
+			const { destinationPath, containerDir } = resolveOutputPath(
+				entry.name,
+				destinationDir,
+				modeSelection.outputKind,
+				extension,
+			);
+			const removalPath = modeSelection.outputKind === "skill" ? containerDir : destinationPath;
 			actions.push({
 				targetName,
 				action: "remove",
 				commandName: entry.name,
 				scope,
-				destinationPath,
+				destinationPath: removalPath,
 			});
 			summary.remove += 1;
+
+			if (modeSelection.outputKind === "skill") {
+				const legacyPath = path.join(destinationDir, `${entry.name}${extension}`);
+				if (legacyManagedNames.has(normalizeName(entry.name)) || (await pathExists(legacyPath))) {
+					actions.push({
+						targetName,
+						action: "remove",
+						commandName: entry.name,
+						scope,
+						destinationPath: legacyPath,
+					});
+					summary.remove += 1;
+				}
+			}
 		}
 	} else if (!params.removeMissing && previousManaged.size > 0) {
 		for (const entry of previousManaged.values()) {
@@ -571,6 +697,7 @@ async function buildTargetPlan(
 			outputKind: modeSelection.outputKind,
 			destinationDir,
 			manifestPath,
+			legacyManifestPaths,
 			actions,
 			summary,
 			nextManaged,
@@ -648,7 +775,7 @@ async function applyAction(action: PlannedAction): Promise<void> {
 	await ensureDirectory(destinationDir);
 
 	if (action.action === "remove") {
-		await rm(action.destinationPath, { force: true });
+		await rm(action.destinationPath, { force: true, recursive: true });
 		return;
 	}
 
@@ -748,6 +875,12 @@ export async function applySlashCommandSync(planDetails: SyncPlanDetails): Promi
 					const message = error instanceof Error ? error.message : String(error);
 					errorMessage = errorMessage ? `${errorMessage}; ${message}` : message;
 				}
+			}
+		}
+
+		if (!hadError && targetPlan.legacyManifestPaths.length > 0) {
+			for (const legacyPath of targetPlan.legacyManifestPaths) {
+				await rm(legacyPath, { force: true });
 			}
 		}
 

@@ -9,6 +9,7 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "npm run check && vite build",
+    "dev": "npm run build && node dist/cli.js",
     "check": "biome check .",
     "check:write": "biome check --write .",
     "format": "biome format --write .",

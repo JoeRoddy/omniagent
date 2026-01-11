@@ -15,6 +15,53 @@ function formatTomlValue(value: FrontmatterValue): string {
 	return formatTomlString(value);
 }
 
+function formatYamlString(value: string): string {
+	return JSON.stringify(value);
+}
+
+function renderYamlFrontmatter(
+	frontmatter: Record<string, FrontmatterValue>,
+	defaultName?: string,
+): string | null {
+	const entries = Object.entries(frontmatter);
+	const hasName = Object.hasOwn(frontmatter, "name");
+	const lines: string[] = ["---"];
+
+	if (hasName) {
+		const value = frontmatter.name;
+		if (Array.isArray(value)) {
+			lines.push("name:");
+			for (const entry of value) {
+				lines.push(`  - ${formatYamlString(entry)}`);
+			}
+		} else {
+			lines.push(`name: ${formatYamlString(value)}`);
+		}
+	} else if (defaultName) {
+		lines.push(`name: ${formatYamlString(defaultName)}`);
+	}
+
+	for (const [key, value] of entries) {
+		if (key === "name") {
+			continue;
+		}
+		if (Array.isArray(value)) {
+			lines.push(`${key}:`);
+			for (const entry of value) {
+				lines.push(`  - ${formatYamlString(entry)}`);
+			}
+			continue;
+		}
+		lines.push(`${key}: ${formatYamlString(value)}`);
+	}
+
+	if (lines.length === 1) {
+		return null;
+	}
+	lines.push("---", "");
+	return lines.join("\n");
+}
+
 const GEMINI_RESERVED_KEYS = new Set(["prompt", "targets", "targetagents"]);
 
 export function renderClaudeCommand(command: SlashCommandDefinition): string {
@@ -46,5 +93,10 @@ export function renderCodexPrompt(command: SlashCommandDefinition): string {
 export function renderSkillFromCommand(command: SlashCommandDefinition): string {
 	const headerLines = [`# ${command.name}`];
 	const prompt = command.prompt.trim();
-	return ensureTrailingNewline(`${headerLines.join("\n")}\n\n${prompt}`);
+	const body = `${headerLines.join("\n")}\n\n${prompt}`;
+	const frontmatter = renderYamlFrontmatter(command.frontmatter, command.name);
+	if (frontmatter) {
+		return ensureTrailingNewline(`${frontmatter}${body}`);
+	}
+	return ensureTrailingNewline(body);
 }

@@ -1,0 +1,8 @@
+targetName = "copilot"
+scope = "project"
+
+[[managedCommands]]
+name = "agentctrl-example-slash"
+hash = "054919aa65dc755055b99c4e8b6fa39023f5d002d9f5f4bb1976df3c7e852fd9"
+lastSyncedAt = "2026-01-11T14:49:25.645Z"
+

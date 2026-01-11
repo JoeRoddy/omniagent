@@ -22,6 +22,34 @@ async function createCanonicalCommand(root: string, name = "example"): Promise<v
 	await writeFile(path.join(commandsDir, `${name}.md`), "Say hello.");
 }
 
+async function createCanonicalCommandWithFrontmatter(
+	root: string,
+	name = "example",
+): Promise<void> {
+	const commandsDir = path.join(root, "agents", "commands");
+	await mkdir(commandsDir, { recursive: true });
+	const contents = [
+		"---",
+		'description: "Say hello from a skill"',
+		"tags:",
+		'  - "testing"',
+		"---",
+		"Say hello.",
+	].join("\n");
+	await writeFile(path.join(commandsDir, `${name}.md`), contents);
+}
+
+async function createCanonicalCommandWithCustomName(
+	root: string,
+	fileName: string,
+	customName: string,
+): Promise<void> {
+	const commandsDir = path.join(root, "agents", "commands");
+	await mkdir(commandsDir, { recursive: true });
+	const contents = ["---", `name: "${customName}"`, "---", "Say hello."].join("\n");
+	await writeFile(path.join(commandsDir, `${fileName}.md`), contents);
+}
+
 describe("slash command sync planning", () => {
 	it("converts commands to project skills for unsupported targets", async () => {
 		await withTempRepo(async (root) => {
@@ -41,9 +69,63 @@ describe("slash command sync planning", () => {
 
 			await applySlashCommandSync(plan);
 
-			const output = await readFile(path.join(root, ".github", "skills", "example.md"), "utf8");
+			const output = await readFile(
+				path.join(root, ".github", "skills", "example", "SKILL.md"),
+				"utf8",
+			);
 			expect(output).toContain("# example");
 			expect(output).toContain("Say hello.");
+		});
+	});
+
+	it("includes frontmatter when converting commands to skills", async () => {
+		await withTempRepo(async (root) => {
+			await createCanonicalCommandWithFrontmatter(root, "frontmatter-test");
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["copilot"],
+				unsupportedFallback: "convert_to_skills",
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+
+			await applySlashCommandSync(plan);
+
+			const output = await readFile(
+				path.join(root, ".github", "skills", "frontmatter-test", "SKILL.md"),
+				"utf8",
+			);
+			expect(output).toContain("---");
+			expect(output).toContain('name: "frontmatter-test"');
+			expect(output).toContain('description: "Say hello from a skill"');
+			expect(output).toContain('  - "testing"');
+			expect(output.indexOf('name: "frontmatter-test"')).toBeLessThan(
+				output.indexOf('description: "Say hello from a skill"'),
+			);
+		});
+	});
+
+	it("respects an explicit frontmatter name when converting commands to skills", async () => {
+		await withTempRepo(async (root) => {
+			await createCanonicalCommandWithCustomName(root, "named-command", "custom-skill-name");
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["copilot"],
+				unsupportedFallback: "convert_to_skills",
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+
+			await applySlashCommandSync(plan);
+
+			const output = await readFile(
+				path.join(root, ".github", "skills", "named-command", "SKILL.md"),
+				"utf8",
+			);
+			expect(output).toContain('name: "custom-skill-name"');
+			expect(output).not.toContain('name: "named-command"');
 		});
 	});
 
@@ -66,7 +148,10 @@ describe("slash command sync planning", () => {
 
 			await applySlashCommandSync(plan);
 
-			const output = await readFile(path.join(root, ".codex", "skills", "example.md"), "utf8");
+			const output = await readFile(
+				path.join(root, ".codex", "skills", "example", "SKILL.md"),
+				"utf8",
+			);
 			expect(output).toContain("# example");
 			expect(output).toContain("Say hello.");
 		});

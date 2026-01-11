@@ -366,76 +366,35 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 	let codexOption: CodexOption | undefined;
 	let codexConversionScope: CodexConversionScope | undefined;
 
+	for (const targetName of options.targets) {
+		const profile = getTargetProfile(targetName);
+		if (profile.supportedScopes.includes("project")) {
+			scopeByTarget[targetName] = "project";
+		}
+		if (targetName === "copilot") {
+			unsupportedFallback = "convert_to_skills";
+		}
+	}
+
 	if (!nonInteractive) {
-		await withPrompter(async (ask) => {
-			for (const targetName of options.targets) {
-				const profile = getTargetProfile(targetName);
-				if (!profile.supportsSlashCommands) {
-					if (!unsupportedFallback) {
-						const choice = await promptChoice(
-							ask,
-							`${profile.displayName} does not support slash commands. ` +
-								"Convert to skills instead? (convert/skip) [skip]: ",
-							["convert", "skip"],
-							"skip",
-						);
-						unsupportedFallback = choice === "convert" ? "convert_to_skills" : "skip";
-					}
-					continue;
-				}
-
-				if (targetName === "codex") {
-					if (!codexOption) {
-						logWithChannel(
-							"Codex only supports global prompts (no project-level custom commands).",
-							options.jsonOutput,
-						);
-						const choice = await promptChoice(
-							ask,
-							"Choose Codex option (global/convert/skip) [global]: ",
-							["global", "convert", "skip"],
-							"global",
-						);
-						codexOption =
-							choice === "convert" ? "convert_to_skills" : choice === "skip" ? "skip" : "prompts";
-						if (codexOption === "convert_to_skills") {
-							logWithChannel(
-								"Codex skill conversion supports global (default) or project scope; project may not work.",
-								options.jsonOutput,
-							);
-							const scopeChoice = await promptChoice(
-								ask,
-								"Choose conversion scope (global/project/skip) [global]: ",
-								["global", "project", "skip"],
-								"global",
-							);
-							codexConversionScope = scopeChoice as CodexConversionScope;
-						}
-					}
-					continue;
-				}
-
-				if (profile.supportedScopes.length > 1 && !scopeByTarget[targetName]) {
-					const defaultScope = getDefaultScope(profile);
-					const scopeChoice = await promptChoice(
-						ask,
-						`Select scope for ${profile.displayName} (project/global) [${defaultScope}]: `,
-						["project", "global"],
-						defaultScope,
-					);
-					scopeByTarget[targetName] = scopeChoice as Scope;
-				}
-			}
-		});
+		if (options.targets.includes("codex")) {
+			await withPrompter(async (ask) => {
+				logWithChannel(
+					"Codex only supports global prompts (no project-level custom commands).",
+					options.jsonOutput,
+				);
+				const choice = await promptChoice(
+					ask,
+					"Choose Codex option (global/convert) [global]: ",
+					["global", "convert"],
+					"global",
+				);
+				codexOption = choice === "convert" ? "convert_to_skills" : "prompts";
+			});
+		}
 	}
 
 	if (nonInteractive) {
-		for (const targetName of options.targets) {
-			const profile = getTargetProfile(targetName);
-			if (profile.supportedScopes.length > 1 && !scopeByTarget[targetName]) {
-				scopeByTarget[targetName] = getDefaultScope(profile);
-			}
-		}
 		logNonInteractiveNotices({
 			targets: options.targets,
 			jsonOutput: options.jsonOutput,

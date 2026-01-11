@@ -21,4 +21,6 @@ Thumbs.db
 # Documentation pointers
 CLAUDE.md
 /*/skills/
+/*/commands/
 !/agents/skills/
+!/agents/commands/
