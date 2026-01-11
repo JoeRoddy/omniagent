@@ -1,25 +1,21 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 
-async function isDirectory(candidate: string): Promise<boolean> {
+async function pathExists(candidate: string): Promise<boolean> {
 	try {
-		const stats = await stat(candidate);
-		return stats.isDirectory();
+		await stat(candidate);
+		return true;
 	} catch {
 		return false;
 	}
 }
 
-export async function findRepoRoot(
-	startDir: string,
-	markerRelativePath = path.join("agents", "skills"),
-): Promise<string | null> {
+async function findUp(startDir: string, markerRelativePath: string): Promise<string | null> {
 	let current = path.resolve(startDir);
 	let previous = "";
 
 	while (current !== previous) {
-		const markerPath = path.join(current, markerRelativePath);
-		if (await isDirectory(markerPath)) {
+		if (await pathExists(path.join(current, markerRelativePath))) {
 			return current;
 		}
 
@@ -28,4 +24,13 @@ export async function findRepoRoot(
 	}
 
 	return null;
+}
+
+export async function findRepoRoot(startDir: string): Promise<string | null> {
+	const gitRoot = await findUp(startDir, ".git");
+	if (gitRoot) {
+		return gitRoot;
+	}
+
+	return await findUp(startDir, "package.json");
 }

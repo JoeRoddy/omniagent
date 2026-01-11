@@ -8,7 +8,7 @@ description: "Task list for Sync Agent Config"
 **Input**: Design documents from `/Users/joeroddy/Documents/dev/projects/open-source/agentctl/specs/004-sync-agent-config/`
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
-**Tests**: Not requested in the feature specification; no test tasks included.
+**Tests**: Added coverage for sync command behavior and error paths.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
@@ -92,6 +92,8 @@ description: "Task list for Sync Agent Config"
 
 - [X] T012 [P] Validate quickstart steps and align examples in /Users/joeroddy/Documents/dev/projects/open-source/agentctl/specs/004-sync-agent-config/quickstart.md
 - [X] T013 [P] Review CLI error formatting for sync in /Users/joeroddy/Documents/dev/projects/open-source/agentctl/src/cli/index.ts
+- [X] T014 [P] Add sync command tests in /Users/joeroddy/Documents/dev/projects/open-source/agentctl/tests/commands/sync.test.ts
+- [X] T015 [P] Resolve repo root via repo markers so missing-source errors use repo-root paths in /Users/joeroddy/Documents/dev/projects/open-source/agentctl/src/lib/repo-root.ts and /Users/joeroddy/Documents/dev/projects/open-source/agentctl/src/cli/commands/sync.ts
 
 ---
 

@@ -11,6 +11,7 @@
 
 - Q: Should sync delete destination-only files? → A: Non-destructive; overwrite source files and keep extra destination files.
 - Q: Should the command work from any repo subdirectory? → A: Yes; resolve repo root automatically.
+- Q: Should missing-source errors reference the repo root path? → A: Yes; resolve repo root via repo markers (e.g., `.git` or `package.json`) and report `<repo>/agents/skills`.
 - Q: If syncing one target fails, should the command continue? → A: Continue other targets; report all results; exit non-zero if any failed.
 - Q: How should unknown target names be handled? → A: Error and perform no sync.
 
@@ -92,6 +93,7 @@ As a user, I want clear help text and actionable error messages so I can correct
 - **FR-013**: The sync command MUST be portable across supported operating systems and MUST NOT require external command-line tools to perform file operations.
 - **FR-014**: The system MUST resolve the repository root automatically when invoked from a subdirectory of the working copy.
 - **FR-015**: The system MUST continue syncing remaining targets after a per-target failure and MUST exit non-zero if any target failed.
+- **FR-016**: The system MUST report missing-source errors using the repository root path (`<repo>/agents/skills`) when the repo root can be resolved.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -105,6 +107,7 @@ As a user, I want clear help text and actionable error messages so I can correct
 - The canonical config source is stored at `agents/skills` relative to the repository root.
 - Supported targets are fixed to `codex`, `claude`, and `copilot`, with default destinations at `.codex/skills`, `.claude/skills`, and `.github/skills` relative to the repository root.
 - Users run the command from a working copy (any subdirectory) with permission to read the source and write to selected destinations.
+- Repo root detection relies on repo markers such as `.git` or `package.json` when the canonical source directory is missing.
 - No external services are required to complete a sync.
 
 ## Success Criteria *(mandatory)*

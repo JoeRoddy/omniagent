@@ -116,10 +116,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 
 		const startDir = process.cwd();
 		const repoRoot = await findRepoRoot(startDir);
-		const fallbackSourcePath = path.resolve(startDir, "agents", "skills");
 
 		if (!repoRoot) {
-			console.error(`Error: Canonical config source not found at ${fallbackSourcePath}.`);
+			console.error(`Error: Repository root not found starting from ${startDir}.`);
 			process.exit(1);
 			return;
 		}
