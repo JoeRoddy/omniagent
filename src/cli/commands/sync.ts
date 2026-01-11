@@ -488,7 +488,12 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 		options.jsonOutput,
 	);
 
-	if (!nonInteractive && !options.yes) {
+	const hasPlannedChanges = planDetails.targetPlans.some((plan) => {
+		const counts = plan.summary;
+		return counts.create + counts.update + counts.remove + counts.convert > 0;
+	});
+
+	if (!nonInteractive && !options.yes && hasPlannedChanges) {
 		const shouldApply = await withPrompter((ask) =>
 			promptConfirm(ask, "Apply these changes?", false),
 		);

@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { MANIFEST_FILENAME } from "../../../src/lib/slash-commands/manifest.js";
 import {
 	applySlashCommandSync,
 	planSlashCommandSync,
@@ -68,6 +69,35 @@ describe("slash command sync planning", () => {
 			const output = await readFile(path.join(root, ".codex", "skills", "example.md"), "utf8");
 			expect(output).toContain("# example");
 			expect(output).toContain("Say hello.");
+		});
+	});
+
+	it("keeps manifest stable and reports no changes on a repeat sync", async () => {
+		await withTempRepo(async (root) => {
+			await createCanonicalCommand(root);
+
+			const firstPlan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["claude"],
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+			await applySlashCommandSync(firstPlan);
+
+			const manifestPath = path.join(root, ".claude", "commands", MANIFEST_FILENAME);
+			const firstManifest = await readFile(manifestPath, "utf8");
+
+			const secondPlan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["claude"],
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+			const secondSummary = await applySlashCommandSync(secondPlan);
+			const secondManifest = await readFile(manifestPath, "utf8");
+
+			expect(secondManifest).toBe(firstManifest);
+			expect(secondSummary.results[0]?.message).toContain("No changes");
 		});
 	});
 });

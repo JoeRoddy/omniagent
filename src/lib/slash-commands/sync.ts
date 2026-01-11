@@ -148,6 +148,29 @@ function normalizeName(name: string): string {
 	return name.toLowerCase();
 }
 
+function areManagedCommandsEqual(
+	left: Map<string, ManagedCommand>,
+	right: Map<string, ManagedCommand>,
+): boolean {
+	if (left.size !== right.size) {
+		return false;
+	}
+	for (const [key, leftEntry] of left) {
+		const rightEntry = right.get(key);
+		if (!rightEntry) {
+			return false;
+		}
+		if (
+			leftEntry.name !== rightEntry.name ||
+			leftEntry.hash !== rightEntry.hash ||
+			leftEntry.lastSyncedAt !== rightEntry.lastSyncedAt
+		) {
+			return false;
+		}
+	}
+	return true;
+}
+
 async function readFileIfExists(filePath: string): Promise<string | null> {
 	try {
 		return await readFile(filePath, "utf8");
@@ -411,21 +434,23 @@ async function buildTargetPlan(
 	const catalogNames = new Set<string>();
 
 	for (const command of targetCommands) {
-		catalogNames.add(normalizeName(command.name));
+		const nameKey = normalizeName(command.name);
+		catalogNames.add(nameKey);
 
 		const output = renderOutput(command, targetName, modeSelection.outputKind);
 		const outputHash = hashContent(output);
 		const destinationPath = path.join(destinationDir, `${command.name}${extension}`);
 		const existingContent = await readFileIfExists(destinationPath);
 		const existingHash = existingContent ? hashContent(existingContent) : null;
-		const managedEntry = {
-			name: command.name,
-			hash: outputHash,
-			lastSyncedAt: params.timestamp,
-		};
+		const previousEntry = previousManaged.get(nameKey);
 
 		if (!existingContent) {
 			const actionType = modeSelection.outputKind === "skill" ? "convert" : "create";
+			const managedEntry = {
+				name: command.name,
+				hash: outputHash,
+				lastSyncedAt: params.timestamp,
+			};
 			actions.push({
 				targetName,
 				action: actionType,
@@ -440,14 +465,23 @@ async function buildTargetPlan(
 			} else {
 				summary.convert += 1;
 			}
-			nextManaged.set(normalizeName(command.name), managedEntry);
-			reservedNames.add(normalizeName(command.name));
+			nextManaged.set(nameKey, managedEntry);
+			reservedNames.add(nameKey);
 			continue;
 		}
 
 		if (existingHash === outputHash) {
-			nextManaged.set(normalizeName(command.name), managedEntry);
-			reservedNames.add(normalizeName(command.name));
+			if (previousEntry && previousEntry.hash === outputHash) {
+				nextManaged.set(nameKey, previousEntry);
+			} else {
+				const managedEntry = {
+					name: command.name,
+					hash: outputHash,
+					lastSyncedAt: params.timestamp,
+				};
+				nextManaged.set(nameKey, managedEntry);
+			}
+			reservedNames.add(nameKey);
 			continue;
 		}
 
@@ -461,6 +495,9 @@ async function buildTargetPlan(
 				conflict: true,
 			});
 			summary.skip += 1;
+			if (previousEntry) {
+				nextManaged.set(nameKey, previousEntry);
+			}
 			continue;
 		}
 
@@ -477,6 +514,11 @@ async function buildTargetPlan(
 		}
 
 		const actionType = modeSelection.outputKind === "skill" ? "convert" : "update";
+		const managedEntry = {
+			name: command.name,
+			hash: outputHash,
+			lastSyncedAt: params.timestamp,
+		};
 		actions.push({
 			targetName,
 			action: actionType,
@@ -493,8 +535,8 @@ async function buildTargetPlan(
 		} else {
 			summary.convert += 1;
 		}
-		nextManaged.set(normalizeName(command.name), managedEntry);
-		reservedNames.add(normalizeName(command.name));
+		nextManaged.set(nameKey, managedEntry);
+		reservedNames.add(nameKey);
 	}
 
 	if (params.removeMissing && previousManaged.size > 0) {
@@ -687,24 +729,28 @@ export async function applySlashCommandSync(planDetails: SyncPlanDetails): Promi
 			}
 		}
 
+		const totalApplied = counts.created + counts.updated + counts.removed + counts.converted;
+		const managedChanged = !areManagedCommandsEqual(targetPlan.previousManaged, managed);
+
 		if (targetPlan.manifestPath && targetPlan.scope) {
-			try {
-				const manifest: SyncStateManifest = {
-					targetName: targetPlan.targetName,
-					scope: targetPlan.scope,
-					managedCommands: Array.from(managed.values()),
-				};
-				await ensureDirectory(path.dirname(targetPlan.manifestPath));
-				await writeManifest(targetPlan.manifestPath, manifest);
-			} catch (error) {
-				hadError = true;
-				hadFailures = true;
-				const message = error instanceof Error ? error.message : String(error);
-				errorMessage = errorMessage ? `${errorMessage}; ${message}` : message;
+			if (totalApplied > 0 || managedChanged) {
+				try {
+					const manifest: SyncStateManifest = {
+						targetName: targetPlan.targetName,
+						scope: targetPlan.scope,
+						managedCommands: Array.from(managed.values()),
+					};
+					await ensureDirectory(path.dirname(targetPlan.manifestPath));
+					await writeManifest(targetPlan.manifestPath, manifest);
+				} catch (error) {
+					hadError = true;
+					hadFailures = true;
+					const message = error instanceof Error ? error.message : String(error);
+					errorMessage = errorMessage ? `${errorMessage}; ${message}` : message;
+				}
 			}
 		}
 
-		const totalApplied = counts.created + counts.updated + counts.removed + counts.converted;
 		const status = hadError ? (totalApplied > 0 ? "partial" : "failed") : "synced";
 		results.push({
 			targetName: targetPlan.targetName,
@@ -748,6 +794,16 @@ function formatResultMessage(
 		`created ${counts.created}, updated ${counts.updated}, removed ${counts.removed}, ` +
 		`converted ${counts.converted}, skipped ${counts.skipped}`;
 	const suffix = error ? ` (${error})` : "";
+	if (
+		status === "synced" &&
+		counts.created === 0 &&
+		counts.updated === 0 &&
+		counts.removed === 0 &&
+		counts.converted === 0 &&
+		counts.skipped === 0
+	) {
+		return `No changes for ${displayName}${scopeLabel}.`;
+	}
 	return `${verb} ${displayName}${scopeLabel}: ${countMessage}${suffix}`;
 }
 
