@@ -148,6 +148,58 @@ function logWithChannel(message: string, jsonOutput: boolean) {
 	console.log(message);
 }
 
+function logNonInteractiveNotices(options: {
+	targets: CommandTargetName[];
+	jsonOutput: boolean;
+	scopeByTarget: Partial<Record<CommandTargetName, Scope>>;
+	unsupportedFallback?: UnsupportedFallback;
+	codexOption?: CodexOption;
+	codexConversionScope?: CodexConversionScope;
+}) {
+	const unsupportedFallback = options.unsupportedFallback ?? "skip";
+	const codexOption = options.codexOption ?? "prompts";
+	const codexConversionScope = options.codexConversionScope ?? "global";
+
+	for (const targetName of options.targets) {
+		const profile = getTargetProfile(targetName);
+		if (!profile.supportsSlashCommands) {
+			const fallbackLabel =
+				unsupportedFallback === "convert_to_skills" ? "convert to skills" : "skip";
+			logWithChannel(
+				`${profile.displayName} does not support slash commands; will ${fallbackLabel}.`,
+				options.jsonOutput,
+			);
+			continue;
+		}
+
+		if (targetName === "codex") {
+			logWithChannel(
+				"Codex only supports global prompts (no project-level custom commands).",
+				options.jsonOutput,
+			);
+			if (codexOption === "convert_to_skills") {
+				logWithChannel(
+					`Converting Codex commands to ${codexConversionScope} skills.`,
+					options.jsonOutput,
+				);
+			} else if (codexOption === "skip") {
+				logWithChannel("Skipping Codex slash commands.", options.jsonOutput);
+			} else {
+				logWithChannel("Using Codex global prompts.", options.jsonOutput);
+			}
+			continue;
+		}
+
+		if (profile.supportedScopes.length > 1) {
+			const scope = options.scopeByTarget[targetName] ?? getDefaultScope(profile);
+			logWithChannel(
+				`Using ${scope} scope for ${profile.displayName} commands.`,
+				options.jsonOutput,
+			);
+		}
+	}
+}
+
 async function withPrompter<T>(fn: (ask: (prompt: string) => Promise<string>) => Promise<T>) {
 	const rl = createInterface({ input: process.stdin, output: process.stderr });
 	try {
@@ -384,6 +436,14 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 				scopeByTarget[targetName] = getDefaultScope(profile);
 			}
 		}
+		logNonInteractiveNotices({
+			targets: options.targets,
+			jsonOutput: options.jsonOutput,
+			scopeByTarget,
+			unsupportedFallback,
+			codexOption,
+			codexConversionScope,
+		});
 	}
 
 	const conflictResolution = options.conflicts as ConflictResolution | undefined;
@@ -423,11 +483,12 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 		});
 	}
 
+	logWithChannel(
+		formatPlanSummary(planDetails.plan, planDetails.targetSummaries),
+		options.jsonOutput,
+	);
+
 	if (!nonInteractive && !options.yes) {
-		logWithChannel(
-			formatPlanSummary(planDetails.plan, planDetails.targetSummaries),
-			options.jsonOutput,
-		);
 		const shouldApply = await withPrompter((ask) =>
 			promptConfirm(ask, "Apply these changes?", false),
 		);

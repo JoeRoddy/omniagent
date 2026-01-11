@@ -188,4 +188,39 @@ describe.sequential("sync command", () => {
 			expect(parsed.hadFailures).toBe(false);
 		});
 	});
+
+	it("prints a plan summary in non-interactive runs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalSkills(root);
+			await createCanonicalCommands(root);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "agentctl", "sync", "--yes"]);
+			});
+
+			const planned = logSpy.mock.calls.find(
+				([message]) => typeof message === "string" && message.includes("Planned actions:"),
+			);
+			expect(planned).toBeTruthy();
+		});
+	});
+
+	it("surfaces Codex scope limitations in non-interactive runs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalSkills(root);
+			await createCanonicalCommands(root);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "agentctl", "sync", "--only", "codex", "--yes"]);
+			});
+
+			const warning = logSpy.mock.calls.find(
+				([message]) =>
+					typeof message === "string" && message.includes("Codex only supports global prompts"),
+			);
+			expect(warning).toBeTruthy();
+		});
+	});
 });

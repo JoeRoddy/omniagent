@@ -1,0 +1,73 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import {
+	applySlashCommandSync,
+	planSlashCommandSync,
+} from "../../../src/lib/slash-commands/sync.js";
+
+async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> {
+	const root = await mkdtemp(path.join(os.tmpdir(), "agentctl-slash-commands-"));
+	try {
+		await fn(root);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+}
+
+async function createCanonicalCommand(root: string, name = "example"): Promise<void> {
+	const commandsDir = path.join(root, "agents", "commands");
+	await mkdir(commandsDir, { recursive: true });
+	await writeFile(path.join(commandsDir, `${name}.md`), "Say hello.");
+}
+
+describe("slash command sync planning", () => {
+	it("converts commands to project skills for unsupported targets", async () => {
+		await withTempRepo(async (root) => {
+			await createCanonicalCommand(root);
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["copilot"],
+				unsupportedFallback: "convert_to_skills",
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+
+			const targetPlan = plan.targetPlans[0];
+			expect(targetPlan?.mode).toBe("skills");
+			expect(targetPlan?.scope).toBe("project");
+
+			await applySlashCommandSync(plan);
+
+			const output = await readFile(path.join(root, ".github", "skills", "example.md"), "utf8");
+			expect(output).toContain("# example");
+			expect(output).toContain("Say hello.");
+		});
+	});
+
+	it("allows Codex project-scope skill conversion", async () => {
+		await withTempRepo(async (root) => {
+			await createCanonicalCommand(root);
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["codex"],
+				codexOption: "convert_to_skills",
+				codexConversionScope: "project",
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+
+			const targetPlan = plan.targetPlans[0];
+			expect(targetPlan?.mode).toBe("skills");
+			expect(targetPlan?.scope).toBe("project");
+
+			await applySlashCommandSync(plan);
+
+			const output = await readFile(path.join(root, ".codex", "skills", "example.md"), "utf8");
+			expect(output).toContain("# example");
+			expect(output).toContain("Say hello.");
+		});
+	});
+});

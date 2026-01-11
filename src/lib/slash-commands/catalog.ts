@@ -43,10 +43,12 @@ async function listMarkdownFiles(root: string): Promise<string[]> {
 
 function parseScalar(rawValue: string): string {
 	const trimmed = rawValue.trim();
-	if (
-		(trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-		(trimmed.startsWith("'") && trimmed.endsWith("'"))
-	) {
+	if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+		// Unescape YAML double-quoted string escape sequences
+		return trimmed.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+	}
+	if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+		// Single-quoted strings don't process escapes in YAML
 		return trimmed.slice(1, -1);
 	}
 	return trimmed;

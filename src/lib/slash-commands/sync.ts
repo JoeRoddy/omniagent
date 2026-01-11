@@ -227,6 +227,13 @@ function resolveSkillDestination(
 	return path.join(repoRoot, PROJECT_SKILL_PATHS[targetName]);
 }
 
+function isSkillScopeSupported(targetName: TargetName, scope: Scope): boolean {
+	if (scope === "global") {
+		return targetName === "codex";
+	}
+	return scope === "project";
+}
+
 function resolveTargetCommands(
 	commands: SlashCommandDefinition[],
 	targetName: TargetName,
@@ -374,7 +381,11 @@ async function buildTargetPlan(
 		}
 	}
 
-	if (!profile.supportedScopes.includes(scope)) {
+	if (modeSelection.mode === "skills") {
+		if (!isSkillScopeSupported(targetName, scope)) {
+			throw new Error(`Target ${targetName} does not support ${scope} scope for skill conversion.`);
+		}
+	} else if (!profile.supportedScopes.includes(scope)) {
 		throw new Error(`Target ${targetName} does not support ${scope} scope.`);
 	}
 
