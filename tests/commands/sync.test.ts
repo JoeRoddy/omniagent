@@ -45,11 +45,44 @@ async function createCanonicalSkills(root: string): Promise<string> {
 	return await realpath(sourceDir);
 }
 
+async function writeCanonicalSkillFile(
+	root: string,
+	fileName: string,
+	contents: string,
+): Promise<string> {
+	const sourceDir = path.join(root, "agents", "skills");
+	await mkdir(sourceDir, { recursive: true });
+	const filePath = path.join(sourceDir, fileName);
+	await writeFile(filePath, contents, "utf8");
+	return filePath;
+}
+
 async function createCanonicalCommands(root: string): Promise<string> {
 	const sourceDir = path.join(root, "agents", "commands");
 	await mkdir(sourceDir, { recursive: true });
 	await writeFile(path.join(sourceDir, "example.md"), "Say hello.");
 	return await realpath(sourceDir);
+}
+
+async function writeCanonicalCommand(
+	root: string,
+	name: string,
+	contents: string,
+): Promise<string> {
+	const sourceDir = path.join(root, "agents", "commands");
+	await mkdir(sourceDir, { recursive: true });
+	const filePath = path.join(sourceDir, `${name}.md`);
+	await writeFile(filePath, contents, "utf8");
+	return filePath;
+}
+
+async function writeSubagent(root: string, name: string, body: string): Promise<string> {
+	const catalogDir = path.join(root, "agents", "agents");
+	await mkdir(catalogDir, { recursive: true });
+	const contents = `---\nname: ${name}\n---\n${body}\n`;
+	const filePath = path.join(catalogDir, `${name}.md`);
+	await writeFile(filePath, contents, "utf8");
+	return filePath;
 }
 
 describe.sequential("sync command", () => {
@@ -237,6 +270,90 @@ describe.sequential("sync command", () => {
 					typeof message === "string" && message.includes("Codex only supports global prompts"),
 			);
 			expect(warning).toBeTruthy();
+		});
+	});
+
+	it("applies templating consistently across skills, commands, and subagents", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeCanonicalSkillFile(
+				root,
+				"example.txt",
+				"Skill<agents claude> OK</agents><agents not:claude> NO</agents>",
+			);
+			await writeCanonicalCommand(
+				root,
+				"example",
+				"Command<agents claude> OK</agents><agents not:claude> NO</agents>",
+			);
+			await writeSubagent(
+				root,
+				"helper",
+				"Subagent<agents claude> OK</agents><agents not:claude> NO</agents>",
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "agentctrl", "sync", "--only", "claude", "--yes"]);
+			});
+
+			const skillOutput = await readFile(
+				path.join(root, ".claude", "skills", "example.txt"),
+				"utf8",
+			);
+			const commandOutput = await readFile(
+				path.join(root, ".claude", "commands", "example.md"),
+				"utf8",
+			);
+			const subagentOutput = await readFile(
+				path.join(root, ".claude", "agents", "helper.md"),
+				"utf8",
+			);
+
+			expect(skillOutput).toContain("OK");
+			expect(skillOutput).not.toContain("NO");
+			expect(commandOutput).toContain("OK");
+			expect(commandOutput).not.toContain("NO");
+			expect(subagentOutput).toContain("OK");
+			expect(subagentOutput).not.toContain("NO");
+		});
+	});
+
+	it("fails before writing outputs when templating is invalid in commands", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeCanonicalCommand(root, "broken", "Hi<agents bogus> invalid</agents>");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "agentctrl", "sync", "--only", "claude", "--yes"]);
+			});
+
+			expect(errorSpy).toHaveBeenCalled();
+			expect(errorSpy).toHaveBeenCalledWith(
+				expect.stringContaining("Valid agents: codex, claude, copilot, gemini."),
+			);
+			expect(exitSpy).toHaveBeenCalledWith(1);
+			expect(await pathExists(path.join(root, ".claude", "commands"))).toBe(false);
+		});
+	});
+
+	it("fails before writing outputs when templating is invalid in skills files", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeCanonicalSkillFile(
+				root,
+				"bad.txt",
+				"Hi<agents claude,not:claude> broken</agents>",
+			);
+			await writeCanonicalCommand(root, "ok", "Say hello.");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "agentctrl", "sync", "--only", "claude", "--yes"]);
+			});
+
+			expect(errorSpy).toHaveBeenCalled();
+			expect(exitSpy).toHaveBeenCalledWith(1);
+			expect(await pathExists(path.join(root, ".claude", "commands"))).toBe(false);
+			expect(await pathExists(path.join(root, ".claude", "skills"))).toBe(false);
 		});
 	});
 });

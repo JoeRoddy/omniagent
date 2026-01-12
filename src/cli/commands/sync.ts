@@ -1,7 +1,9 @@
-import { readdir, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
+import { TextDecoder } from "node:util";
 import type { CommandModule } from "yargs";
+import { validateAgentTemplating } from "../../lib/agent-templating.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
 import {
 	applySlashCommandSync,
@@ -19,7 +21,6 @@ import {
 	type TargetName as CommandTargetName,
 	getDefaultScope,
 	getTargetProfile,
-	isSlashCommandTargetName,
 	type Scope,
 	SLASH_COMMAND_TARGETS,
 } from "../../lib/slash-commands/targets.js";
@@ -35,14 +36,15 @@ import {
 	SUBAGENT_TARGETS,
 	type SubagentTargetName,
 } from "../../lib/subagents/targets.js";
-import { copyDirectory } from "../../lib/sync-copy.js";
+import { SUPPORTED_AGENT_NAMES } from "../../lib/supported-targets.js";
+import { copyDirectoryWithTemplating } from "../../lib/sync-copy.js";
 import {
 	buildSummary,
 	formatSummary,
 	type SyncResult,
 	type SyncSummary,
 } from "../../lib/sync-results.js";
-import { isTargetName, TARGETS } from "../../lib/sync-targets.js";
+import { TARGETS } from "../../lib/sync-targets.js";
 
 type SyncArgs = {
 	skip?: string | string[];
@@ -55,14 +57,10 @@ type SyncArgs = {
 
 type SkillTarget = (typeof TARGETS)[number];
 
-const SKILL_TARGET_NAMES = new Set(TARGETS.map((target) => target.name));
-const ALL_TARGETS = [
-	...TARGETS.map((target) => target.name),
-	...SLASH_COMMAND_TARGETS.map((target) => target.name).filter(
-		(name) => !SKILL_TARGET_NAMES.has(name),
-	),
-];
+const ALL_TARGETS = [...SUPPORTED_AGENT_NAMES];
 const SUPPORTED_TARGETS = ALL_TARGETS.join(", ");
+
+const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
 type CatalogStatus =
 	| { available: true }
@@ -81,6 +79,14 @@ function parseList(value?: string | string[]): string[] {
 		.flatMap((entry) => entry.split(","))
 		.map((entry) => entry.trim())
 		.filter(Boolean);
+}
+
+function decodeUtf8(buffer: Buffer): string | null {
+	try {
+		return utf8Decoder.decode(buffer);
+	} catch {
+		return null;
+	}
 }
 
 function formatDisplayPath(repoRoot: string, absolutePath: string): string {
@@ -113,6 +119,76 @@ async function hasMarkdownFiles(root: string): Promise<boolean> {
 		}
 	}
 	return false;
+}
+
+async function listMarkdownFiles(root: string): Promise<string[]> {
+	const entries = await readdir(root, { withFileTypes: true });
+	const files: string[] = [];
+	for (const entry of entries) {
+		const entryPath = path.join(root, entry.name);
+		if (entry.isDirectory()) {
+			files.push(...(await listMarkdownFiles(entryPath)));
+			continue;
+		}
+		if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
+			files.push(entryPath);
+		}
+	}
+	return files;
+}
+
+async function listFiles(root: string): Promise<string[]> {
+	const entries = await readdir(root, { withFileTypes: true });
+	const files: string[] = [];
+	for (const entry of entries) {
+		const entryPath = path.join(root, entry.name);
+		if (entry.isDirectory()) {
+			files.push(...(await listFiles(entryPath)));
+			continue;
+		}
+		if (entry.isFile()) {
+			files.push(entryPath);
+		}
+	}
+	return files;
+}
+
+async function validateTemplatingSources(options: {
+	repoRoot: string;
+	validAgents: string[];
+	commandsAvailable: boolean;
+	skillsAvailable: boolean;
+}): Promise<void> {
+	const directories: string[] = [];
+	if (options.commandsAvailable) {
+		directories.push(path.join(options.repoRoot, "agents", "commands"));
+	}
+	if (options.skillsAvailable) {
+		directories.push(path.join(options.repoRoot, "agents", "skills"));
+	}
+	const subagentsPath = path.join(options.repoRoot, "agents", "agents");
+	if (await assertSourceDirectory(subagentsPath)) {
+		directories.push(subagentsPath);
+	}
+
+	for (const directory of directories) {
+		const files =
+			path.basename(directory) === "skills"
+				? await listFiles(directory)
+				: await listMarkdownFiles(directory);
+		for (const filePath of files) {
+			const buffer = await readFile(filePath);
+			const contents = decodeUtf8(buffer);
+			if (contents === null) {
+				continue;
+			}
+			validateAgentTemplating({
+				content: contents,
+				validAgents: options.validAgents,
+				sourcePath: filePath,
+			});
+		}
+	}
 }
 
 async function getCommandCatalogStatus(commandsPath: string): Promise<CatalogStatus> {
@@ -350,6 +426,7 @@ type SubagentSyncOptions = {
 	repoRoot: string;
 	targets: SubagentTargetName[];
 	removeMissing: boolean;
+	validAgents: string[];
 };
 
 async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSyncSummary> {
@@ -364,6 +441,7 @@ async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSync
 			repoRoot: options.repoRoot,
 			targets: options.targets,
 			removeMissing: options.removeMissing,
+			validAgents: options.validAgents,
 		});
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
@@ -382,6 +460,7 @@ async function syncSkills(
 	repoRoot: string,
 	targets: SkillTarget[],
 	sourceAvailable: boolean,
+	validAgents: string[],
 ): Promise<SyncSummary> {
 	const sourcePath = path.join(repoRoot, "agents", "skills");
 	if (targets.length === 0) {
@@ -400,7 +479,12 @@ async function syncSkills(
 		const destDisplay = formatDisplayPath(repoRoot, destPath);
 
 		try {
-			await copyDirectory(sourcePath, destPath);
+			await copyDirectoryWithTemplating({
+				source: sourcePath,
+				destination: destPath,
+				target: target.name,
+				validAgents,
+			});
 			results.push({
 				targetName: target.name,
 				status: "synced",
@@ -428,6 +512,7 @@ type CommandSyncOptions = {
 	removeMissing: boolean;
 	conflicts?: string;
 	catalogStatus: CatalogStatus;
+	validAgents: string[];
 };
 
 async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSyncSummary> {
@@ -501,6 +586,7 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 		conflictResolution: conflictResolution ?? "skip",
 		useDefaults: options.yes,
 		nonInteractive,
+		validAgents: options.validAgents,
 	};
 
 	let planDetails: SyncPlanDetails;
@@ -604,8 +690,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			return;
 		}
 
+		const supportedTargetSet = new Set(ALL_TARGETS);
 		const unknownTargets = [...skipList, ...onlyList].filter(
-			(name) => !isTargetName(name) && !isSlashCommandTargetName(name),
+			(name) => !supportedTargetSet.has(name),
 		);
 		if (unknownTargets.length > 0) {
 			const unknownList = unknownTargets.join(", ");
@@ -627,6 +714,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			}
 			return true;
 		});
+		const validAgents = [...SUPPORTED_AGENT_NAMES];
 
 		if (selectedTargets.length === 0) {
 			console.error("Error: No targets selected after applying filters.");
@@ -683,6 +771,20 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			return;
 		}
 
+		try {
+			await validateTemplatingSources({
+				repoRoot,
+				validAgents,
+				commandsAvailable: hasCommandsToSync,
+				skillsAvailable: hasSkillsToSync,
+			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			console.error(message);
+			process.exit(1);
+			return;
+		}
+
 		const commandsSummary = await syncSlashCommands({
 			repoRoot,
 			targets: selectedCommandTargets,
@@ -691,16 +793,23 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			removeMissing: argv.removeMissing,
 			conflicts: argv.conflicts,
 			catalogStatus: commandsStatus,
+			validAgents,
 		});
 
 		const subagentSummary = await syncSubagents({
 			repoRoot,
 			targets: selectedSubagentTargets,
 			removeMissing: argv.removeMissing,
+			validAgents,
 		});
 
 		// Sync conversions before copying canonical skills.
-		const skillsSummary = await syncSkills(repoRoot, selectedSkillTargets, skillsAvailable);
+		const skillsSummary = await syncSkills(
+			repoRoot,
+			selectedSkillTargets,
+			skillsAvailable,
+			validAgents,
+		);
 
 		const combined = {
 			skills: skillsSummary,

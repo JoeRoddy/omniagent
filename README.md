@@ -3,11 +3,7 @@
 One config, many agents.
 
 agentctrl is a CLI that lets a team define a single, canonical agent configuration and sync it to
-multiple AI coding agents. It solves the everyday pain where each agent expects the same features in
-a different shape, so two developers using different agents can still share the exact same tooling
-and intent.
-
-## Why it exists
+multiple AI coding agents.
 
 Many agents use bespoke config formats. Teams either duplicate configs or accept drift. agentctrl
 unifies that into a single source of truth and compiles it to each runtime.
@@ -59,6 +55,10 @@ npm run build
 node dist/cli.js sync
 ```
 
+## Skills
+
+Canonical skills live in `agents/skills/` (each skill folder contains `SKILL.md`).
+
 ## Slash commands
 
 Slash commands are Markdown files in `agents/commands/`. The filename is the command name. Optional
@@ -72,6 +72,28 @@ Subagents are Markdown files in `agents/agents/` using the Claude Code subagent 
 frontmatter + prompt body). The `name` frontmatter field overrides the filename; if omitted, the
 filename (without `.md`) is used. Non-Claude targets receive converted skills at
 `.target/skills/<name>/SKILL.md`.
+
+## Agent Scoped Templating
+
+Agent scoped templating lets you keep a single canonical file while including or excluding blocks
+for specific agents.
+
+It works in every syncable file type (skills, subagents, slash commands, and future
+syncable features).
+
+```text
+Shared content.
+
+<agents claude,codex>
+Only Claude and Codex see this.
+</agents>
+
+<agents not:claude,gemini>
+Everyone except Claude and Gemini see this.
+</agents>
+
+More shared content.
+```
 
 ## Sync command
 

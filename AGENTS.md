@@ -8,6 +8,8 @@ Auto-generated from all feature plans. Last updated: 2026-01-10
 - TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js fs/promises + path, Vitest, Vite, Biome (005-sync-slash-commands)
 - Filesystem (repo `agents/commands/`, project target dirs, user home dirs) (005-sync-slash-commands)
 - Filesystem (repo-local config + target directories) (006-add-custom-subagents)
+- TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js `fs/promises`, `path`, Vitest, Vite, Biome (007-agent-templating)
+- Filesystem (repo-local config + target directories + user home config) (007-agent-templating)
 
 - TypeScript 5.x, ES2022 target + yargs (CLI parsing), Vitest (testing), Vite (build), Biome (formatting/linting) (003-biome-integration)
 
@@ -36,12 +38,14 @@ TypeScript 5.x, Node.js 18+: Enforced by Biome (formatting and linting)
 - Run `npm run format` before committing
 
 ## Recent Changes
+- 007-agent-templating: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js `fs/promises`, `path`, Vitest, Vite, Biome
 - 006-add-custom-subagents: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js fs/promises + path
-- 005-sync-slash-commands: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js fs/promises + path, Vitest, Vite, Biome
 - 005-sync-slash-commands: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js fs/promises + path, Vitest, Vite, Biome
 
 
 
 
 <!-- MANUAL ADDITIONS START -->
+- Agent-scoped templating (`<agents selector-list> ... </agents>`) applies to all syncable features
+  (skills, subagents, slash commands) and must be supported by future syncable features.
 <!-- MANUAL ADDITIONS END -->
