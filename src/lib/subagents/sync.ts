@@ -18,6 +18,7 @@ import {
 	SUBAGENT_TARGETS,
 	type SubagentTargetName,
 } from "./targets.js";
+import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
 
 export type SubagentSyncRequest = {
 	repoRoot: string;
@@ -545,7 +546,7 @@ export async function planSubagentSync(
 		request.targets && request.targets.length > 0
 			? request.targets
 			: SUBAGENT_TARGETS.map((target) => target.name);
-	const validAgents = request.validAgents ?? selectedTargets;
+	const validAgents = request.validAgents ?? [...SUPPORTED_AGENT_NAMES];
 	const removeMissing = request.removeMissing ?? true;
 	const timestamp = new Date().toISOString();
 

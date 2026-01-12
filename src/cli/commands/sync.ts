@@ -21,7 +21,6 @@ import {
 	type TargetName as CommandTargetName,
 	getDefaultScope,
 	getTargetProfile,
-	isSlashCommandTargetName,
 	type Scope,
 	SLASH_COMMAND_TARGETS,
 } from "../../lib/slash-commands/targets.js";
@@ -37,6 +36,7 @@ import {
 	SUBAGENT_TARGETS,
 	type SubagentTargetName,
 } from "../../lib/subagents/targets.js";
+import { SUPPORTED_AGENT_NAMES } from "../../lib/supported-targets.js";
 import { copyDirectoryWithTemplating } from "../../lib/sync-copy.js";
 import {
 	buildSummary,
@@ -44,7 +44,7 @@ import {
 	type SyncResult,
 	type SyncSummary,
 } from "../../lib/sync-results.js";
-import { isTargetName, TARGETS } from "../../lib/sync-targets.js";
+import { TARGETS } from "../../lib/sync-targets.js";
 
 type SyncArgs = {
 	skip?: string | string[];
@@ -57,13 +57,7 @@ type SyncArgs = {
 
 type SkillTarget = (typeof TARGETS)[number];
 
-const SKILL_TARGET_NAMES = new Set(TARGETS.map((target) => target.name));
-const ALL_TARGETS = [
-	...TARGETS.map((target) => target.name),
-	...SLASH_COMMAND_TARGETS.map((target) => target.name).filter(
-		(name) => !SKILL_TARGET_NAMES.has(name),
-	),
-];
+const ALL_TARGETS = [...SUPPORTED_AGENT_NAMES];
 const SUPPORTED_TARGETS = ALL_TARGETS.join(", ");
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
@@ -696,8 +690,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			return;
 		}
 
+		const supportedTargetSet = new Set(ALL_TARGETS);
 		const unknownTargets = [...skipList, ...onlyList].filter(
-			(name) => !isTargetName(name) && !isSlashCommandTargetName(name),
+			(name) => !supportedTargetSet.has(name),
 		);
 		if (unknownTargets.length > 0) {
 			const unknownList = unknownTargets.join(", ");
@@ -719,6 +714,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			}
 			return true;
 		});
+		const validAgents = [...SUPPORTED_AGENT_NAMES];
 
 		if (selectedTargets.length === 0) {
 			console.error("Error: No targets selected after applying filters.");
@@ -778,7 +774,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 		try {
 			await validateTemplatingSources({
 				repoRoot,
-				validAgents: selectedTargets,
+				validAgents,
 				commandsAvailable: hasCommandsToSync,
 				skillsAvailable: hasSkillsToSync,
 			});
@@ -797,14 +793,14 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			removeMissing: argv.removeMissing,
 			conflicts: argv.conflicts,
 			catalogStatus: commandsStatus,
-			validAgents: selectedTargets,
+			validAgents,
 		});
 
 		const subagentSummary = await syncSubagents({
 			repoRoot,
 			targets: selectedSubagentTargets,
 			removeMissing: argv.removeMissing,
-			validAgents: selectedTargets,
+			validAgents,
 		});
 
 		// Sync conversions before copying canonical skills.
@@ -812,7 +808,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			repoRoot,
 			selectedSkillTargets,
 			skillsAvailable,
-			selectedTargets,
+			validAgents,
 		);
 
 		const combined = {

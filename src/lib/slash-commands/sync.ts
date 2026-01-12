@@ -26,6 +26,7 @@ import {
 	SLASH_COMMAND_TARGETS,
 	type TargetName,
 } from "./targets.js";
+import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
 
 export type ConflictResolution = "overwrite" | "rename" | "skip";
 export type UnsupportedFallback = "convert_to_skills" | "skip";
@@ -804,7 +805,7 @@ export async function planSlashCommandSync(request: SyncRequest): Promise<SyncPl
 		request.targets && request.targets.length > 0
 			? request.targets
 			: SLASH_COMMAND_TARGETS.map((target) => target.name);
-	const validAgents = request.validAgents ?? selectedTargets;
+	const validAgents = request.validAgents ?? [...SUPPORTED_AGENT_NAMES];
 	const conflictResolution = request.conflictResolution ?? DEFAULT_CONFLICT_RESOLUTION;
 	const unsupportedFallback = request.unsupportedFallback ?? DEFAULT_UNSUPPORTED_FALLBACK;
 	const codexOption = request.codexOption ?? DEFAULT_CODEX_OPTION;

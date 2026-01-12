@@ -316,7 +316,9 @@ describe.sequential("sync command", () => {
 			});
 
 			expect(errorSpy).toHaveBeenCalled();
-			expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Valid agents: claude."));
+			expect(errorSpy).toHaveBeenCalledWith(
+				expect.stringContaining("Valid agents: codex, claude, copilot, gemini."),
+			);
 			expect(exitSpy).toHaveBeenCalledWith(1);
 			expect(await pathExists(path.join(root, ".claude", "commands"))).toBe(false);
 		});
