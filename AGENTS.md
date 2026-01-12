@@ -7,6 +7,7 @@ Auto-generated from all feature plans. Last updated: 2026-01-10
 - Filesystem (repo-local directories) (004-sync-agent-config)
 - TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js fs/promises + path, Vitest, Vite, Biome (005-sync-slash-commands)
 - Filesystem (repo `agents/commands/`, project target dirs, user home dirs) (005-sync-slash-commands)
+- Filesystem (repo-local config + target directories) (006-add-custom-subagents)
 
 - TypeScript 5.x, ES2022 target + yargs (CLI parsing), Vitest (testing), Vite (build), Biome (formatting/linting) (003-biome-integration)
 
@@ -35,13 +36,12 @@ TypeScript 5.x, Node.js 18+: Enforced by Biome (formatting and linting)
 - Run `npm run format` before committing
 
 ## Recent Changes
+- 006-add-custom-subagents: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js fs/promises + path
 - 005-sync-slash-commands: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js fs/promises + path, Vitest, Vite, Biome
 - 005-sync-slash-commands: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js fs/promises + path, Vitest, Vite, Biome
-- 004-sync-agent-config: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js fs/promises + path
 
 
 
 
 <!-- MANUAL ADDITIONS START -->
-- When agent definitions differ, treat Claude Code's command definition standards as the source of truth.
 <!-- MANUAL ADDITIONS END -->

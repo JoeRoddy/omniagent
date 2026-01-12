@@ -1,0 +1,121 @@
+openapi: 3.0.3
+info:
+  title: Subagent Sync Contract
+  version: 1.0.0
+  description: Logical contract for subagent sync inputs and summaries.
+paths:
+  /sync/subagents:
+    post:
+      summary: Sync canonical subagents to selected targets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncSubagentsRequest"
+      responses:
+        "200":
+          description: Sync completed with per-target summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncSubagentsResponse"
+        "400":
+          description: Validation error (invalid catalog, duplicates, or file errors)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncError"
+components:
+  schemas:
+    SyncSubagentsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/TargetName"
+        removeMissing:
+          type: boolean
+          description: Remove previously managed outputs no longer in the catalog
+      required:
+        - targets
+    SyncSubagentsResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/TargetSummary"
+        warnings:
+          type: array
+          items:
+            type: string
+      required:
+        - results
+    TargetSummary:
+      type: object
+      additionalProperties: false
+      properties:
+        targetName:
+          $ref: "#/components/schemas/TargetName"
+        status:
+          type: string
+          enum:
+            - synced
+            - skipped
+            - failed
+        counts:
+          $ref: "#/components/schemas/SyncCounts"
+        message:
+          type: string
+      required:
+        - targetName
+        - status
+        - counts
+    SyncCounts:
+      type: object
+      additionalProperties: false
+      properties:
+        created:
+          type: integer
+          minimum: 0
+        updated:
+          type: integer
+          minimum: 0
+        removed:
+          type: integer
+          minimum: 0
+        converted:
+          type: integer
+          minimum: 0
+        skipped:
+          type: integer
+          minimum: 0
+      required:
+        - created
+        - updated
+        - removed
+        - converted
+        - skipped
+    SyncError:
+      type: object
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+        details:
+          type: array
+          items:
+            type: string
+      required:
+        - error
+    TargetName:
+      type: string
+      enum:
+        - claude
+        - codex
+        - copilot
+        - gemini

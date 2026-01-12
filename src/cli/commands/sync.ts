@@ -23,6 +23,18 @@ import {
 	type Scope,
 	SLASH_COMMAND_TARGETS,
 } from "../../lib/slash-commands/targets.js";
+import {
+	applySubagentSync,
+	formatSubagentSummary,
+	planSubagentSync,
+	type SubagentSyncPlanDetails,
+	type SubagentSyncSummary,
+} from "../../lib/subagents/sync.js";
+import {
+	getSubagentProfile,
+	SUBAGENT_TARGETS,
+	type SubagentTargetName,
+} from "../../lib/subagents/targets.js";
 import { copyDirectory } from "../../lib/sync-copy.js";
 import {
 	buildSummary,
@@ -294,6 +306,78 @@ function buildSkillsSummary(
 	return buildSummary(sourcePath, results);
 }
 
+function emptySubagentCounts(): SubagentSyncSummary["results"][number]["counts"] {
+	return { created: 0, updated: 0, removed: 0, converted: 0, skipped: 0 };
+}
+
+function formatSubagentFailureMessage(
+	displayName: string,
+	outputKind: "subagent" | "skill",
+	status: "skipped" | "failed",
+	message: string,
+): string {
+	const verb = status === "failed" ? "Failed" : "Skipped";
+	const modeLabel = outputKind === "skill" ? " [skills]" : "";
+	return `${verb} ${displayName} subagents${modeLabel}: ${message}`;
+}
+
+function buildSubagentSummary(
+	sourcePath: string,
+	targets: SubagentTargetName[],
+	status: "skipped" | "failed",
+	message: string,
+): SubagentSyncSummary {
+	return {
+		sourcePath,
+		results: targets.map((targetName) => {
+			const profile = getSubagentProfile(targetName);
+			const outputKind = profile.supportsSubagents ? "subagent" : "skill";
+			return {
+				targetName,
+				status,
+				message: formatSubagentFailureMessage(profile.displayName, outputKind, status, message),
+				error: message,
+				counts: emptySubagentCounts(),
+				warnings: [],
+			};
+		}),
+		warnings: [],
+		hadFailures: status === "failed",
+	};
+}
+
+type SubagentSyncOptions = {
+	repoRoot: string;
+	targets: SubagentTargetName[];
+	removeMissing: boolean;
+};
+
+async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSyncSummary> {
+	const sourcePath = path.join(options.repoRoot, "agents", "agents");
+	if (options.targets.length === 0) {
+		return { sourcePath, results: [], warnings: [], hadFailures: false };
+	}
+
+	let planDetails: SubagentSyncPlanDetails;
+	try {
+		planDetails = await planSubagentSync({
+			repoRoot: options.repoRoot,
+			targets: options.targets,
+			removeMissing: options.removeMissing,
+		});
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return buildSubagentSummary(sourcePath, options.targets, "failed", message);
+	}
+
+	try {
+		return await applySubagentSync(planDetails);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return buildSubagentSummary(sourcePath, options.targets, "failed", message);
+	}
+}
+
 async function syncSkills(
 	repoRoot: string,
 	targets: SkillTarget[],
@@ -472,7 +556,7 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 
 export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 	command: "sync",
-	describe: "Sync canonical skills and slash commands to supported targets",
+	describe: "Sync canonical skills, subagents, and slash commands to supported targets",
 	builder: (yargs) =>
 		yargs
 			.usage("agentctrl sync [options]")
@@ -492,7 +576,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			.option("remove-missing", {
 				type: "boolean",
 				default: true,
-				describe: "Remove previously synced commands missing from the catalog",
+				describe: "Remove previously synced commands/subagents missing from the catalog",
 			})
 			.option("conflicts", {
 				type: "string",
@@ -566,6 +650,10 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			selectedTargets.includes(target.name),
 		).map((target) => target.name as CommandTargetName);
 
+		const selectedSubagentTargets = SUBAGENT_TARGETS.filter((target) =>
+			selectedTargets.includes(target.name),
+		).map((target) => target.name as SubagentTargetName);
+
 		const skillsSourcePath = path.join(repoRoot, "agents", "skills");
 		const commandsSourcePath = path.join(repoRoot, "agents", "commands");
 
@@ -578,8 +666,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 
 		const hasSkillsToSync = selectedSkillTargets.length > 0 && skillsAvailable;
 		const hasCommandsToSync = selectedCommandTargets.length > 0 && commandsStatus.available;
+		const hasSubagentsToSync = selectedSubagentTargets.length > 0;
 
-		if (!hasSkillsToSync && !hasCommandsToSync) {
+		if (!hasSkillsToSync && !hasCommandsToSync && !hasSubagentsToSync) {
 			const missingMessages: string[] = [];
 			if (selectedSkillTargets.length > 0 && !skillsAvailable) {
 				missingMessages.push(`Canonical config source not found at ${skillsSourcePath}.`);
@@ -604,13 +693,21 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			catalogStatus: commandsStatus,
 		});
 
-		// Sync commands first so any command-to-skill conversions don't overwrite canonical skills.
+		const subagentSummary = await syncSubagents({
+			repoRoot,
+			targets: selectedSubagentTargets,
+			removeMissing: argv.removeMissing,
+		});
+
+		// Sync conversions before copying canonical skills.
 		const skillsSummary = await syncSkills(repoRoot, selectedSkillTargets, skillsAvailable);
 
 		const combined = {
 			skills: skillsSummary,
+			subagents: subagentSummary,
 			commands: commandsSummary,
-			hadFailures: skillsSummary.hadFailures || commandsSummary.hadFailures,
+			hadFailures:
+				skillsSummary.hadFailures || subagentSummary.hadFailures || commandsSummary.hadFailures,
 		};
 
 		if (argv.json) {
@@ -620,6 +717,10 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const skillsOutput = formatSummary(skillsSummary, false);
 			if (skillsOutput.length > 0) {
 				outputs.push(skillsOutput);
+			}
+			const subagentOutput = formatSubagentSummary(subagentSummary, false);
+			if (subagentOutput.length > 0) {
+				outputs.push(subagentOutput);
 			}
 			const commandOutput = formatCommandSummary(commandsSummary, false);
 			if (commandOutput.length > 0) {

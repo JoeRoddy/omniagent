@@ -22,5 +22,8 @@ Thumbs.db
 CLAUDE.md
 /*/skills/
 /*/commands/
+/*/agents/
 !/agents/skills/
 !/agents/commands/
+!/agents/agents/
+
