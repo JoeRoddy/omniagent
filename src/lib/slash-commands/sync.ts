@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { applyAgentTemplating } from "../agent-templating.js";
 import { loadCommandCatalog, type SlashCommandDefinition } from "./catalog.js";
 import {
 	renderClaudeCommand,
@@ -9,6 +10,7 @@ import {
 	renderGeminiCommand,
 	renderSkillFromCommand,
 } from "./formatting.js";
+import { extractFrontmatter } from "./frontmatter.js";
 import {
 	type ManagedCommand,
 	readManifest,
@@ -41,6 +43,7 @@ export type SyncRequest = {
 	codexConversionScope?: CodexConversionScope;
 	nonInteractive?: boolean;
 	useDefaults?: boolean;
+	validAgents?: string[];
 };
 
 export type SyncPlanAction = {
@@ -342,6 +345,26 @@ function resolveTargetCommands(
 	});
 }
 
+function applyTemplatingToCommand(
+	command: SlashCommandDefinition,
+	targetName: TargetName,
+	validAgents: string[],
+): SlashCommandDefinition {
+	const templatedContents = applyAgentTemplating({
+		content: command.rawContents,
+		target: targetName,
+		validAgents,
+		sourcePath: command.sourcePath,
+	});
+	const { frontmatter, body } = extractFrontmatter(templatedContents);
+	return {
+		...command,
+		rawContents: templatedContents,
+		frontmatter,
+		prompt: body.trimEnd(),
+	};
+}
+
 function buildActionSummary(actions: PlannedAction[], targets: TargetName[]): SyncPlan {
 	const summary: Record<TargetName, SummaryCounts> = Object.fromEntries(
 		targets.map((name) => [name, emptySummaryCounts()]),
@@ -413,6 +436,7 @@ async function buildTargetPlan(
 		codexConversionScope: CodexConversionScope;
 		removeMissing: boolean;
 		timestamp: string;
+		validAgents: string[];
 	},
 	targetName: TargetName,
 ): Promise<{ plan: TargetPlan; conflicts: number }> {
@@ -423,6 +447,7 @@ async function buildTargetPlan(
 		unsupportedFallback,
 		codexOption,
 		codexConversionScope,
+		validAgents,
 	} = params;
 	const profile = getTargetProfile(targetName);
 	const modeSelection = resolveTargetMode(
@@ -545,10 +570,11 @@ async function buildTargetPlan(
 	const legacyCleanupPaths = new Set<string>();
 
 	for (const command of targetCommands) {
+		const templatedCommand = applyTemplatingToCommand(command, targetName, validAgents);
 		const nameKey = normalizeName(command.name);
 		catalogNames.add(nameKey);
 
-		const output = renderOutput(command, targetName, modeSelection.outputKind);
+		const output = renderOutput(templatedCommand, targetName, modeSelection.outputKind);
 		const outputHash = hashContent(output);
 		const { destinationPath } = resolveOutputPath(
 			command.name,
@@ -778,6 +804,7 @@ export async function planSlashCommandSync(request: SyncRequest): Promise<SyncPl
 		request.targets && request.targets.length > 0
 			? request.targets
 			: SLASH_COMMAND_TARGETS.map((target) => target.name);
+	const validAgents = request.validAgents ?? selectedTargets;
 	const conflictResolution = request.conflictResolution ?? DEFAULT_CONFLICT_RESOLUTION;
 	const unsupportedFallback = request.unsupportedFallback ?? DEFAULT_UNSUPPORTED_FALLBACK;
 	const codexOption = request.codexOption ?? DEFAULT_CODEX_OPTION;
@@ -801,6 +828,7 @@ export async function planSlashCommandSync(request: SyncRequest): Promise<SyncPl
 				codexConversionScope,
 				removeMissing,
 				timestamp,
+				validAgents,
 			},
 			targetName,
 		);

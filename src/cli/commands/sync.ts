@@ -1,7 +1,8 @@
-import { readdir, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import type { CommandModule } from "yargs";
+import { validateAgentTemplating } from "../../lib/agent-templating.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
 import {
 	applySlashCommandSync,
@@ -35,7 +36,7 @@ import {
 	SUBAGENT_TARGETS,
 	type SubagentTargetName,
 } from "../../lib/subagents/targets.js";
-import { copyDirectory } from "../../lib/sync-copy.js";
+import { copyDirectoryWithTemplating } from "../../lib/sync-copy.js";
 import {
 	buildSummary,
 	formatSummary,
@@ -113,6 +114,53 @@ async function hasMarkdownFiles(root: string): Promise<boolean> {
 		}
 	}
 	return false;
+}
+
+async function listMarkdownFiles(root: string): Promise<string[]> {
+	const entries = await readdir(root, { withFileTypes: true });
+	const files: string[] = [];
+	for (const entry of entries) {
+		const entryPath = path.join(root, entry.name);
+		if (entry.isDirectory()) {
+			files.push(...(await listMarkdownFiles(entryPath)));
+			continue;
+		}
+		if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
+			files.push(entryPath);
+		}
+	}
+	return files;
+}
+
+async function validateTemplatingSources(options: {
+	repoRoot: string;
+	validAgents: string[];
+	commandsAvailable: boolean;
+	skillsAvailable: boolean;
+}): Promise<void> {
+	const directories: string[] = [];
+	if (options.commandsAvailable) {
+		directories.push(path.join(options.repoRoot, "agents", "commands"));
+	}
+	if (options.skillsAvailable) {
+		directories.push(path.join(options.repoRoot, "agents", "skills"));
+	}
+	const subagentsPath = path.join(options.repoRoot, "agents", "agents");
+	if (await assertSourceDirectory(subagentsPath)) {
+		directories.push(subagentsPath);
+	}
+
+	for (const directory of directories) {
+		const files = await listMarkdownFiles(directory);
+		for (const filePath of files) {
+			const contents = await readFile(filePath, "utf8");
+			validateAgentTemplating({
+				content: contents,
+				validAgents: options.validAgents,
+				sourcePath: filePath,
+			});
+		}
+	}
 }
 
 async function getCommandCatalogStatus(commandsPath: string): Promise<CatalogStatus> {
@@ -350,6 +398,7 @@ type SubagentSyncOptions = {
 	repoRoot: string;
 	targets: SubagentTargetName[];
 	removeMissing: boolean;
+	validAgents: string[];
 };
 
 async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSyncSummary> {
@@ -364,6 +413,7 @@ async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSync
 			repoRoot: options.repoRoot,
 			targets: options.targets,
 			removeMissing: options.removeMissing,
+			validAgents: options.validAgents,
 		});
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
@@ -382,6 +432,7 @@ async function syncSkills(
 	repoRoot: string,
 	targets: SkillTarget[],
 	sourceAvailable: boolean,
+	validAgents: string[],
 ): Promise<SyncSummary> {
 	const sourcePath = path.join(repoRoot, "agents", "skills");
 	if (targets.length === 0) {
@@ -400,7 +451,12 @@ async function syncSkills(
 		const destDisplay = formatDisplayPath(repoRoot, destPath);
 
 		try {
-			await copyDirectory(sourcePath, destPath);
+			await copyDirectoryWithTemplating({
+				source: sourcePath,
+				destination: destPath,
+				target: target.name,
+				validAgents,
+			});
 			results.push({
 				targetName: target.name,
 				status: "synced",
@@ -428,6 +484,7 @@ type CommandSyncOptions = {
 	removeMissing: boolean;
 	conflicts?: string;
 	catalogStatus: CatalogStatus;
+	validAgents: string[];
 };
 
 async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSyncSummary> {
@@ -501,6 +558,7 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 		conflictResolution: conflictResolution ?? "skip",
 		useDefaults: options.yes,
 		nonInteractive,
+		validAgents: options.validAgents,
 	};
 
 	let planDetails: SyncPlanDetails;
@@ -683,6 +741,20 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			return;
 		}
 
+		try {
+			await validateTemplatingSources({
+				repoRoot,
+				validAgents: selectedTargets,
+				commandsAvailable: hasCommandsToSync,
+				skillsAvailable: hasSkillsToSync,
+			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			console.error(message);
+			process.exit(1);
+			return;
+		}
+
 		const commandsSummary = await syncSlashCommands({
 			repoRoot,
 			targets: selectedCommandTargets,
@@ -691,16 +763,23 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			removeMissing: argv.removeMissing,
 			conflicts: argv.conflicts,
 			catalogStatus: commandsStatus,
+			validAgents: selectedTargets,
 		});
 
 		const subagentSummary = await syncSubagents({
 			repoRoot,
 			targets: selectedSubagentTargets,
 			removeMissing: argv.removeMissing,
+			validAgents: selectedTargets,
 		});
 
 		// Sync conversions before copying canonical skills.
-		const skillsSummary = await syncSkills(repoRoot, selectedSkillTargets, skillsAvailable);
+		const skillsSummary = await syncSkills(
+			repoRoot,
+			selectedSkillTargets,
+			skillsAvailable,
+			selectedTargets,
+		);
 
 		const combined = {
 			skills: skillsSummary,

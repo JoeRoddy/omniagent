@@ -22,8 +22,8 @@ description: "Task list for Agent-Specific Templating implementation"
 
 **Purpose**: Project initialization and shared scaffolding
 
-- [ ] T001 Create shared templating module scaffold in `src/lib/agent-templating.ts` (export API + error type)
-- [ ] T002 [P] Extract reusable frontmatter parsing helpers into `src/lib/slash-commands/frontmatter.ts` and update `src/lib/slash-commands/catalog.ts` to use them
+- [X] T001 Create shared templating module scaffold in `src/lib/agent-templating.ts` (export API + error type)
+- [X] T002 [P] Extract reusable frontmatter parsing helpers into `src/lib/slash-commands/frontmatter.ts` and update `src/lib/slash-commands/catalog.ts` to use them
 
 ---
 
@@ -33,8 +33,8 @@ description: "Task list for Agent-Specific Templating implementation"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T003 Implement agent-templating parsing/validation in `src/lib/agent-templating.ts` (selectors, `not:`, case-insensitive match, `\}` escaping, multi-line, invalid cases)
-- [ ] T004 [P] Add preflight templating validation in `src/cli/commands/sync.ts` to scan `agents/commands/`, `agents/agents/`, and `agents/skills/` for selected targets before any sync writes
+- [X] T003 Implement agent-templating parsing/validation in `src/lib/agent-templating.ts` (selectors, `not:`, case-insensitive match, `\}` escaping, multi-line, invalid cases)
+- [X] T004 [P] Add preflight templating validation in `src/cli/commands/sync.ts` to scan `agents/commands/`, `agents/agents/`, and `agents/skills/` for selected targets before any sync writes
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -48,9 +48,9 @@ description: "Task list for Agent-Specific Templating implementation"
 
 ### Implementation for User Story 1
 
-- [ ] T005 [P] [US1] Apply `applyAgentTemplating` per target when rendering slash commands in `src/lib/slash-commands/sync.ts` using helpers from `src/lib/slash-commands/frontmatter.ts`
-- [ ] T006 [P] [US1] Apply templating to subagent outputs in `src/lib/subagents/sync.ts` before writing or conversion
-- [ ] T007 [P] [US1] Add templating-aware copy in `src/lib/sync-copy.ts` and switch `syncSkills` in `src/cli/commands/sync.ts` to use it per target
+- [X] T005 [P] [US1] Apply `applyAgentTemplating` per target when rendering slash commands in `src/lib/slash-commands/sync.ts` using helpers from `src/lib/slash-commands/frontmatter.ts`
+- [X] T006 [P] [US1] Apply templating to subagent outputs in `src/lib/subagents/sync.ts` before writing or conversion
+- [X] T007 [P] [US1] Add templating-aware copy in `src/lib/sync-copy.ts` and switch `syncSkills` in `src/cli/commands/sync.ts` to use it per target
 
 **Checkpoint**: User Story 1 fully functional and testable independently
 
@@ -64,8 +64,8 @@ description: "Task list for Agent-Specific Templating implementation"
 
 ### Implementation for User Story 2
 
-- [ ] T008 [P] [US2] Document templating support and syntax in `README.md` under Skills, Subagents, and Slash commands
-- [ ] T009 [P] [US2] Add manual note in `AGENTS.md` (between MANUAL ADDITIONS markers) that templating applies to all syncable features and future features must support it
+- [X] T008 [P] [US2] Document templating support and syntax in `README.md` under Skills, Subagents, and Slash commands
+- [X] T009 [P] [US2] Add manual note in `AGENTS.md` (between MANUAL ADDITIONS markers) that templating applies to all syncable features and future features must support it
 
 **Checkpoint**: Documentation reflects universal templating support
 
@@ -79,8 +79,8 @@ description: "Task list for Agent-Specific Templating implementation"
 
 ### Implementation for User Story 3
 
-- [ ] T010 [P] [US3] Propagate `AgentTemplatingError` as a hard failure in `src/lib/slash-commands/sync.ts` and `src/lib/subagents/sync.ts` (abort plan/apply on error)
-- [ ] T011 [P] [US3] Ensure `src/cli/commands/sync.ts` surfaces valid agent identifiers when templating validation fails
+- [X] T010 [P] [US3] Propagate `AgentTemplatingError` as a hard failure in `src/lib/slash-commands/sync.ts` and `src/lib/subagents/sync.ts` (abort plan/apply on error)
+- [X] T011 [P] [US3] Ensure `src/cli/commands/sync.ts` surfaces valid agent identifiers when templating validation fails
 
 **Checkpoint**: Invalid selectors reliably stop the full sync with actionable errors
 
@@ -90,7 +90,7 @@ description: "Task list for Agent-Specific Templating implementation"
 
 **Purpose**: Cross-story polish and documentation validation
 
-- [ ] T012 [P] Validate examples against implementation and adjust `specs/007-agent-templating/quickstart.md` if needed
+- [X] T012 [P] Validate examples against implementation and adjust `specs/007-agent-templating/quickstart.md` if needed
 
 ---
 

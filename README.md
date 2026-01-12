@@ -59,6 +59,12 @@ npm run build
 node dist/cli.js sync
 ```
 
+## Skills
+
+Canonical skills live in `agents/skills/` (each skill folder contains `SKILL.md`). Agent-scoped
+templating is supported in skill files using `{claude,codex ... }` include lists or
+`{not:claude,gemini ... }` exclude lists; escape literal `}` with `\}`.
+
 ## Slash commands
 
 Slash commands are Markdown files in `agents/commands/`. The filename is the command name. Optional
@@ -66,12 +72,18 @@ YAML frontmatter can include metadata like `description` and can scope targets v
 `targetAgents` (values: `claude`, `gemini`, `codex`, `copilot`). By default, commands sync to all
 supported targets.
 
+Agent-scoped templating blocks are supported in slash command files using the same `{selector-list
+... }` syntax (including `not:` exclusions and `\}` escapes).
+
 ## Subagents
 
 Subagents are Markdown files in `agents/agents/` using the Claude Code subagent format (YAML
 frontmatter + prompt body). The `name` frontmatter field overrides the filename; if omitted, the
 filename (without `.md`) is used. Non-Claude targets receive converted skills at
 `.target/skills/<name>/SKILL.md`.
+
+Agent-scoped templating blocks are supported in subagent files using the same `{selector-list ... }`
+syntax (including `not:` exclusions and `\}` escapes).
 
 ## Sync command
 

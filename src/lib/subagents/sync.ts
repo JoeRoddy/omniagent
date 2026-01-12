@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { applyAgentTemplating } from "../agent-templating.js";
 import { loadSubagentCatalog, type SubagentDefinition } from "./catalog.js";
 import {
 	type ManagedSubagent,
@@ -22,6 +23,7 @@ export type SubagentSyncRequest = {
 	repoRoot: string;
 	targets?: SubagentTargetName[];
 	removeMissing?: boolean;
+	validAgents?: string[];
 };
 
 export type SubagentSyncPlanAction = {
@@ -311,10 +313,11 @@ async function buildTargetPlan(
 		removeMissing: boolean;
 		timestamp: string;
 		canonicalSkills: Map<string, string>;
+		validAgents: string[];
 	},
 	targetName: SubagentTargetName,
 ): Promise<TargetPlan> {
-	const { request, subagents, removeMissing } = params;
+	const { request, subagents, removeMissing, validAgents } = params;
 	const profile = getSubagentProfile(targetName);
 	const outputKind: OutputKind = profile.supportsSubagents ? "subagent" : "skill";
 	const destinationDir = profile.supportsSubagents
@@ -373,10 +376,16 @@ async function buildTargetPlan(
 			continue;
 		}
 
+		const templatedContents = applyAgentTemplating({
+			content: subagent.rawContents,
+			target: targetName,
+			validAgents,
+			sourcePath: subagent.sourcePath,
+		});
 		const output =
 			outputKind === "skill"
-				? stripFrontmatterFields(subagent.rawContents, SKILL_FRONTMATTER_KEYS_TO_REMOVE)
-				: subagent.rawContents;
+				? stripFrontmatterFields(templatedContents, SKILL_FRONTMATTER_KEYS_TO_REMOVE)
+				: templatedContents;
 		const outputHash = hashContent(output);
 		const { destinationPath } = resolveOutputPaths(
 			outputKind,
@@ -536,6 +545,7 @@ export async function planSubagentSync(
 		request.targets && request.targets.length > 0
 			? request.targets
 			: SUBAGENT_TARGETS.map((target) => target.name);
+	const validAgents = request.validAgents ?? selectedTargets;
 	const removeMissing = request.removeMissing ?? true;
 	const timestamp = new Date().toISOString();
 
@@ -543,7 +553,14 @@ export async function planSubagentSync(
 	for (const targetName of selectedTargets) {
 		targetPlans.push(
 			await buildTargetPlan(
-				{ request, subagents: catalog.subagents, removeMissing, timestamp, canonicalSkills },
+				{
+					request,
+					subagents: catalog.subagents,
+					removeMissing,
+					timestamp,
+					canonicalSkills,
+					validAgents,
+				},
 				targetName,
 			),
 		);
