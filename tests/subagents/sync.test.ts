@@ -147,7 +147,11 @@ describe.sequential("subagent sync", () => {
 	it("applies templating to subagent outputs", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
-			await writeSubagent(root, "templated", "Hello{claude CLAUDE}{not:claude OTHER}");
+			await writeSubagent(
+				root,
+				"templated",
+				"Hello<agents:claude> CLAUDE</agents><agents:not:claude> OTHER</agents>",
+			);
 
 			const plan = await planSubagentSync({
 				repoRoot: root,
@@ -167,7 +171,11 @@ describe.sequential("subagent sync", () => {
 	it("applies templating when converting subagents to skills", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
-			await writeSubagent(root, "templated-skill", "Hello{codex CODEX}{not:codex OTHER}");
+			await writeSubagent(
+				root,
+				"templated-skill",
+				"Hello<agents:codex> CODEX</agents><agents:not:codex> OTHER</agents>",
+			);
 
 			const plan = await planSubagentSync({
 				repoRoot: root,

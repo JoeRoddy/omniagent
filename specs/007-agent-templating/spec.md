@@ -3,7 +3,7 @@
 **Feature Branch**: `007-agent-templating`  
 **Created**: 2026-01-12  
 **Status**: Draft  
-**Input**: User description: "add support for agent specific templating to all syncable features. this should allow users to inject blocks of text anywhere in their config files and apply those only to specific agents, or to omit agents. an example could be something like: regular file text {claude,codex some tokens that only get added to the above agents } {not:claude,gemini some tokens that get added to all agents EXCEPT the above } later we can discuss the potential templating options. this should work on all current features (commands, skills, agents) AND all future features, so AGENTS.md and similar should make a note that this system must be supported everywhere."
+**Input**: User description: "add support for agent specific templating to all syncable features. this should allow users to inject blocks of text anywhere in their config files and apply those only to specific agents, or to omit agents. an example could be something like: regular file text <agents:claude,codex>some tokens that only get added to the above agents</agents> <agents:not:claude,gemini>some tokens that get added to all agents EXCEPT the above</agents> later we can discuss the potential templating options. this should work on all current features (commands, skills, agents) AND all future features, so AGENTS.md and similar should make a note that this system must be supported everywhere."
 
 ## Clarifications
 
@@ -14,10 +14,10 @@
 - Q: Should nested agent-scoped blocks be supported? → A: No, nested blocks are treated as invalid selectors.
 - Q: How should a scoped block with an empty agent list be handled? → A: Treat as invalid selector; fail the sync run.
 - Q: If a block’s selector both includes and excludes the same agent, how should conflicts be resolved? → A: Treat as invalid selector; fail the sync run.
-- Q: What delimiter style should define an agent-scoped block? → A: Single-brace inline block `{claude,codex ... }` as in the example.
-- Q: How should “exclude” be expressed inside the selector list? → A: Use the `not:` prefix (e.g., `{not:claude,gemini ... }`).
-- Q: How is the end of the block determined for `{selector-list content }`? → A: The block ends at a matching unescaped `}`; `\}` is allowed inside content.
-- Q: Can the block content include newlines? → A: Yes, content may span multiple lines until the closing `}`.
+- Q: What delimiter style should define an agent-scoped block? → A: Tag-style block `<agents:claude,codex> ... </agents>` as in the example.
+- Q: How should “exclude” be expressed inside the selector list? → A: Use the `not:` prefix (e.g., `<agents:not:claude,gemini> ... </agents>`).
+- Q: How is the end of the block determined for `<agents:selector-list> ... </agents>`? → A: The block ends at a matching unescaped `</agents>`; `\</agents>` is allowed inside content.
+- Q: Can the block content include newlines? → A: Yes, content may span multiple lines until the closing `</agents>`.
 - Q: Are agent identifiers in selectors case-sensitive? → A: No, matching is case-insensitive.
 
 ## User Scenarios & Testing *(mandatory)*
@@ -81,7 +81,7 @@ As a user, I receive clear feedback if a template selector is invalid or referen
 - Agent-scoped inclusion and exclusion of text blocks within any syncable config content.
 - Consistent behavior across all current and future syncable features.
 - Documentation that makes the cross-feature support explicit.
-- Define the agent-scoped block syntax (single-brace inline block).
+- Define the agent-scoped block syntax (tag-style `<agents:...> ... </agents>` block).
 
 **Out of scope**:
 - Creating or managing new agent types beyond existing identifiers.
@@ -105,10 +105,10 @@ As a user, I receive clear feedback if a template selector is invalid or referen
 - **FR-010**: The system MUST ensure the same templating capability is supported by any future syncable feature.
 - **FR-011**: Documentation for syncable features MUST state that agent-scoped templating is supported everywhere.
 - **FR-012**: Valid agent identifiers MUST be limited to agents currently configured in the project, and error messages for invalid or unknown identifiers MUST list the valid identifiers.
-- **FR-013**: The agent-scoped block format MUST use a single-brace inline block with a selector list followed by content, matching the form `{selector-list content }` (e.g., `{claude,codex ... }`).
-- **FR-014**: Exclusions MUST be expressed by a `not:` prefix within the selector list (e.g., `{not:claude,gemini ... }`).
-- **FR-015**: The end of a block MUST be the first unescaped `}`; `\}` within content MUST be treated as literal text.
-- **FR-016**: Block content MUST allow newlines and continue until the closing unescaped `}`.
+- **FR-013**: The agent-scoped block format MUST use a tag-style block with a selector list followed by content, matching the form `<agents:selector-list> ... </agents>` (e.g., `<agents:claude,codex> ... </agents>`).
+- **FR-014**: Exclusions MUST be expressed by a `not:` prefix within the selector list (e.g., `<agents:not:claude,gemini> ... </agents>`).
+- **FR-015**: The end of a block MUST be the first unescaped `</agents>`; `\</agents>` within content MUST be treated as literal text.
+- **FR-016**: Block content MUST allow newlines and continue until the closing unescaped `</agents>`.
 - **FR-017**: Agent identifier matching MUST be case-insensitive.
 
 ### Acceptance Coverage

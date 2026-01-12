@@ -75,9 +75,9 @@ async function createTemplatedCommand(root: string, name = "templated"): Promise
 	await mkdir(commandsDir, { recursive: true });
 	const contents = [
 		"---",
-		'description: "{claude Hello Claude}{not:claude Hello Gemini}"',
+		'description: "<agents:claude> Hello Claude</agents><agents:not:claude> Hello Gemini</agents>"',
 		"---",
-		"Start{claude CLAUDE}{not:claude GEMINI}End",
+		"Start<agents:claude> CLAUDE</agents><agents:not:claude> GEMINI</agents>End",
 	].join("\n");
 	await writeFile(path.join(commandsDir, `${name}.md`), contents);
 }
@@ -283,7 +283,10 @@ describe("slash command sync planning", () => {
 		await withTempRepo(async (root) => {
 			const commandsDir = path.join(root, "agents", "commands");
 			await mkdir(commandsDir, { recursive: true });
-			await writeFile(path.join(commandsDir, "broken.md"), "Hi{claude,not:claude invalid}");
+			await writeFile(
+				path.join(commandsDir, "broken.md"),
+				"Hi<agents:claude,not:claude> invalid</agents>",
+			);
 
 			await expect(
 				planSlashCommandSync({

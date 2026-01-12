@@ -17,7 +17,7 @@
   - `selectorList`: raw selector list (e.g., `claude,codex` or `not:claude,gemini`)
   - `includeAgents`: list of agent identifiers (case-insensitive)
   - `excludeAgents`: list of agent identifiers (case-insensitive)
-  - `content`: string, may include newlines and escaped `\}`
+  - `content`: string, may include newlines and escaped `\</agents>`
 - **Relationships**:
   - References one or more Agent Identifiers for inclusion or exclusion.
 - **Validation Rules**:
@@ -25,7 +25,7 @@
   - Include and exclude lists must not both contain the same agent.
   - Unknown agent identifiers are invalid.
   - Nested blocks are invalid.
-  - End delimiter is the first unescaped `}`.
+  - End delimiter is the first unescaped `</agents>`.
 
 ## State Transitions
 

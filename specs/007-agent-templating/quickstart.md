@@ -2,11 +2,11 @@
 
 ## Use a scoped block
 
-Use a single-brace inline block with a selector list followed by content:
+Use a tag-style block with a selector list followed by content:
 
 ```text
 Regular text
-{claude,codex This text is only for Claude and Codex }
+<agents:claude,codex>This text is only for Claude and Codex</agents>
 More text
 ```
 
@@ -15,26 +15,28 @@ More text
 Use the `not:` prefix to exclude agents:
 
 ```text
-{not:claude,gemini This text is for all agents except Claude and Gemini }
+<agents:not:claude,gemini>This text is for all agents except Claude and Gemini</agents>
 ```
 
 ## Multi-line blocks
 
-Blocks can span multiple lines until the closing `}`:
+Blocks can span multiple lines until the closing `</agents>`:
 
 ```text
-{claude,codex
+<agents:claude,codex>
 Line 1
 Line 2
-}
+</agents>
 ```
 
-## Escaping closing braces
+## Escaping closing tags
 
-Use `\}` for literal closing braces inside content:
+Use `\</agents>` for literal closing tags inside content:
 
 ```text
-{codex This is a literal brace: \} }
+<agents:codex>
+This is a literal closing tag: \</agents>
+</agents>
 ```
 
 ## Error behavior

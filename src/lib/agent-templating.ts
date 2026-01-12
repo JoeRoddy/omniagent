@@ -29,6 +29,9 @@ type SelectorSets = {
 	raw: string;
 };
 
+const OPEN_TAG = "<agents:";
+const CLOSE_TAG = "</agents>";
+
 function normalizeAgentList(validAgents: string[]): string[] {
 	const normalized: string[] = [];
 	const seen = new Set<string>();
@@ -111,10 +114,6 @@ function parseSelectorList(
 	return { include, exclude, raw };
 }
 
-function isWhitespace(value: string): boolean {
-	return value === " " || value === "\t" || value === "\n" || value === "\r";
-}
-
 function processTemplating(
 	content: string,
 	options: {
@@ -132,27 +131,22 @@ function processTemplating(
 	let index = 0;
 
 	while (index < content.length) {
-		const char = content[index];
-		if (char !== "{") {
+		const openIndex = content.indexOf(OPEN_TAG, index);
+		if (openIndex === -1) {
 			if (target) {
-				output += char;
+				output += content.slice(index);
 			}
-			index += 1;
-			continue;
+			break;
 		}
 
-		const selectorStart = index + 1;
-		if (selectorStart >= content.length) {
+		if (target) {
+			output += content.slice(index, openIndex);
+		}
+
+		const selectorStart = openIndex + OPEN_TAG.length;
+		const selectorEnd = content.indexOf(">", selectorStart);
+		if (selectorEnd === -1) {
 			throw createTemplatingError("Unterminated selector block", context);
-		}
-
-		let selectorEnd = selectorStart;
-		while (
-			selectorEnd < content.length &&
-			!isWhitespace(content[selectorEnd]) &&
-			content[selectorEnd] !== "}"
-		) {
-			selectorEnd += 1;
 		}
 
 		const selectorRaw = content.slice(selectorStart, selectorEnd);
@@ -160,12 +154,12 @@ function processTemplating(
 			throw createTemplatingError("Selector list cannot be empty", context);
 		}
 
-		if (selectorEnd >= content.length) {
-			throw createTemplatingError(`Unterminated selector block "{${selectorRaw}"`, context);
-		}
-
-		if (content[selectorEnd] === "}") {
-			throw createTemplatingError(`Selector block "{${selectorRaw}}" is missing content`, context);
+		const contentStart = selectorEnd + 1;
+		if (content.startsWith(CLOSE_TAG, contentStart)) {
+			throw createTemplatingError(
+				`Selector block "${OPEN_TAG}${selectorRaw}>" is missing content`,
+				context,
+			);
 		}
 
 		const { include, exclude } = parseSelectorList(selectorRaw, validSet, context);
@@ -176,53 +170,47 @@ function processTemplating(
 					? include.has(target) && !exclude.has(target)
 					: !exclude.has(target);
 
-		let cursor = selectorEnd;
+		let cursor = contentStart;
 		let blockOutput = "";
 
 		while (cursor < content.length) {
-			const current = content[cursor];
-			if (current === "\\") {
-				const next = content[cursor + 1];
-				if (next === "}") {
-					if (target && shouldInclude) {
-						blockOutput += "}";
-					}
-					cursor += 2;
-					continue;
-				}
+			if (content[cursor] === "\\" && content.startsWith(CLOSE_TAG, cursor + 1)) {
 				if (target && shouldInclude) {
-					blockOutput += current;
+					blockOutput += CLOSE_TAG;
 				}
-				cursor += 1;
+				cursor += 1 + CLOSE_TAG.length;
 				continue;
 			}
 
-			if (current === "{") {
+			if (content.startsWith(OPEN_TAG, cursor)) {
 				throw createTemplatingError(
-					`Nested selector block detected inside "{${selectorRaw} ... }"`,
+					`Nested selector block detected inside "${OPEN_TAG}${selectorRaw}> ... ${CLOSE_TAG}"`,
 					context,
 				);
 			}
 
-			if (current === "}") {
+			if (content.startsWith(CLOSE_TAG, cursor)) {
 				break;
 			}
 
 			if (target && shouldInclude) {
-				blockOutput += current;
+				blockOutput += content[cursor];
 			}
 			cursor += 1;
 		}
 
 		if (cursor >= content.length) {
-			throw createTemplatingError(`Unterminated selector block "{${selectorRaw}"`, context);
+			throw createTemplatingError(
+				`Unterminated selector block "${OPEN_TAG}${selectorRaw}>"`,
+				context,
+			);
 		}
 
 		if (target && shouldInclude) {
 			output += blockOutput;
 		}
 
-		index = cursor + 1;
+		index = cursor + CLOSE_TAG.length;
 	}
 
 	if (!target) {

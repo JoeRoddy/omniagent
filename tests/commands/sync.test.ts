@@ -276,9 +276,21 @@ describe.sequential("sync command", () => {
 	it("applies templating consistently across skills, commands, and subagents", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
-			await writeCanonicalSkillFile(root, "example.txt", "Skill{claude OK}{not:claude NO}");
-			await writeCanonicalCommand(root, "example", "Command{claude OK}{not:claude NO}");
-			await writeSubagent(root, "helper", "Subagent{claude OK}{not:claude NO}");
+			await writeCanonicalSkillFile(
+				root,
+				"example.txt",
+				"Skill<agents:claude> OK</agents><agents:not:claude> NO</agents>",
+			);
+			await writeCanonicalCommand(
+				root,
+				"example",
+				"Command<agents:claude> OK</agents><agents:not:claude> NO</agents>",
+			);
+			await writeSubagent(
+				root,
+				"helper",
+				"Subagent<agents:claude> OK</agents><agents:not:claude> NO</agents>",
+			);
 
 			await withCwd(root, async () => {
 				await runCli(["node", "agentctrl", "sync", "--only", "claude", "--yes"]);
@@ -309,7 +321,7 @@ describe.sequential("sync command", () => {
 	it("fails before writing outputs when templating is invalid in commands", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
-			await writeCanonicalCommand(root, "broken", "Hi{bogus invalid}");
+			await writeCanonicalCommand(root, "broken", "Hi<agents:bogus> invalid</agents>");
 
 			await withCwd(root, async () => {
 				await runCli(["node", "agentctrl", "sync", "--only", "claude", "--yes"]);
@@ -327,7 +339,11 @@ describe.sequential("sync command", () => {
 	it("fails before writing outputs when templating is invalid in skills files", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
-			await writeCanonicalSkillFile(root, "bad.txt", "Hi{claude,not:claude broken}");
+			await writeCanonicalSkillFile(
+				root,
+				"bad.txt",
+				"Hi<agents:claude,not:claude> broken</agents>",
+			);
 			await writeCanonicalCommand(root, "ok", "Say hello.");
 
 			await withCwd(root, async () => {

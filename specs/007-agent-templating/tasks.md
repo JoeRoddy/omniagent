@@ -33,7 +33,7 @@ description: "Task list for Agent-Specific Templating implementation"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [X] T003 Implement agent-templating parsing/validation in `src/lib/agent-templating.ts` (selectors, `not:`, case-insensitive match, `\}` escaping, multi-line, invalid cases)
+- [X] T003 Implement agent-templating parsing/validation in `src/lib/agent-templating.ts` (selectors, `not:`, case-insensitive match, `\</agents>` escaping, multi-line, invalid cases)
 - [X] T004 [P] Add preflight templating validation in `src/cli/commands/sync.ts` to scan `agents/commands/`, `agents/agents/`, and `agents/skills/` for selected targets before any sync writes
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel

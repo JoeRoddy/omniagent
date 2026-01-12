@@ -46,6 +46,6 @@ TypeScript 5.x, Node.js 18+: Enforced by Biome (formatting and linting)
 
 
 <!-- MANUAL ADDITIONS START -->
-- Agent-scoped templating (`{selector-list ... }`) applies to all syncable features (skills,
-  subagents, slash commands) and must be supported by future syncable features.
+- Agent-scoped templating (`<agents:selector-list> ... </agents>`) applies to all syncable features
+  (skills, subagents, slash commands) and must be supported by future syncable features.
 <!-- MANUAL ADDITIONS END -->

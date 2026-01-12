@@ -8,7 +8,7 @@
 ## Summary
 
 Add agent-scoped templating blocks that can appear anywhere in syncable files, using a
-single-brace inline syntax with include/exclude selectors. The compiler must apply
+tag-style `<agents:selector-list> ... </agents>` syntax with include/exclude selectors. The compiler must apply
 selectors consistently across all syncable features, fail fast on invalid selectors, and
 document the universal support in AGENTS.md and other syncable feature docs.
 
@@ -69,11 +69,11 @@ tests/
 
 ### Research Tasks
 
-- Decision: single-brace inline block syntax `{selector-list content }` with `not:` exclusions.
-  - Rationale: aligns with user examples, minimal syntax, clear include/exclude semantics.
-  - Alternatives considered: explicit start/end tags, double-bracket tags, line-based tags.
-- Decision: block ends at first unescaped `}` and supports `\}` inside content.
-  - Rationale: avoids ambiguous nesting and supports literal braces.
+- Decision: tag-style block syntax `<agents:selector-list> ... </agents>` with `not:` exclusions.
+  - Rationale: avoids collisions with common `{}` usage while keeping inline include/exclude semantics.
+  - Alternatives considered: single-brace inline syntax, double-bracket tags, line-based tags.
+- Decision: block ends at first unescaped `</agents>` and supports `\</agents>` inside content.
+  - Rationale: avoids ambiguous nesting and supports literal closing tags.
   - Alternatives considered: single-line only, explicit end tokens.
 - Decision: invalid selectors fail entire sync run and list valid identifiers.
   - Rationale: fail-fast prevents silent corruption and enforces correctness.

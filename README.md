@@ -62,7 +62,6 @@ node dist/cli.js sync
 ## Skills
 
 Canonical skills live in `agents/skills/` (each skill folder contains `SKILL.md`). Agent-scoped
-templating works in skill files too (see Templating).
 
 ## Slash commands
 
@@ -71,18 +70,12 @@ YAML frontmatter can include metadata like `description` and can scope targets v
 `targetAgents` (values: `claude`, `gemini`, `codex`, `copilot`). By default, commands sync to all
 supported targets.
 
-Agent-scoped templating blocks are supported in slash command files using the same `{selector-list
-... }` syntax (see Templating).
-
 ## Subagents
 
 Subagents are Markdown files in `agents/agents/` using the Claude Code subagent format (YAML
 frontmatter + prompt body). The `name` frontmatter field overrides the filename; if omitted, the
 filename (without `.md`) is used. Non-Claude targets receive converted skills at
 `.target/skills/<name>/SKILL.md`.
-
-Agent-scoped templating blocks are supported in subagent files using the same `{selector-list ... }`
-syntax (see Templating).
 
 ## Agent Specific Templating
 
@@ -94,15 +87,13 @@ It works in every syncable file type (skills, subagents, slash commands, and fut
 ```text
 Shared content.
 
-{claude,codex
+<agents:claude,codex>
 Only Claude and Codex see this.
-}
+</agents>
 
-{not:claude,gemini
+<agents:not:claude,gemini>
 Everyone except Claude and Gemini sees this.
-
-Use \} to include a closing curly without breaking the template.
-}
+</agents>
 
 More shared content.
 ```

@@ -18,8 +18,16 @@ describe("copyDirectoryWithTemplating", () => {
 			const source = path.join(root, "source");
 			const destination = path.join(root, "dest");
 			await mkdir(path.join(source, "nested"), { recursive: true });
-			await writeFile(path.join(source, "skill.txt"), "Hello{claude world}!", "utf8");
-			await writeFile(path.join(source, "nested", "note.md"), "A{not:claude B}C", "utf8");
+			await writeFile(
+				path.join(source, "skill.txt"),
+				"Hello<agents:claude> world</agents>!",
+				"utf8",
+			);
+			await writeFile(
+				path.join(source, "nested", "note.md"),
+				"A<agents:not:claude> B</agents>C",
+				"utf8",
+			);
 
 			await copyDirectoryWithTemplating({
 				source,
@@ -61,7 +69,11 @@ describe("copyDirectoryWithTemplating", () => {
 			const source = path.join(root, "source");
 			const destination = path.join(root, "dest");
 			await mkdir(source, { recursive: true });
-			await writeFile(path.join(source, "broken.txt"), "Hi{claude,not:claude x}", "utf8");
+			await writeFile(
+				path.join(source, "broken.txt"),
+				"Hi<agents:claude,not:claude> x</agents>",
+				"utf8",
+			);
 
 			await expect(
 				copyDirectoryWithTemplating({
