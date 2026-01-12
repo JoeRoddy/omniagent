@@ -70,6 +70,18 @@ async function createCanonicalCommandWithOrderedFrontmatter(
 	await writeFile(path.join(commandsDir, `${name}.md`), contents);
 }
 
+async function createTemplatedCommand(root: string, name = "templated"): Promise<void> {
+	const commandsDir = path.join(root, "agents", "commands");
+	await mkdir(commandsDir, { recursive: true });
+	const contents = [
+		"---",
+		'description: "{claude Hello Claude}{not:claude Hello Gemini}"',
+		"---",
+		"Start{claude CLAUDE}{not:claude GEMINI}End",
+	].join("\n");
+	await writeFile(path.join(commandsDir, `${name}.md`), contents);
+}
+
 describe("slash command sync planning", () => {
 	it("converts commands to project skills for unsupported targets", async () => {
 		await withTempRepo(async (root) => {
@@ -230,6 +242,60 @@ describe("slash command sync planning", () => {
 
 			expect(secondManifest).toBe(firstManifest);
 			expect(secondSummary.results[0]?.message).toContain("No changes");
+		});
+	});
+
+	it("applies agent templating per target when rendering commands", async () => {
+		await withTempRepo(async (root) => {
+			await createTemplatedCommand(root);
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["claude", "gemini"],
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+
+			await applySlashCommandSync(plan);
+
+			const claudeOutput = await readFile(
+				path.join(root, ".claude", "commands", "templated.md"),
+				"utf8",
+			);
+			const geminiOutput = await readFile(
+				path.join(root, ".gemini", "commands", "templated.toml"),
+				"utf8",
+			);
+
+			expect(claudeOutput).toContain("Hello Claude");
+			expect(claudeOutput).toContain("CLAUDE");
+			expect(claudeOutput).not.toContain("Hello Gemini");
+			expect(claudeOutput).not.toContain("GEMINI");
+
+			expect(geminiOutput).toContain("Hello Gemini");
+			expect(geminiOutput).toContain("GEMINI");
+			expect(geminiOutput).not.toContain("Hello Claude");
+			expect(geminiOutput).not.toContain("CLAUDE");
+		});
+	});
+
+	it("fails planning when templating is invalid", async () => {
+		await withTempRepo(async (root) => {
+			const commandsDir = path.join(root, "agents", "commands");
+			await mkdir(commandsDir, { recursive: true });
+			await writeFile(
+				path.join(commandsDir, "broken.md"),
+				"Hi{claude,not:claude invalid}",
+			);
+
+			await expect(
+				planSlashCommandSync({
+					repoRoot: root,
+					targets: ["claude"],
+					conflictResolution: "skip",
+					removeMissing: true,
+				}),
+			).rejects.toThrow(/Agent templating error/);
 		});
 	});
 });

@@ -143,4 +143,51 @@ describe.sequential("subagent sync", () => {
 			expect(output).not.toContain("color:");
 		});
 	});
+
+	it("applies templating to subagent outputs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSubagent(root, "templated", "Hello{claude CLAUDE}{not:claude OTHER}");
+
+			const plan = await planSubagentSync({
+				repoRoot: root,
+				targets: ["claude"],
+				removeMissing: true,
+			});
+
+			await applySubagentSync(plan);
+
+			const destination = path.join(root, ".claude", "agents", "templated.md");
+			const output = await readFile(destination, "utf8");
+			expect(output).toContain("CLAUDE");
+			expect(output).not.toContain("OTHER");
+		});
+	});
+
+	it("applies templating when converting subagents to skills", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSubagent(root, "templated-skill", "Hello{codex CODEX}{not:codex OTHER}");
+
+			const plan = await planSubagentSync({
+				repoRoot: root,
+				targets: ["codex"],
+				removeMissing: true,
+				validAgents: ["codex"],
+			});
+
+			await applySubagentSync(plan);
+
+			const destination = path.join(
+				root,
+				".codex",
+				"skills",
+				"templated-skill",
+				"SKILL.md",
+			);
+			const output = await readFile(destination, "utf8");
+			expect(output).toContain("CODEX");
+			expect(output).not.toContain("OTHER");
+		});
+	});
 });

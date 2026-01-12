@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
+import { TextDecoder } from "node:util";
 import type { CommandModule } from "yargs";
 import { validateAgentTemplating } from "../../lib/agent-templating.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
@@ -65,6 +66,8 @@ const ALL_TARGETS = [
 ];
 const SUPPORTED_TARGETS = ALL_TARGETS.join(", ");
 
+const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
 type CatalogStatus =
 	| { available: true }
 	| {
@@ -82,6 +85,14 @@ function parseList(value?: string | string[]): string[] {
 		.flatMap((entry) => entry.split(","))
 		.map((entry) => entry.trim())
 		.filter(Boolean);
+}
+
+function decodeUtf8(buffer: Buffer): string | null {
+	try {
+		return utf8Decoder.decode(buffer);
+	} catch {
+		return null;
+	}
 }
 
 function formatDisplayPath(repoRoot: string, absolutePath: string): string {
@@ -132,6 +143,22 @@ async function listMarkdownFiles(root: string): Promise<string[]> {
 	return files;
 }
 
+async function listFiles(root: string): Promise<string[]> {
+	const entries = await readdir(root, { withFileTypes: true });
+	const files: string[] = [];
+	for (const entry of entries) {
+		const entryPath = path.join(root, entry.name);
+		if (entry.isDirectory()) {
+			files.push(...(await listFiles(entryPath)));
+			continue;
+		}
+		if (entry.isFile()) {
+			files.push(entryPath);
+		}
+	}
+	return files;
+}
+
 async function validateTemplatingSources(options: {
 	repoRoot: string;
 	validAgents: string[];
@@ -151,9 +178,16 @@ async function validateTemplatingSources(options: {
 	}
 
 	for (const directory of directories) {
-		const files = await listMarkdownFiles(directory);
+		const files =
+			path.basename(directory) === "skills"
+				? await listFiles(directory)
+				: await listMarkdownFiles(directory);
 		for (const filePath of files) {
-			const contents = await readFile(filePath, "utf8");
+			const buffer = await readFile(filePath);
+			const contents = decodeUtf8(buffer);
+			if (contents === null) {
+				continue;
+			}
 			validateAgentTemplating({
 				content: contents,
 				validAgents: options.validAgents,
