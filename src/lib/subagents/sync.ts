@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
+import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
 import { loadSubagentCatalog, type SubagentDefinition } from "./catalog.js";
 import {
 	type ManagedSubagent,
@@ -18,7 +19,6 @@ import {
 	SUBAGENT_TARGETS,
 	type SubagentTargetName,
 } from "./targets.js";
-import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
 
 export type SubagentSyncRequest = {
 	repoRoot: string;

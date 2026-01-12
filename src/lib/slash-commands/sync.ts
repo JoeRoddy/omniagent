@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/p
 import os from "node:os";
 import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
+import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
 import { loadCommandCatalog, type SlashCommandDefinition } from "./catalog.js";
 import {
 	renderClaudeCommand,
@@ -26,7 +27,6 @@ import {
 	SLASH_COMMAND_TARGETS,
 	type TargetName,
 } from "./targets.js";
-import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
 
 export type ConflictResolution = "overwrite" | "rename" | "skip";
 export type UnsupportedFallback = "convert_to_skills" | "skip";
