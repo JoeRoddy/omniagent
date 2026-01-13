@@ -9,17 +9,17 @@
 
 ### User Story 1 - Run CLI Command (Priority: P1)
 
-A developer runs the agentctrl CLI and sees a hello world response, confirming the CLI infrastructure is working.
+A developer runs the omniagent CLI and sees a hello world response, confirming the CLI infrastructure is working.
 
 **Why this priority**: This validates the entire build pipeline (TypeScript compilation, Vite bundling, yargs CLI parsing) works end-to-end.
 
-**Independent Test**: Run `agentctrl` or `agentctrl hello` and verify output appears.
+**Independent Test**: Run `omniagent` or `omniagent hello` and verify output appears.
 
 **Acceptance Scenarios**:
 
-1. **Given** the CLI is built and installed, **When** the user runs `agentctrl`, **Then** the system displays a hello world message.
-2. **Given** the CLI is built, **When** the user runs `agentctrl --help`, **Then** the system displays available commands.
-3. **Given** the CLI is built, **When** the user runs `agentctrl --version`, **Then** the system displays the version number.
+1. **Given** the CLI is built and installed, **When** the user runs `omniagent`, **Then** the system displays a hello world message.
+2. **Given** the CLI is built, **When** the user runs `omniagent --help`, **Then** the system displays available commands.
+3. **Given** the CLI is built, **When** the user runs `omniagent --version`, **Then** the system displays the version number.
 
 ---
 
@@ -53,5 +53,5 @@ A developer runs the agentctrl CLI and sees a hello world response, confirming t
 ### Measurable Outcomes
 
 - **SC-001**: `npm run build` produces a working CLI bundle.
-- **SC-002**: Running `agentctrl` displays output without errors.
+- **SC-002**: Running `omniagent` displays output without errors.
 - **SC-003**: Total runtime dependencies limited to yargs only.

@@ -42,7 +42,7 @@ export function runCli(argv = process.argv) {
 	let handledFailure = false;
 
 	return yargs(args)
-		.scriptName("agentctrl")
+		.scriptName("omniagent")
 		.version(VERSION)
 		.help()
 		.strict()
@@ -64,10 +64,10 @@ export function runCli(argv = process.argv) {
 		.command(syncCommand)
 		.command(
 			"$0",
-			"agentctrl CLI",
+			"omniagent CLI",
 			() => {},
 			() => {
-				console.log("Hello from agentctrl!");
+				console.log("Hello from omniagent!");
 			},
 		)
 		.parseAsync();

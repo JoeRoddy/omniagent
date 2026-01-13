@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: agentctrl slash command sync contract
+  title: omniagent slash command sync contract
   version: 1.0.0
   description: Contract for previewing and applying custom slash command sync.
 paths:

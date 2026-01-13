@@ -10,7 +10,7 @@ Simple greeting command with no arguments.
 ### Interface
 
 ```
-agentctrl hello [options]
+omniagent hello [options]
 ```
 
 ### Options
@@ -23,8 +23,8 @@ agentctrl hello [options]
 
 | Input | Output | Exit Code |
 |-------|--------|-----------|
-| `agentctrl hello` | `Hello, World!` | 0 |
-| `agentctrl hello --help` | Usage information | 0 |
+| `omniagent hello` | `Hello, World!` | 0 |
+| `omniagent hello --help` | Usage information | 0 |
 
 ---
 
@@ -35,7 +35,7 @@ Personalized greeting with required name argument.
 ### Interface
 
 ```
-agentctrl greet <name> [options]
+omniagent greet <name> [options]
 ```
 
 ### Arguments
@@ -55,10 +55,10 @@ agentctrl greet <name> [options]
 
 | Input | Output | Exit Code |
 |-------|--------|-----------|
-| `agentctrl greet Alice` | `Hello, Alice!` | 0 |
-| `agentctrl greet Alice --uppercase` | `HELLO, ALICE!` | 0 |
-| `agentctrl greet` (missing name) | Error: missing required argument | 1 |
-| `agentctrl greet --help` | Usage information | 0 |
+| `omniagent greet Alice` | `Hello, Alice!` | 0 |
+| `omniagent greet Alice --uppercase` | `HELLO, ALICE!` | 0 |
+| `omniagent greet` (missing name) | Error: missing required argument | 1 |
+| `omniagent greet --help` | Usage information | 0 |
 
 ---
 
@@ -69,7 +69,7 @@ Echo message with repeat and prefix options.
 ### Interface
 
 ```
-agentctrl echo [message] [options]
+omniagent echo [message] [options]
 ```
 
 ### Arguments
@@ -90,12 +90,12 @@ agentctrl echo [message] [options]
 
 | Input | Output | Exit Code |
 |-------|--------|-----------|
-| `agentctrl echo "test"` | `test` | 0 |
-| `agentctrl echo "hi" --times 3` | `hi\nhi\nhi` | 0 |
-| `agentctrl echo "msg" --prefix "> "` | `> msg` | 0 |
-| `agentctrl echo` | (empty output) | 0 |
-| `agentctrl echo "x" --times -1` | Error: times must be positive | 1 |
-| `agentctrl echo --help` | Usage information | 0 |
+| `omniagent echo "test"` | `test` | 0 |
+| `omniagent echo "hi" --times 3` | `hi\nhi\nhi` | 0 |
+| `omniagent echo "msg" --prefix "> "` | `> msg` | 0 |
+| `omniagent echo` | (empty output) | 0 |
+| `omniagent echo "x" --times -1` | Error: times must be positive | 1 |
+| `omniagent echo --help` | Usage information | 0 |
 
 ---
 

@@ -20,7 +20,7 @@ summaries while keeping lossy mappings explicit.
 **Testing**: Vitest  
 **Target Platform**: Node.js CLI (macOS/Linux/Windows)  
 **Project Type**: single  
-**Performance Goals**: Typical `agentctrl sync` under 2 seconds; cold start under 5 seconds  
+**Performance Goals**: Typical `omniagent sync` under 2 seconds; cold start under 5 seconds  
 **Constraints**: Markdown-first canonical config; no runtime orchestration; only managed outputs modified  
 **Scale/Scope**: Up to ~20 subagent definitions per repo, sync across 4 targets
 

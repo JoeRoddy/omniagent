@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: agentctrl sync contract
+  title: omniagent sync contract
   version: 1.0.0
   description: Contract for syncing canonical agent configuration to supported targets.
 paths:

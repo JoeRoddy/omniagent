@@ -5,7 +5,7 @@ description: "Task list template for feature implementation"
 
 # Tasks: Sync Custom Slash Commands
 
-**Input**: Design documents from `/Users/joeroddy/Documents/dev/projects/open-source/agentctrl/specs/005-sync-slash-commands/`
+**Input**: Design documents from `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/specs/005-sync-slash-commands/`
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
 **Tests**: Not requested in the feature specification.

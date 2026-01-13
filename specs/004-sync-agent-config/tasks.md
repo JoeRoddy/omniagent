@@ -5,7 +5,7 @@ description: "Task list for Sync Agent Config"
 
 # Tasks: Sync Agent Config
 
-**Input**: Design documents from `/Users/joeroddy/Documents/dev/projects/open-source/agentctrl/specs/004-sync-agent-config/`
+**Input**: Design documents from `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/specs/004-sync-agent-config/`
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
 **Tests**: Added coverage for sync command behavior and error paths.
@@ -22,8 +22,8 @@ description: "Task list for Sync Agent Config"
 
 **Purpose**: Project initialization and basic structure
 
-- [X] T001 Create sync command module scaffold in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/cli/commands/sync.ts
-- [X] T002 Register sync command in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/cli/index.ts
+- [X] T001 Create sync command module scaffold in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts
+- [X] T002 Register sync command in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/index.ts
 
 ---
 
@@ -33,8 +33,8 @@ description: "Task list for Sync Agent Config"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [X] T003 [P] Define supported target names and destination mapping in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/lib/sync-targets.ts
-- [X] T004 [P] Implement repo root discovery helper in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/lib/repo-root.ts
+- [X] T003 [P] Define supported target names and destination mapping in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/sync-targets.ts
+- [X] T004 [P] Implement repo root discovery helper in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/repo-root.ts
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -44,13 +44,13 @@ description: "Task list for Sync Agent Config"
 
 **Goal**: Sync the canonical agent config to all supported targets when no filters are provided.
 
-**Independent Test**: Run `agentctrl sync` from a repo subdirectory and verify each target is updated and reported.
+**Independent Test**: Run `omniagent sync` from a repo subdirectory and verify each target is updated and reported.
 
 ### Implementation for User Story 1
 
-- [X] T005 [P] [US1] Implement non-destructive copy helper in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/lib/sync-copy.ts
-- [X] T006 [P] [US1] Implement sync result formatting (human + JSON) in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/lib/sync-results.ts
-- [X] T007 [US1] Implement core sync flow in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/cli/commands/sync.ts (resolve repo root, validate source, sync all targets, continue after failures, set exit code, support --json)
+- [X] T005 [P] [US1] Implement non-destructive copy helper in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/sync-copy.ts
+- [X] T006 [P] [US1] Implement sync result formatting (human + JSON) in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/sync-results.ts
+- [X] T007 [US1] Implement core sync flow in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts (resolve repo root, validate source, sync all targets, continue after failures, set exit code, support --json)
 
 **Checkpoint**: User Story 1 is fully functional and independently testable
 
@@ -60,12 +60,12 @@ description: "Task list for Sync Agent Config"
 
 **Goal**: Allow users to include or exclude specific targets with `--skip` or `--only`.
 
-**Independent Test**: Run `agentctrl sync --skip codex` and `agentctrl sync --only claude` and verify only intended targets update.
+**Independent Test**: Run `omniagent sync --skip codex` and `omniagent sync --only claude` and verify only intended targets update.
 
 ### Implementation for User Story 2
 
-- [X] T008 [US2] Add `--skip`/`--only` parsing and filtering logic in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/cli/commands/sync.ts
-- [X] T009 [US2] Validate unknown targets, conflicting flags, and empty selection with clear errors in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/cli/commands/sync.ts
+- [X] T008 [US2] Add `--skip`/`--only` parsing and filtering logic in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts
+- [X] T009 [US2] Validate unknown targets, conflicting flags, and empty selection with clear errors in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts
 
 **Checkpoint**: User Story 2 is fully functional and independently testable
 
@@ -75,12 +75,12 @@ description: "Task list for Sync Agent Config"
 
 **Goal**: Provide clear help text and actionable error messages for sync usage.
 
-**Independent Test**: Run `agentctrl sync --help` and a missing-source scenario to confirm output clarity.
+**Independent Test**: Run `omniagent sync --help` and a missing-source scenario to confirm output clarity.
 
 ### Implementation for User Story 3
 
-- [X] T010 [US3] Update sync help text and examples in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/cli/commands/sync.ts (include supported targets and flags)
-- [X] T011 [US3] Ensure missing source errors include the resolved path in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/cli/commands/sync.ts
+- [X] T010 [US3] Update sync help text and examples in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts (include supported targets and flags)
+- [X] T011 [US3] Ensure missing source errors include the resolved path in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts
 
 **Checkpoint**: User Story 3 is fully functional and independently testable
 
@@ -90,10 +90,10 @@ description: "Task list for Sync Agent Config"
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [X] T012 [P] Validate quickstart steps and align examples in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/specs/004-sync-agent-config/quickstart.md
-- [X] T013 [P] Review CLI error formatting for sync in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/cli/index.ts
-- [X] T014 [P] Add sync command tests in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/tests/commands/sync.test.ts
-- [X] T015 [P] Resolve repo root via repo markers so missing-source errors use repo-root paths in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/lib/repo-root.ts and /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/cli/commands/sync.ts
+- [X] T012 [P] Validate quickstart steps and align examples in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/specs/004-sync-agent-config/quickstart.md
+- [X] T013 [P] Review CLI error formatting for sync in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/index.ts
+- [X] T014 [P] Add sync command tests in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/sync.test.ts
+- [X] T015 [P] Resolve repo root via repo markers so missing-source errors use repo-root paths in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/repo-root.ts and /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts
 
 ---
 
@@ -123,20 +123,20 @@ Setup → Foundational → US1 → US2 → US3 → Polish
 ### User Story 1
 
 ```bash
-Task: "Implement non-destructive copy helper in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/lib/sync-copy.ts"
-Task: "Implement sync result formatting (human + JSON) in /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/lib/sync-results.ts"
+Task: "Implement non-destructive copy helper in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/sync-copy.ts"
+Task: "Implement sync result formatting (human + JSON) in /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/sync-results.ts"
 ```
 
 ### User Story 2
 
 ```bash
-No safe parallel tasks identified (both tasks modify /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/cli/commands/sync.ts)
+No safe parallel tasks identified (both tasks modify /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts)
 ```
 
 ### User Story 3
 
 ```bash
-No safe parallel tasks identified (both tasks modify /Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/cli/commands/sync.ts)
+No safe parallel tasks identified (both tasks modify /Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts)
 ```
 
 ---

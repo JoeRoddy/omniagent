@@ -22,7 +22,7 @@
 
 ### User Story 1 - Sync subagents to Claude Code (Priority: P1)
 
-As a developer using agentctrl, I want to define custom subagents once and sync them to Claude Code so my team can use consistent specialized agents inside the project.
+As a developer using omniagent, I want to define custom subagents once and sync them to Claude Code so my team can use consistent specialized agents inside the project.
 
 **Why this priority**: This is the core value of subagent support and enables shared, project-level agent behavior.
 
@@ -87,7 +87,7 @@ As a user, I want predictable subagent naming and clear error messages if names 
 - **FR-006**: The system MUST preserve subagent content verbatim during sync and conversion, including frontmatter and body.
 - **FR-007**: The system MUST include subagent actions in the sync preview/summary with per-target counts of created, updated, converted, and skipped items.
 - **FR-008**: The system MUST respect existing target filters (only/skip) when syncing subagents.
-- **FR-009**: The system MUST avoid modifying unrelated target files and only update subagent/skill files previously managed by agentctrl, removing previously managed outputs that are no longer in the canonical catalog.
+- **FR-009**: The system MUST avoid modifying unrelated target files and only update subagent/skill files previously managed by omniagent, removing previously managed outputs that are no longer in the canonical catalog.
 - **FR-010**: The system MUST warn when a selected target does not support Claude-format subagents and indicate that conversion to skills will occur.
 - **FR-011**: The system MUST default to converting subagents into skills for targets that do not support Claude-format subagents; skipping is done by excluding the target.
 - **FR-012**: When a target already has a subagent/skill with the same name but different content, the system MUST skip that item and warn the user.

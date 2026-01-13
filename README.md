@@ -1,23 +1,23 @@
-# agentctrl
+# omniagent
 
 One config, many agents.
 
-agentctrl is a CLI that lets a team define a single, canonical agent configuration and sync it to
+omniagent is a CLI that lets a team define a single, canonical agent configuration and sync it to
 multiple AI coding agents.
 
-Many agents use bespoke config formats. Teams either duplicate configs or accept drift. agentctrl
+Many agents use bespoke config formats. Teams either duplicate configs or accept drift. omniagent
 unifies that into a single source of truth and compiles it to each runtime.
 
 ## What it does today
 
-Right now, agentctrl focuses on **skills**, **subagents**, and **slash commands**:
+Right now, omniagent focuses on **skills**, **subagents**, and **slash commands**:
 
 - Canonical skills: `agents/skills/`
 - Canonical subagents: `agents/agents/` (Claude Code subagent format: Markdown with YAML
   frontmatter; `name` overrides the filename when present)
 - Canonical slash commands: `agents/commands/` (Claude Code format: Markdown with optional YAML
   frontmatter; filename becomes the command name; use `targets`/`targetAgents` to scope sync)
-- `agentctrl sync` copies skills, syncs subagents to Claude Code (and converts to skills for other
+- `omniagent sync` copies skills, syncs subagents to Claude Code (and converts to skills for other
   targets), and maps slash commands into each supported target's expected location
 
 ## Supported targets (current)
@@ -98,12 +98,12 @@ More shared content.
 ## Sync command
 
 ```bash
-agentctrl sync
-agentctrl sync --only claude
-agentctrl sync --only gemini
-agentctrl sync --skip codex
-agentctrl sync --yes
-agentctrl sync --json
+omniagent sync
+omniagent sync --only claude
+omniagent sync --only gemini
+omniagent sync --skip codex
+omniagent sync --yes
+omniagent sync --json
 ```
 
 ## Roadmap

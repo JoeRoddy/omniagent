@@ -33,7 +33,7 @@ As a developer, I want example CLI commands that demonstrate common patterns so 
 
 **Acceptance Scenarios**:
 
-1. **Given** the CLI is installed, **When** I run an example command (e.g., `agentctrl hello`), **Then** I receive meaningful output demonstrating the command works
+1. **Given** the CLI is installed, **When** I run an example command (e.g., `omniagent hello`), **Then** I receive meaningful output demonstrating the command works
 2. **Given** the CLI is installed, **When** I run an example command with arguments, **Then** the command processes the arguments and reflects them in output
 3. **Given** the CLI is installed, **When** I run an example command with `--help`, **Then** I see usage information for that command
 

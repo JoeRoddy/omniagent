@@ -52,11 +52,11 @@ import yargs from 'yargs'
 import { hideBin } from 'yargs/helpers'
 
 yargs(hideBin(process.argv))
-  .scriptName('agentctrl')
+  .scriptName('omniagent')
   .version()
   .help()
-  .command('$0', 'agentctrl CLI', () => {}, () => {
-    console.log('Hello from agentctrl!')
+  .command('$0', 'omniagent CLI', () => {}, () => {
+    console.log('Hello from omniagent!')
   })
   .parse()
 ```
@@ -67,14 +67,14 @@ yargs(hideBin(process.argv))
 
 **Rationale**:
 - Standard npm pattern for CLI distribution
-- Allows `npx agentctrl` and global install
+- Allows `npx omniagent` and global install
 
 **Configuration**:
 ```json
 {
-  "name": "agentctrl",
+  "name": "omniagent",
   "bin": {
-    "agentctrl": "./dist/cli.js"
+    "omniagent": "./dist/cli.js"
   },
   "type": "module"
 }

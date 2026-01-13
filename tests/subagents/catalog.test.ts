@@ -4,7 +4,7 @@ import path from "node:path";
 import { loadSubagentCatalog } from "../../src/lib/subagents/catalog.js";
 
 async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> {
-	const root = await mkdtemp(path.join(os.tmpdir(), "agentctrl-catalog-"));
+	const root = await mkdtemp(path.join(os.tmpdir(), "omniagent-catalog-"));
 	try {
 		await fn(root);
 	} finally {

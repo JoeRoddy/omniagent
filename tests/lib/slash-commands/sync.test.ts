@@ -7,7 +7,7 @@ import {
 } from "../../../src/lib/slash-commands/sync.js";
 
 async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> {
-	const root = await mkdtemp(path.join(os.tmpdir(), "agentctrl-slash-commands-"));
+	const root = await mkdtemp(path.join(os.tmpdir(), "omniagent-slash-commands-"));
 	const homeDir = path.join(root, "home");
 	await mkdir(homeDir, { recursive: true });
 	const homeSpy = vi.spyOn(os, "homedir").mockReturnValue(homeDir);

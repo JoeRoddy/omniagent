@@ -24,7 +24,7 @@
 **Purpose**: Project initialization and basic structure
 
 - [X] T001 Create project directory structure: `src/cli/`, `dist/`
-- [X] T002 Initialize package.json with name "agentctrl", type "module", bin field pointing to `./dist/cli.js`
+- [X] T002 Initialize package.json with name "omniagent", type "module", bin field pointing to `./dist/cli.js`
 - [X] T003 [P] Install runtime dependency: yargs
 - [X] T004 [P] Install dev dependencies: typescript, vite, @types/yargs, @types/node
 - [X] T005 [P] Create tsconfig.json with ES module target, strict mode, Node.js types in project root
@@ -36,9 +36,9 @@
 
 ## Phase 2: User Story 1 - Run CLI Command (Priority: P1) 🎯 MVP
 
-**Goal**: A developer runs the agentctrl CLI and sees a hello world response
+**Goal**: A developer runs the omniagent CLI and sees a hello world response
 
-**Independent Test**: Run `node dist/cli.js` and verify "Hello from agentctrl!" appears
+**Independent Test**: Run `node dist/cli.js` and verify "Hello from omniagent!" appears
 
 ### Implementation for User Story 1
 
@@ -58,7 +58,7 @@
 
 - [X] T012 Verify `--help` flag works: `node dist/cli.js --help`
 - [X] T013 Verify `--version` flag works: `node dist/cli.js --version`
-- [X] T014 Run quickstart.md validation (npm link and test `agentctrl` command)
+- [X] T014 Run quickstart.md validation (npm link and test `omniagent` command)
 
 ---
 
@@ -113,7 +113,7 @@ T008: Create src/index.ts
 | Criteria | Task | Verification |
 |----------|------|--------------|
 | SC-001: `npm run build` produces working bundle | T010 | Build completes without errors |
-| SC-002: Running agentctrl displays output | T011 | "Hello from agentctrl!" appears |
+| SC-002: Running omniagent displays output | T011 | "Hello from omniagent!" appears |
 | SC-003: Only yargs runtime dependency | T003 | `npm ls --prod` shows only yargs |
 
 ---

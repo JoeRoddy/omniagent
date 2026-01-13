@@ -47,7 +47,7 @@ import { runCli } from '../../src/cli/index.js'
 const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
 // Invoke CLI with simulated args
-await runCli(['node', 'agentctrl', 'hello'])
+await runCli(['node', 'omniagent', 'hello'])
 
 // Assert output
 expect(consoleSpy).toHaveBeenCalledWith('Hello, World!')
@@ -110,7 +110,7 @@ tests/
 // Spy on process.exit for error cases
 const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
 
-await runCli(['node', 'agentctrl', 'greet']) // Missing required arg
+await runCli(['node', 'omniagent', 'greet']) // Missing required arg
 
 expect(exitSpy).toHaveBeenCalledWith(1)
 ```

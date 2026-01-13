@@ -14,7 +14,7 @@ export type SyncStateManifest = {
 	managedCommands: ManagedCommand[];
 };
 
-export const MANIFEST_FILENAME = ".agentctrl-slash-commands.toml";
+export const MANIFEST_FILENAME = ".omniagent-slash-commands.toml";
 
 export function resolveManifestPath(directory: string): string {
 	return path.join(directory, MANIFEST_FILENAME);

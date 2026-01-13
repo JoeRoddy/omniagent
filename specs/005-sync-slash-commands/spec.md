@@ -21,7 +21,7 @@
 
 ### User Story 1 - Sync commands to supported agents (Priority: P1)
 
-As a developer using agentctrl, I want my custom slash commands to sync to each AI agent that supports them, so I can reuse consistent workflows across tools.
+As a developer using omniagent, I want my custom slash commands to sync to each AI agent that supports them, so I can reuse consistent workflows across tools.
 
 **Why this priority**: This is the core value of the feature and enables cross-agent consistency.
 
@@ -103,7 +103,7 @@ As a user syncing to Codex, I need a clear warning that project-level custom sla
 
 ## Assumptions
 
-- Sync is one-way from agentctrl configuration to each agent's command configuration; importing existing agent commands is out of scope.
+- Sync is one-way from omniagent configuration to each agent's command configuration; importing existing agent commands is out of scope.
 - When an agent supports both project and personal/global scopes, the default choice is project scope (local) for now.
 - Skill conversions create project-scoped skills by default; for Codex, conversions default to global scope in the CLI.
 

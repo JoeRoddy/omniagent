@@ -5,7 +5,7 @@
 
 ## Summary
 
-Add Vitest as the testing framework for agentctrl CLI. Create 2-3 example CLI commands demonstrating common patterns (simple output, argument handling, options/flags) and write comprehensive tests for each command using Vitest.
+Add Vitest as the testing framework for omniagent CLI. Create 2-3 example CLI commands demonstrating common patterns (simple output, argument handling, options/flags) and write comprehensive tests for each command using Vitest.
 
 ## Technical Context
 

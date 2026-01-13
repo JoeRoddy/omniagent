@@ -64,7 +64,7 @@
 
 **Goal**: Provide 3 example CLI commands demonstrating common patterns (simple output, positional args, options/flags)
 
-**Independent Test**: Run each command (`agentctrl hello`, `agentctrl greet Alice`, `agentctrl echo "test"`) and verify output
+**Independent Test**: Run each command (`omniagent hello`, `omniagent greet Alice`, `omniagent echo "test"`) and verify output
 
 ### Implementation for User Story 2
 

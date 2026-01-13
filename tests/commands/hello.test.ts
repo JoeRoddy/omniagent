@@ -23,7 +23,7 @@ describe("hello command", () => {
 		await runCli(["node", "agentctrl", "hello", "--help"]);
 
 		const output = joinOutput(logSpy.mock.calls);
-		expect(output).toContain("agentctrl hello");
+		expect(output).toContain("omniagent hello");
 		expect(output).toContain("Options");
 	});
 });

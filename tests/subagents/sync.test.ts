@@ -4,7 +4,7 @@ import path from "node:path";
 import { applySubagentSync, planSubagentSync } from "../../src/lib/subagents/sync.js";
 
 async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> {
-	const root = await mkdtemp(path.join(os.tmpdir(), "agentctrl-subagents-"));
+	const root = await mkdtemp(path.join(os.tmpdir(), "omniagent-subagents-"));
 	const homeDir = path.join(root, "home");
 	await mkdir(homeDir, { recursive: true });
 	const homeSpy = vi.spyOn(os, "homedir").mockReturnValue(homeDir);

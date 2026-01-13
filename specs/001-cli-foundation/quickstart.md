@@ -19,23 +19,23 @@ node dist/cli.js
 
 # Or link for global access during development
 npm link
-agentctrl
+omniagent
 ```
 
 ## Expected Output
 
 ```
-Hello from agentctrl!
+Hello from omniagent!
 ```
 
 ## Verify Installation
 
 ```bash
 # Check version
-agentctrl --version
+omniagent --version
 
 # Check help
-agentctrl --help
+omniagent --help
 ```
 
 ## Development
@@ -50,7 +50,7 @@ npm test
 
 ## Troubleshooting
 
-**"command not found: agentctrl"**
+**"command not found: omniagent"**
 - Run `npm link` to create global symlink
 - Or run directly: `node dist/cli.js`
 

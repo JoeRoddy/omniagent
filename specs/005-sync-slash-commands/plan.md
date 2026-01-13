@@ -1,14 +1,14 @@
 # Implementation Plan: Sync Custom Slash Commands
 
-**Branch**: `005-sync-slash-commands` | **Date**: January 11, 2026 | **Spec**: `/Users/joeroddy/Documents/dev/projects/open-source/agentctrl/specs/005-sync-slash-commands/spec.md`
-**Input**: Feature specification from `/Users/joeroddy/Documents/dev/projects/open-source/agentctrl/specs/005-sync-slash-commands/spec.md`
+**Branch**: `005-sync-slash-commands` | **Date**: January 11, 2026 | **Spec**: `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/specs/005-sync-slash-commands/spec.md`
+**Input**: Feature specification from `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/specs/005-sync-slash-commands/spec.md`
 
 **Note**: This template is filled in by the `/speckit.plan` command. See `.specify/templates/commands/plan.md` for the execution workflow.
 
 ## Summary
 
 Add a `sync-commands` CLI flow that reads canonical slash commands from
-`/Users/joeroddy/Documents/dev/projects/open-source/agentctrl/agents/commands/`
+`/Users/joeroddy/Documents/dev/projects/open-source/omniagent/agents/commands/`
 in Claude Code's command definition format and ports them to Gemini CLI, Codex,
 and other targets. The flow includes default local scope (project) for
 Claude/Gemini, conflict handling, safe removal of previously synced commands,
@@ -56,7 +56,7 @@ tracking, explicit warnings, and contract outputs aligned with the constitution.
 ### Documentation (this feature)
 
 ```text
-/Users/joeroddy/Documents/dev/projects/open-source/agentctrl/specs/005-sync-slash-commands/
+/Users/joeroddy/Documents/dev/projects/open-source/omniagent/specs/005-sync-slash-commands/
 ├── plan.md              # This file (/speckit.plan command output)
 ├── research.md          # Phase 0 output (/speckit.plan command)
 ├── data-model.md        # Phase 1 output (/speckit.plan command)
@@ -68,7 +68,7 @@ tracking, explicit warnings, and contract outputs aligned with the constitution.
 ### Source Code (repository root)
 
 ```text
-/Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/
+/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/
 ├── cli/
 │   ├── commands/
 │   │   ├── sync.ts              # existing (skills)
@@ -84,16 +84,16 @@ tracking, explicit warnings, and contract outputs aligned with the constitution.
 │   └── sync-targets.ts           # existing
 └── index.ts
 
-/Users/joeroddy/Documents/dev/projects/open-source/agentctrl/tests/
+/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/
 └── commands/
     ├── sync.test.ts              # existing
     └── sync-commands.test.ts     # new
 ```
 
 **Structure Decision**: Single CLI project. Add a new command under
-`/Users/joeroddy/Documents/dev/projects/open-source/agentctrl/src/cli/commands/`
+`/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/`
 with shared slash-command logic in `src/lib/slash-commands/`, and tests under
-`/Users/joeroddy/Documents/dev/projects/open-source/agentctrl/tests/commands/`.
+`/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/`.
 
 ## Complexity Tracking
 

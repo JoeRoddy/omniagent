@@ -56,14 +56,14 @@ Represents a skill file derived from a subagent for unsupported targets.
 
 ### ManagedOutputRecord
 
-Tracks outputs created by agentctrl to allow safe updates/removals.
+Tracks outputs created by omniagent to allow safe updates/removals.
 
 **Fields**:
 - `targetName` (enum)
 - `outputPath` (string)
 - `resolvedName` (string)
 - `contentHash` (string)
-- `managedBy` (string): `agentctrl`
+- `managedBy` (string): `omniagent`
 
 ## Relationships
 

@@ -4,7 +4,7 @@
 
 ## Overview
 
-This document consolidates research findings for integrating Biome as the formatting and linting tool for agentctrl, replacing or complementing existing tooling with a unified, fast solution.
+This document consolidates research findings for integrating Biome as the formatting and linting tool for omniagent, replacing or complementing existing tooling with a unified, fast solution.
 
 ## Decision: Biome vs ESLint/Prettier
 

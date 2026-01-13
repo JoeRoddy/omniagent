@@ -23,15 +23,15 @@ As a repo maintainer, I want to run a single sync command that copies the canoni
 
 **Why this priority**: This is the primary value of the command and the most common usage.
 
-**Independent Test**: Run `agentctrl sync` with a known source config and verify each supported target is updated.
+**Independent Test**: Run `omniagent sync` with a known source config and verify each supported target is updated.
 
 **Acceptance Scenarios**:
 
-1. **Given** a valid canonical config source and all destinations available, **When** the user runs `agentctrl sync`, **Then** each supported target receives the latest config and the command reports a synced outcome for each target.
-2. **Given** a valid canonical config source and one or more missing destination directories, **When** the user runs `agentctrl sync`, **Then** the command creates the missing destinations and completes the sync for each target.
-3. **Given** a destination contains files not present in the canonical config, **When** the user runs `agentctrl sync`, **Then** those extra destination files remain intact after syncing.
-4. **Given** the user runs the command from a subdirectory of the repository, **When** `agentctrl sync` is executed, **Then** the repo root is resolved automatically and the sync succeeds.
-5. **Given** syncing one target fails, **When** `agentctrl sync` is executed, **Then** the command continues syncing remaining targets and exits non-zero after reporting all results.
+1. **Given** a valid canonical config source and all destinations available, **When** the user runs `omniagent sync`, **Then** each supported target receives the latest config and the command reports a synced outcome for each target.
+2. **Given** a valid canonical config source and one or more missing destination directories, **When** the user runs `omniagent sync`, **Then** the command creates the missing destinations and completes the sync for each target.
+3. **Given** a destination contains files not present in the canonical config, **When** the user runs `omniagent sync`, **Then** those extra destination files remain intact after syncing.
+4. **Given** the user runs the command from a subdirectory of the repository, **When** `omniagent sync` is executed, **Then** the repo root is resolved automatically and the sync succeeds.
+5. **Given** syncing one target fails, **When** `omniagent sync` is executed, **Then** the command continues syncing remaining targets and exits non-zero after reporting all results.
 
 ---
 
@@ -41,12 +41,12 @@ As a repo maintainer, I want to include or exclude specific targets so I can upd
 
 **Why this priority**: Selective updates reduce risk and speed up workflows when only one target needs changes.
 
-**Independent Test**: Run `agentctrl sync --skip codex` and `agentctrl sync --only claude` and verify only the intended targets update.
+**Independent Test**: Run `omniagent sync --skip codex` and `omniagent sync --only claude` and verify only the intended targets update.
 
 **Acceptance Scenarios**:
 
-1. **Given** a valid canonical config source, **When** the user runs `agentctrl sync --skip codex`, **Then** all targets except `codex` are synced and the output marks `codex` as skipped.
-2. **Given** a valid canonical config source, **When** the user runs `agentctrl sync --only claude`, **Then** only `claude` is synced and all other targets are skipped.
+1. **Given** a valid canonical config source, **When** the user runs `omniagent sync --skip codex`, **Then** all targets except `codex` are synced and the output marks `codex` as skipped.
+2. **Given** a valid canonical config source, **When** the user runs `omniagent sync --only claude`, **Then** only `claude` is synced and all other targets are skipped.
 3. **Given** the user provides both `--skip` and `--only`, **When** the command runs, **Then** it exits with a clear error explaining the conflict and performs no sync.
 4. **Given** the user provides an unknown target name in `--skip` or `--only`, **When** the command runs, **Then** it exits with a clear error and performs no sync.
 
@@ -58,12 +58,12 @@ As a user, I want clear help text and actionable error messages so I can correct
 
 **Why this priority**: Good feedback prevents misconfiguration and reduces support overhead.
 
-**Independent Test**: Run `agentctrl sync --help` and induce a failure (missing source) to validate the messages.
+**Independent Test**: Run `omniagent sync --help` and induce a failure (missing source) to validate the messages.
 
 **Acceptance Scenarios**:
 
-1. **Given** the user runs `agentctrl sync --help`, **When** the command executes, **Then** it prints usage, options, and the list of supported targets.
-2. **Given** the canonical config source is missing, **When** the user runs `agentctrl sync`, **Then** the command exits with a non-zero status and a clear message indicating the source path could not be found.
+1. **Given** the user runs `omniagent sync --help`, **When** the command executes, **Then** it prints usage, options, and the list of supported targets.
+2. **Given** the canonical config source is missing, **When** the user runs `omniagent sync`, **Then** the command exits with a non-zero status and a clear message indicating the source path could not be found.
 
 ---
 
@@ -78,7 +78,7 @@ As a user, I want clear help text and actionable error messages so I can correct
 
 ### Functional Requirements
 
-- **FR-001**: The system MUST provide a `sync` command under the `agentctrl` CLI.
+- **FR-001**: The system MUST provide a `sync` command under the `omniagent` CLI.
 - **FR-002**: The system MUST sync the canonical agent configuration to all supported targets when no filters are provided.
 - **FR-003**: The system MUST support `--skip` with a comma-separated list of target names to exclude from syncing.
 - **FR-004**: The system MUST support `--only` with a comma-separated list of target names to include in syncing.

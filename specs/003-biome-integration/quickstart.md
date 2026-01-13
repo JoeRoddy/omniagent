@@ -4,7 +4,7 @@
 
 ## Overview
 
-This guide provides a quick reference for developers working with Biome formatting and linting in the agentctrl project.
+This guide provides a quick reference for developers working with Biome formatting and linting in the omniagent project.
 
 ---
 

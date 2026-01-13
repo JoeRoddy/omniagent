@@ -2,7 +2,7 @@
 
 ## Repo Root Resolution
 - Decision: Walk upward from `process.cwd()` to locate a directory containing
-  `/Users/joeroddy/Documents/dev/projects/open-source/agentctrl/agents/skills`-style
+  `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/agents/skills`-style
   `agents/skills` and treat that directory as the repo root.
 - Rationale: Works from any subdirectory, avoids external tools, and directly
   matches the canonical source location required by the spec.

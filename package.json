@@ -1,10 +1,10 @@
 {
-  "name": "agentctrl",
+  "name": "omniagent",
   "version": "0.0.1",
   "description": "Unified agent configuration CLI that compiles canonical agent configs to multiple runtimes.",
   "type": "module",
   "bin": {
-    "agentctrl": "./dist/cli.js"
+    "omniagent": "./dist/cli.js"
   },
   "main": "./dist/index.js",
   "scripts": {

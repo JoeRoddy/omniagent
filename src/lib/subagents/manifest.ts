@@ -24,7 +24,7 @@ export function resolveManifestPath(
 	homeDir: string,
 ): string {
 	const repoHash = hashIdentifier(repoRoot);
-	const baseDir = path.join(homeDir, ".agentctrl", "state", "subagents", "projects", repoHash);
+	const baseDir = path.join(homeDir, ".omniagent", "state", "subagents", "projects", repoHash);
 	return path.join(baseDir, `${targetName}.toml`);
 }
 

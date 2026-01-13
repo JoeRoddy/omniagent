@@ -24,7 +24,7 @@ AGENT
 ## 3) Sync to targets
 
 ```bash
-agentctrl sync
+omniagent sync
 ```
 
 - Claude Code receives project subagents in `.claude/agents/`.

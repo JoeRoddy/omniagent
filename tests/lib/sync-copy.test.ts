@@ -4,7 +4,7 @@ import path from "node:path";
 import { copyDirectoryWithTemplating } from "../../src/lib/sync-copy.js";
 
 async function withTempDir(fn: (root: string) => Promise<void>): Promise<void> {
-	const root = await mkdtemp(path.join(os.tmpdir(), "agentctrl-copy-"));
+	const root = await mkdtemp(path.join(os.tmpdir(), "omniagent-copy-"));
 	try {
 		await fn(root);
 	} finally {

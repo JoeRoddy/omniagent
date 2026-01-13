@@ -43,19 +43,19 @@ After building, test the example commands:
 
 ```bash
 # Simple greeting
-npx agentctrl hello
+npx omniagent hello
 # Output: Hello, World!
 
 # Personalized greeting
-npx agentctrl greet Alice
+npx omniagent greet Alice
 # Output: Hello, Alice!
 
 # Uppercase greeting
-npx agentctrl greet Bob --uppercase
+npx omniagent greet Bob --uppercase
 # Output: HELLO, BOB!
 
 # Echo with options
-npx agentctrl echo "test" --times 3 --prefix "> "
+npx omniagent echo "test" --times 3 --prefix "> "
 # Output:
 # > test
 # > test
@@ -105,7 +105,7 @@ npx agentctrl echo "test" --times 3 --prefix "> "
      })
 
      it('should process argument', async () => {
-       await runCli(['node', 'agentctrl', 'mycommand', 'test-value'])
+       await runCli(['node', 'omniagent', 'mycommand', 'test-value'])
        expect(consoleSpy).toHaveBeenCalledWith('Received: test-value')
      })
    })
@@ -119,7 +119,7 @@ npx agentctrl echo "test" --times 3 --prefix "> "
 ## Project Structure
 
 ```
-agentctrl/
+omniagent/
 ├── src/
 │   ├── index.ts
 │   └── cli/

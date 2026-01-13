@@ -9,7 +9,7 @@
 
 ### User Story 1 - Automated Code Quality Checks (Priority: P1)
 
-As a developer working on agentctrl, I want code formatting and linting to run automatically during the build process so that code quality standards are consistently enforced without manual intervention.
+As a developer working on omniagent, I want code formatting and linting to run automatically during the build process so that code quality standards are consistently enforced without manual intervention.
 
 **Why this priority**: This is the core value proposition - ensuring code quality is checked as part of the standard development workflow prevents inconsistent code from being committed or built.
 
