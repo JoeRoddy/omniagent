@@ -31,28 +31,28 @@ Right now, omniagent focuses on **skills**, **subagents**, and **slash commands*
 ## Quick start
 
 ```bash
-# 1) Create canonical skills
-mkdir -p agents/skills
-printf "# My Skill\n" > agents/skills/example.md
-
-# 2) Create a canonical slash command
-mkdir -p agents/commands
-cat <<'CMD' > agents/commands/plan-release.md
+# 1) Create a subagent
+mkdir -p agents/agents
+cat > agents/agents/release-helper.md <<'AGENT'
 ---
-description: Plan a release
-targets:
-  - claude
-  - gemini
+name: release-helper
+description: "Help draft release plans and checklists."
 ---
 Draft a release plan with milestones and owners.
-CMD
+AGENT
 
-# 3) Build the CLI
-npm install
-npm run build
+# 2) sync your tooling to your desired agents
+npx omniagent@latest sync --only claude,codex,gemini
+```
 
-# 4) Sync to all targets
-node dist/cli.js sync
+Only Claude supports native subagents. Other targets will receive converted skills.
+
+Example outputs:
+
+```text
+.claude/agents/release-helper.md
+.codex/skills/release-helper/SKILL.md
+.gemini/skills/release-helper/SKILL.md
 ```
 
 ## Skills
@@ -98,16 +98,17 @@ More shared content.
 ## Sync command
 
 ```bash
-omniagent sync
-omniagent sync --only claude
-omniagent sync --only gemini
-omniagent sync --skip codex
-omniagent sync --yes
-omniagent sync --json
+npx omniagent@latest sync
+npx omniagent@latest sync --only claude
+npx omniagent@latest sync --only gemini
+npx omniagent@latest sync --skip codex
+npx omniagent@latest sync --yes
+npx omniagent@latest sync --json
 ```
 
 ## Roadmap
 
+- Honor `targets`/`targetAgents` frontmatter across skills, subagents, and slash commands, and strip it from generated outputs/conversions
 - Skills, agents, and slash commands unification
 - AGENT.md unification (mirroring CLAUDE.md, cursor rules, etc)
 - private / local config
