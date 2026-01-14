@@ -72,14 +72,15 @@ results and outputs.
 1. **Given** a file with both `targets` and `targetAgents`, **When** I run sync, **Then** the
    effective target set is the combined unique values.
 2. **Given** a file that includes an unsupported target value, **When** I run sync, **Then** the
-   user is informed and that value does not receive outputs.
+   sync fails with an error that names the file and unsupported values, and no outputs are produced
+   for that file.
 
 ---
 
 ### Edge Cases
 
-- A file declares an empty targets list or an empty string.
-- A file declares only unsupported targets.
+- A file declares an empty targets list or an empty string (sync should error).
+- A file declares only unsupported targets (sync should error).
 - A file includes duplicate targets with different casing.
 - A subagent targets a non-Claude agent (conversion still applies) while another targets Claude
   only.
@@ -103,7 +104,7 @@ results and outputs.
 - **FR-006**: If both `targets` and `targetAgents` are present, the effective target set is the
   combined unique values.
 - **FR-007**: If a file's effective target set is empty or only includes unsupported values, the
-  file is not synced to any target and the user is informed.
+  sync MUST fail with an error that identifies the file and invalid targets.
 - **FR-008**: Generated outputs and converted artifacts MUST NOT include `targets` or
   `targetAgents` metadata.
 - **FR-009**: Targeting behavior MUST apply consistently to all supported syncable features and
@@ -118,7 +119,8 @@ results and outputs.
 - **FR-004**: Target values are accepted in any casing and resolve to the supported set only.
 - **FR-005**: Single-value and list formats both resolve to the same effective targets.
 - **FR-006**: Files with both fields produce a combined, de-duplicated target set.
-- **FR-007**: Files with no valid targets produce no outputs and surface a user notice.
+- **FR-007**: Files with no valid targets cause the sync to exit with a non-zero error and a clear
+  message referencing the file and invalid/empty targets.
 - **FR-008**: Outputs do not contain target-related metadata in any generated file.
 - **FR-009**: The same target selection logic applies to skills, subagents, and slash commands.
 
@@ -158,5 +160,5 @@ results and outputs.
 - **SC-002**: In a sync run with explicit target overrides, 100% of outputs match the override
   selection regardless of frontmatter defaults.
 - **SC-003**: 0 generated output files contain `targets` or `targetAgents` metadata.
-- **SC-004**: For every file containing unsupported target values, the user receives a clear notice
-  and no outputs are produced for those unsupported targets.
+- **SC-004**: For every file containing unsupported or empty target values, the sync fails with a
+  clear error and non-zero exit status, and no outputs are produced for that file.
