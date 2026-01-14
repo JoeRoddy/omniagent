@@ -12,6 +12,13 @@ export type RawTargetValue = string | string[] | null | undefined;
 const targetNames = TARGETS.map((target) => target.name) as TargetName[];
 const targetNameSet = new Set<TargetName>(targetNames);
 
+export class InvalidFrontmatterTargetsError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "InvalidFrontmatterTargetsError";
+	}
+}
+
 export function isTargetName(value: string): value is TargetName {
 	return targetNameSet.has(value as TargetName);
 }
@@ -75,6 +82,10 @@ export function resolveFrontmatterTargets<T extends string>(
 		targets: dedupedTargets.length > 0 ? dedupedTargets : null,
 		invalidTargets: dedupedInvalids,
 	};
+}
+
+export function hasRawTargetValues(rawValues: RawTargetValue[]): boolean {
+	return rawValues.some((value) => value !== undefined && value !== null);
 }
 
 export function resolveEffectiveTargets<T extends string>(options: {

@@ -44,7 +44,11 @@ import {
 	type SyncResult,
 	type SyncSummary,
 } from "../../lib/sync-results.js";
-import { type TargetName as SkillTargetName, TARGETS } from "../../lib/sync-targets.js";
+import {
+	InvalidFrontmatterTargetsError,
+	type TargetName as SkillTargetName,
+	TARGETS,
+} from "../../lib/sync-targets.js";
 
 type SyncArgs = {
 	skip?: string | string[];
@@ -234,6 +238,12 @@ function logWithChannel(message: string, jsonOutput: boolean) {
 		return;
 	}
 	console.log(message);
+}
+
+function rethrowIfInvalidTargets(error: unknown): void {
+	if (error instanceof InvalidFrontmatterTargetsError) {
+		throw error;
+	}
 }
 
 function logNonInteractiveNotices(options: {
@@ -449,6 +459,7 @@ async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSync
 			validAgents: options.validAgents,
 		});
 	} catch (error) {
+		rethrowIfInvalidTargets(error);
 		const message = error instanceof Error ? error.message : String(error);
 		return buildSubagentSummary(sourcePath, options.targets, "failed", message);
 	}
@@ -456,6 +467,7 @@ async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSync
 	try {
 		return await applySubagentSync(planDetails);
 	} catch (error) {
+		rethrowIfInvalidTargets(error);
 		const message = error instanceof Error ? error.message : String(error);
 		return buildSubagentSummary(sourcePath, options.targets, "failed", message);
 	}
@@ -554,6 +566,7 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 	try {
 		planDetails = await planSlashCommandSync(planRequestBase);
 	} catch (error) {
+		rethrowIfInvalidTargets(error);
 		const message = error instanceof Error ? error.message : String(error);
 		return buildCommandSummary(sourcePath, options.targets, "failed", message);
 	}
@@ -596,6 +609,7 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 	try {
 		return await applySlashCommandSync(planDetails);
 	} catch (error) {
+		rethrowIfInvalidTargets(error);
 		const message = error instanceof Error ? error.message : String(error);
 		return buildCommandSummary(sourcePath, options.targets, "failed", message);
 	}
@@ -642,182 +656,193 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			.example("omniagent sync --yes", "Accept defaults and apply changes")
 			.example("omniagent sync --json", "Output a JSON summary"),
 	handler: async (argv) => {
-		const skipList = parseList(argv.skip);
-		const onlyList = parseList(argv.only);
-
-		const supportedTargetSet = new Set(ALL_TARGETS);
-		const unknownTargets = [...skipList, ...onlyList].filter(
-			(name) => !supportedTargetSet.has(name),
-		);
-		if (unknownTargets.length > 0) {
-			const unknownList = unknownTargets.join(", ");
-			console.error(
-				`Error: Unknown target name(s): ${unknownList}. Supported targets: ${SUPPORTED_TARGETS}.`,
-			);
-			process.exit(1);
-			return;
-		}
-
-		const skipSet = new Set(skipList);
-		const onlySet = new Set(onlyList);
-		const selectedTargets = ALL_TARGETS.filter((name) => {
-			if (onlySet.size > 0 && !onlySet.has(name)) {
-				return false;
-			}
-			if (skipSet.size > 0 && skipSet.has(name)) {
-				return false;
-			}
-			return true;
-		});
-		const overrideOnly = onlyList.length > 0 ? onlyList : undefined;
-		const overrideSkip = skipList.length > 0 ? skipList : undefined;
-		const validAgents = [...SUPPORTED_AGENT_NAMES];
-
-		if (selectedTargets.length === 0) {
-			console.error("Error: No targets selected after applying filters.");
-			process.exit(1);
-			return;
-		}
-
-		const startDir = process.cwd();
-		const repoRoot = await findRepoRoot(startDir);
-
-		if (!repoRoot) {
-			console.error(
-				`Error: Repository root not found starting from ${startDir}. Looked for .git or package.json.`,
-			);
-			process.exit(1);
-			return;
-		}
-
-		const selectedSkillTargets = TARGETS.filter((target) => selectedTargets.includes(target.name));
-		const selectedCommandTargets = SLASH_COMMAND_TARGETS.filter((target) =>
-			selectedTargets.includes(target.name),
-		).map((target) => target.name as CommandTargetName);
-
-		const selectedSubagentTargets = SUBAGENT_TARGETS.filter((target) =>
-			selectedTargets.includes(target.name),
-		).map((target) => target.name as SubagentTargetName);
-
-		const skillsSourcePath = path.join(repoRoot, "agents", "skills");
-		const commandsSourcePath = path.join(repoRoot, "agents", "commands");
-
-		const skillsAvailable =
-			selectedSkillTargets.length > 0 ? await assertSourceDirectory(skillsSourcePath) : false;
-		const commandsStatus =
-			selectedCommandTargets.length > 0
-				? await getCommandCatalogStatus(commandsSourcePath)
-				: ({ available: true } as CatalogStatus);
-
-		const hasSkillsToSync = selectedSkillTargets.length > 0 && skillsAvailable;
-		const hasCommandsToSync = selectedCommandTargets.length > 0 && commandsStatus.available;
-		const hasSubagentsToSync = selectedSubagentTargets.length > 0;
-
-		if (!hasSkillsToSync && !hasCommandsToSync && !hasSubagentsToSync) {
-			const missingMessages: string[] = [];
-			if (selectedSkillTargets.length > 0 && !skillsAvailable) {
-				missingMessages.push(`Canonical config source not found at ${skillsSourcePath}.`);
-			}
-			if (selectedCommandTargets.length > 0 && !commandsStatus.available) {
-				missingMessages.push(commandsStatus.reason);
-			}
-			const message =
-				missingMessages.length > 0 ? missingMessages.join(" ") : "No sources to sync.";
-			console.error(`Error: ${message}`);
-			process.exit(1);
-			return;
-		}
-
 		try {
-			await validateTemplatingSources({
-				repoRoot,
-				validAgents,
-				commandsAvailable: hasCommandsToSync,
-				skillsAvailable: hasSkillsToSync,
-			});
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			console.error(message);
-			process.exit(1);
-			return;
-		}
+			const skipList = parseList(argv.skip);
+			const onlyList = parseList(argv.only);
 
-		const commandsSummary = await syncSlashCommands({
-			repoRoot,
-			targets: selectedCommandTargets,
-			overrideOnly: overrideOnly as CommandTargetName[] | undefined,
-			overrideSkip: overrideSkip as CommandTargetName[] | undefined,
-			jsonOutput: argv.json,
-			yes: argv.yes,
-			removeMissing: argv.removeMissing,
-			conflicts: argv.conflicts,
-			catalogStatus: commandsStatus,
-			validAgents,
-		});
-
-		const subagentSummary = await syncSubagents({
-			repoRoot,
-			targets: selectedSubagentTargets,
-			overrideOnly: overrideOnly as SubagentTargetName[] | undefined,
-			overrideSkip: overrideSkip as SubagentTargetName[] | undefined,
-			removeMissing: argv.removeMissing,
-			validAgents,
-		});
-
-		// Sync conversions before copying canonical skills.
-		let skillsSummary: SyncSummary;
-		if (selectedSkillTargets.length === 0) {
-			skillsSummary = buildSummary(skillsSourcePath, []);
-		} else if (!skillsAvailable) {
-			const reason = `Canonical config source not found at ${skillsSourcePath}.`;
-			skillsSummary = buildSkillsSummary(
-				repoRoot,
-				skillsSourcePath,
-				selectedSkillTargets,
-				"skipped",
-				reason,
+			const supportedTargetSet = new Set(ALL_TARGETS);
+			const unknownTargets = [...skipList, ...onlyList].filter(
+				(name) => !supportedTargetSet.has(name),
 			);
-		} else {
-			skillsSummary = await syncSkillTargets({
+			if (unknownTargets.length > 0) {
+				const unknownList = unknownTargets.join(", ");
+				console.error(
+					`Error: Unknown target name(s): ${unknownList}. Supported targets: ${SUPPORTED_TARGETS}.`,
+				);
+				process.exit(1);
+				return;
+			}
+
+			const skipSet = new Set(skipList);
+			const onlySet = new Set(onlyList);
+			const selectedTargets = ALL_TARGETS.filter((name) => {
+				if (onlySet.size > 0 && !onlySet.has(name)) {
+					return false;
+				}
+				if (skipSet.size > 0 && skipSet.has(name)) {
+					return false;
+				}
+				return true;
+			});
+			const overrideOnly = onlyList.length > 0 ? onlyList : undefined;
+			const overrideSkip = skipList.length > 0 ? skipList : undefined;
+			const validAgents = [...SUPPORTED_AGENT_NAMES];
+
+			if (selectedTargets.length === 0) {
+				console.error("Error: No targets selected after applying filters.");
+				process.exit(1);
+				return;
+			}
+
+			const startDir = process.cwd();
+			const repoRoot = await findRepoRoot(startDir);
+
+			if (!repoRoot) {
+				console.error(
+					`Error: Repository root not found starting from ${startDir}. Looked for .git or package.json.`,
+				);
+				process.exit(1);
+				return;
+			}
+
+			const selectedSkillTargets = TARGETS.filter((target) =>
+				selectedTargets.includes(target.name),
+			);
+			const selectedCommandTargets = SLASH_COMMAND_TARGETS.filter((target) =>
+				selectedTargets.includes(target.name),
+			).map((target) => target.name as CommandTargetName);
+
+			const selectedSubagentTargets = SUBAGENT_TARGETS.filter((target) =>
+				selectedTargets.includes(target.name),
+			).map((target) => target.name as SubagentTargetName);
+
+			const skillsSourcePath = path.join(repoRoot, "agents", "skills");
+			const commandsSourcePath = path.join(repoRoot, "agents", "commands");
+
+			const skillsAvailable =
+				selectedSkillTargets.length > 0 ? await assertSourceDirectory(skillsSourcePath) : false;
+			const commandsStatus =
+				selectedCommandTargets.length > 0
+					? await getCommandCatalogStatus(commandsSourcePath)
+					: ({ available: true } as CatalogStatus);
+
+			const hasSkillsToSync = selectedSkillTargets.length > 0 && skillsAvailable;
+			const hasCommandsToSync = selectedCommandTargets.length > 0 && commandsStatus.available;
+			const hasSubagentsToSync = selectedSubagentTargets.length > 0;
+
+			if (!hasSkillsToSync && !hasCommandsToSync && !hasSubagentsToSync) {
+				const missingMessages: string[] = [];
+				if (selectedSkillTargets.length > 0 && !skillsAvailable) {
+					missingMessages.push(`Canonical config source not found at ${skillsSourcePath}.`);
+				}
+				if (selectedCommandTargets.length > 0 && !commandsStatus.available) {
+					missingMessages.push(commandsStatus.reason);
+				}
+				const message =
+					missingMessages.length > 0 ? missingMessages.join(" ") : "No sources to sync.";
+				console.error(`Error: ${message}`);
+				process.exit(1);
+				return;
+			}
+
+			try {
+				await validateTemplatingSources({
+					repoRoot,
+					validAgents,
+					commandsAvailable: hasCommandsToSync,
+					skillsAvailable: hasSkillsToSync,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				console.error(message);
+				process.exit(1);
+				return;
+			}
+
+			const commandsSummary = await syncSlashCommands({
 				repoRoot,
-				targets: selectedSkillTargets,
-				overrideOnly: overrideOnly as SkillTargetName[] | undefined,
-				overrideSkip: overrideSkip as SkillTargetName[] | undefined,
+				targets: selectedCommandTargets,
+				overrideOnly: overrideOnly as CommandTargetName[] | undefined,
+				overrideSkip: overrideSkip as CommandTargetName[] | undefined,
+				jsonOutput: argv.json,
+				yes: argv.yes,
+				removeMissing: argv.removeMissing,
+				conflicts: argv.conflicts,
+				catalogStatus: commandsStatus,
 				validAgents,
 			});
-		}
 
-		const combined = {
-			skills: skillsSummary,
-			subagents: subagentSummary,
-			commands: commandsSummary,
-			hadFailures:
-				skillsSummary.hadFailures || subagentSummary.hadFailures || commandsSummary.hadFailures,
-		};
+			const subagentSummary = await syncSubagents({
+				repoRoot,
+				targets: selectedSubagentTargets,
+				overrideOnly: overrideOnly as SubagentTargetName[] | undefined,
+				overrideSkip: overrideSkip as SubagentTargetName[] | undefined,
+				removeMissing: argv.removeMissing,
+				validAgents,
+			});
 
-		if (argv.json) {
-			console.log(JSON.stringify(combined, null, 2));
-		} else {
-			const outputs: string[] = [];
-			const skillsOutput = formatSummary(skillsSummary, false);
-			if (skillsOutput.length > 0) {
-				outputs.push(skillsOutput);
+			// Sync conversions before copying canonical skills.
+			let skillsSummary: SyncSummary;
+			if (selectedSkillTargets.length === 0) {
+				skillsSummary = buildSummary(skillsSourcePath, []);
+			} else if (!skillsAvailable) {
+				const reason = `Canonical config source not found at ${skillsSourcePath}.`;
+				skillsSummary = buildSkillsSummary(
+					repoRoot,
+					skillsSourcePath,
+					selectedSkillTargets,
+					"skipped",
+					reason,
+				);
+			} else {
+				skillsSummary = await syncSkillTargets({
+					repoRoot,
+					targets: selectedSkillTargets,
+					overrideOnly: overrideOnly as SkillTargetName[] | undefined,
+					overrideSkip: overrideSkip as SkillTargetName[] | undefined,
+					validAgents,
+				});
 			}
-			const subagentOutput = formatSubagentSummary(subagentSummary, false);
-			if (subagentOutput.length > 0) {
-				outputs.push(subagentOutput);
-			}
-			const commandOutput = formatCommandSummary(commandsSummary, false);
-			if (commandOutput.length > 0) {
-				outputs.push(commandOutput);
-			}
-			if (outputs.length > 0) {
-				console.log(outputs.join("\n"));
-			}
-		}
 
-		if (combined.hadFailures) {
-			process.exitCode = 1;
+			const combined = {
+				skills: skillsSummary,
+				subagents: subagentSummary,
+				commands: commandsSummary,
+				hadFailures:
+					skillsSummary.hadFailures || subagentSummary.hadFailures || commandsSummary.hadFailures,
+			};
+
+			if (argv.json) {
+				console.log(JSON.stringify(combined, null, 2));
+			} else {
+				const outputs: string[] = [];
+				const skillsOutput = formatSummary(skillsSummary, false);
+				if (skillsOutput.length > 0) {
+					outputs.push(skillsOutput);
+				}
+				const subagentOutput = formatSubagentSummary(subagentSummary, false);
+				if (subagentOutput.length > 0) {
+					outputs.push(subagentOutput);
+				}
+				const commandOutput = formatCommandSummary(commandsSummary, false);
+				if (commandOutput.length > 0) {
+					outputs.push(commandOutput);
+				}
+				if (outputs.length > 0) {
+					console.log(outputs.join("\n"));
+				}
+			}
+
+			if (combined.hadFailures) {
+				process.exitCode = 1;
+			}
+		} catch (error) {
+			if (error instanceof InvalidFrontmatterTargetsError) {
+				console.error(`Error: ${error.message}`);
+				process.exit(1);
+				return;
+			}
+			throw error;
 		}
 	},
 };

@@ -1,6 +1,10 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { resolveFrontmatterTargets } from "../sync-targets.js";
+import {
+	hasRawTargetValues,
+	InvalidFrontmatterTargetsError,
+	resolveFrontmatterTargets,
+} from "../sync-targets.js";
 import { extractFrontmatter, type FrontmatterValue } from "./frontmatter.js";
 import { isSlashCommandTargetName, type TargetName } from "./targets.js";
 
@@ -77,10 +81,22 @@ export async function loadCommandCatalog(repoRoot: string): Promise<CommandCatal
 			throw new Error(`Slash command "${fileName}" has an empty prompt.`);
 		}
 
+		const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
 		const { targets, invalidTargets } = resolveFrontmatterTargets(
-			[frontmatter.targets, frontmatter.targetAgents],
+			rawTargets,
 			isSlashCommandTargetName,
 		);
+		if (invalidTargets.length > 0) {
+			const invalidList = invalidTargets.join(", ");
+			throw new InvalidFrontmatterTargetsError(
+				`Slash command "${fileName}" has unsupported targets (${invalidList}) in ${filePath}.`,
+			);
+		}
+		if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
+			throw new InvalidFrontmatterTargetsError(
+				`Slash command "${fileName}" has empty targets in ${filePath}.`,
+			);
+		}
 		commands.push({
 			name: fileName,
 			prompt,

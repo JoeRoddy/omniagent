@@ -1,7 +1,13 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { extractFrontmatter, type FrontmatterValue } from "../slash-commands/frontmatter.js";
-import { isTargetName, resolveFrontmatterTargets, type TargetName } from "../sync-targets.js";
+import {
+	hasRawTargetValues,
+	InvalidFrontmatterTargetsError,
+	isTargetName,
+	resolveFrontmatterTargets,
+	type TargetName,
+} from "../sync-targets.js";
 
 export type SkillDefinition = {
 	name: string;
@@ -93,10 +99,19 @@ export async function loadSkillCatalog(repoRoot: string): Promise<SkillCatalog> 
 		const { frontmatter, body } = extractFrontmatter(rawContents);
 		const relativePath = path.relative(skillsRoot, directory);
 		const name = resolveSkillName(frontmatter, relativePath || path.basename(directory));
-		const { targets, invalidTargets } = resolveFrontmatterTargets(
-			[frontmatter.targets, frontmatter.targetAgents],
-			isTargetName,
-		);
+		const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
+		const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, isTargetName);
+		if (invalidTargets.length > 0) {
+			const invalidList = invalidTargets.join(", ");
+			throw new InvalidFrontmatterTargetsError(
+				`Skill "${name}" has unsupported targets (${invalidList}) in ${sourcePath}.`,
+			);
+		}
+		if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
+			throw new InvalidFrontmatterTargetsError(
+				`Skill "${name}" has empty targets in ${sourcePath}.`,
+			);
+		}
 
 		skills.push({
 			name,

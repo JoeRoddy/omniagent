@@ -88,6 +88,20 @@ async function writeSubagent(root: string, name: string, body: string): Promise<
 	return filePath;
 }
 
+async function writeSubagentWithFrontmatter(
+	root: string,
+	fileName: string,
+	frontmatterLines: string[],
+	body: string,
+): Promise<string> {
+	const catalogDir = path.join(root, "agents", "agents");
+	await mkdir(catalogDir, { recursive: true });
+	const contents = ["---", ...frontmatterLines, "---", body, ""].join("\n");
+	const filePath = path.join(catalogDir, `${fileName}.md`);
+	await writeFile(filePath, contents, "utf8");
+	return filePath;
+}
+
 describe.sequential("sync command", () => {
 	let logSpy: ReturnType<typeof vi.spyOn>;
 	let errorSpy: ReturnType<typeof vi.spyOn>;
@@ -181,6 +195,65 @@ describe.sequential("sync command", () => {
 			);
 			expect(exitSpy).toHaveBeenCalledWith(1);
 			expect(await pathExists(path.join(root, ".codex", "skills"))).toBe(false);
+		});
+	});
+
+	it("errors on empty skill targets in frontmatter", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalCommands(root);
+			const contents = ["---", "targets:", "---", "Hello"].join("\n");
+			await writeCanonicalSkillFile(root, "empty", contents);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "agentctrl", "sync", "--only", "claude", "--yes"]);
+			});
+
+			expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("has empty targets"));
+			expect(exitSpy).toHaveBeenCalledWith(1);
+			expect(await pathExists(path.join(root, ".claude", "skills"))).toBe(false);
+		});
+	});
+
+	it("errors on invalid command targets in frontmatter", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalSkills(root);
+			await writeCanonicalCommand(
+				root,
+				"bad-command",
+				["---", "targets:", "  - bogus", "---", "Say hello."].join("\n"),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "agentctrl", "sync", "--only", "claude", "--yes"]);
+			});
+
+			expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("unsupported targets"));
+			expect(exitSpy).toHaveBeenCalledWith(1);
+			expect(await pathExists(path.join(root, ".claude", "commands"))).toBe(false);
+		});
+	});
+
+	it("errors on empty subagent targets in frontmatter", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalSkills(root);
+			await createCanonicalCommands(root);
+			await writeSubagentWithFrontmatter(
+				root,
+				"helper",
+				["name: helper", "targets:"],
+				"Subagent body.",
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "agentctrl", "sync", "--only", "claude", "--yes"]);
+			});
+
+			expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("has empty targets"));
+			expect(exitSpy).toHaveBeenCalledWith(1);
+			expect(await pathExists(path.join(root, ".claude", "agents"))).toBe(false);
 		});
 	});
 
