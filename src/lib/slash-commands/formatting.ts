@@ -1,3 +1,4 @@
+import { stripFrontmatterFields } from "../frontmatter-strip.js";
 import type { FrontmatterValue, SlashCommandDefinition } from "./catalog.js";
 
 function ensureTrailingNewline(value: string): string {
@@ -17,6 +18,21 @@ function formatTomlValue(value: FrontmatterValue): string {
 
 function formatYamlString(value: string): string {
 	return JSON.stringify(value);
+}
+
+const TARGET_FRONTMATTER_KEYS = new Set(["targets", "targetagents"]);
+
+function stripTargetMetadata(
+	frontmatter: Record<string, FrontmatterValue>,
+): Record<string, FrontmatterValue> {
+	const filtered: Record<string, FrontmatterValue> = {};
+	for (const [key, value] of Object.entries(frontmatter)) {
+		if (TARGET_FRONTMATTER_KEYS.has(key.toLowerCase())) {
+			continue;
+		}
+		filtered[key] = value;
+	}
+	return filtered;
 }
 
 function renderYamlFrontmatter(
@@ -87,7 +103,7 @@ function renderYamlFrontmatter(
 const GEMINI_RESERVED_KEYS = new Set(["prompt", "targets", "targetagents"]);
 
 export function renderClaudeCommand(command: SlashCommandDefinition): string {
-	return command.rawContents;
+	return stripFrontmatterFields(command.rawContents, TARGET_FRONTMATTER_KEYS);
 }
 
 export function renderGeminiCommand(command: SlashCommandDefinition): string {
@@ -107,14 +123,14 @@ export function renderGeminiCommand(command: SlashCommandDefinition): string {
 }
 
 export function renderCodexPrompt(command: SlashCommandDefinition): string {
-	return command.rawContents;
+	return stripFrontmatterFields(command.rawContents, TARGET_FRONTMATTER_KEYS);
 }
 
 export function renderSkillFromCommand(command: SlashCommandDefinition): string {
 	const headerLines = [`# ${command.name}`];
 	const prompt = command.prompt.trim();
 	const body = `${headerLines.join("\n")}\n\n${prompt}`;
-	const frontmatter = renderYamlFrontmatter(command.frontmatter, command.name);
+	const frontmatter = renderYamlFrontmatter(stripTargetMetadata(command.frontmatter), command.name);
 	if (frontmatter) {
 		return ensureTrailingNewline(`${frontmatter}${body}`);
 	}

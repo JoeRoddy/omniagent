@@ -1,5 +1,11 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import {
+	hasRawTargetValues,
+	InvalidFrontmatterTargetsError,
+	resolveFrontmatterTargets,
+} from "../sync-targets.js";
+import { isSubagentTargetName, type SubagentTargetName } from "./targets.js";
 
 export type FrontmatterValue = string | string[];
 
@@ -10,6 +16,8 @@ export type SubagentDefinition = {
 	rawContents: string;
 	frontmatter: Record<string, FrontmatterValue>;
 	body: string;
+	targetAgents: SubagentTargetName[] | null;
+	invalidTargets: string[];
 };
 
 export type SubagentCatalog = {
@@ -218,6 +226,20 @@ export async function loadSubagentCatalog(repoRoot: string): Promise<SubagentCat
 		}
 		seenNames.set(nameKey, filePath);
 
+		const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
+		const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, isSubagentTargetName);
+		if (invalidTargets.length > 0) {
+			const invalidList = invalidTargets.join(", ");
+			throw new InvalidFrontmatterTargetsError(
+				`Subagent "${resolvedName}" has unsupported targets (${invalidList}) in ${filePath}.`,
+			);
+		}
+		if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
+			throw new InvalidFrontmatterTargetsError(
+				`Subagent "${resolvedName}" has empty targets in ${filePath}.`,
+			);
+		}
+
 		subagents.push({
 			resolvedName,
 			sourcePath: filePath,
@@ -225,6 +247,8 @@ export async function loadSubagentCatalog(repoRoot: string): Promise<SubagentCat
 			rawContents: contents,
 			frontmatter,
 			body,
+			targetAgents: targets,
+			invalidTargets,
 		});
 	}
 

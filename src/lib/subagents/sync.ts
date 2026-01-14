@@ -3,7 +3,9 @@ import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
+import { stripFrontmatterFields } from "../frontmatter-strip.js";
 import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
+import { resolveEffectiveTargets } from "../sync-targets.js";
 import { loadSubagentCatalog, type SubagentDefinition } from "./catalog.js";
 import {
 	type ManagedSubagent,
@@ -23,6 +25,8 @@ import {
 export type SubagentSyncRequest = {
 	repoRoot: string;
 	targets?: SubagentTargetName[];
+	overrideOnly?: SubagentTargetName[] | null;
+	overrideSkip?: SubagentTargetName[] | null;
 	removeMissing?: boolean;
 	validAgents?: string[];
 };
@@ -62,6 +66,7 @@ export type SubagentSyncPlanDetails = {
 	plan: SubagentSyncPlan;
 	targetPlans: TargetPlan[];
 	targetSummaries: SubagentTargetSummary[];
+	warnings: string[];
 };
 
 export type SubagentSyncResult = {
@@ -96,7 +101,14 @@ type TargetPlan = {
 	removeMissing: boolean;
 };
 
-const SKILL_FRONTMATTER_KEYS_TO_REMOVE = new Set(["tools", "model", "color"]);
+const TARGET_FRONTMATTER_KEYS = new Set(["targets", "targetagents"]);
+const SKILL_FRONTMATTER_KEYS_TO_REMOVE = new Set([
+	...TARGET_FRONTMATTER_KEYS,
+	"tools",
+	"model",
+	"color",
+]);
+const ALL_TARGET_NAMES = SUBAGENT_TARGETS.map((target) => target.name);
 
 function emptySummaryCounts(): SummaryCounts {
 	return { created: 0, updated: 0, removed: 0, converted: 0, skipped: 0 };
@@ -112,67 +124,6 @@ function normalizeName(name: string): string {
 
 function normalizeSkillKey(name: string): string {
 	return path.normalize(name).replace(/\\/g, "/").toLowerCase();
-}
-
-function stripFrontmatterFields(contents: string, keysToRemove: Set<string>): string {
-	const lines = contents.split(/\r?\n/);
-	if (lines[0]?.trim() !== "---") {
-		return contents;
-	}
-
-	let endIndex = -1;
-	for (let i = 1; i < lines.length; i += 1) {
-		if (lines[i].trim() === "---") {
-			endIndex = i;
-			break;
-		}
-	}
-
-	if (endIndex === -1) {
-		return contents;
-	}
-
-	const frontmatterLines = lines.slice(1, endIndex);
-	const filtered: string[] = [];
-	let skippingList = false;
-
-	for (const line of frontmatterLines) {
-		const trimmed = line.trim();
-		const match = trimmed.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-
-		if (skippingList) {
-			if (match && !keysToRemove.has(match[1])) {
-				skippingList = false;
-			} else if (!match) {
-				const shouldSkip = trimmed === "" || trimmed.startsWith("-") || trimmed.startsWith("#");
-				if (shouldSkip) {
-					continue;
-				}
-				skippingList = false;
-			} else {
-				continue;
-			}
-		}
-
-		if (match) {
-			const [, key, rawValue] = match;
-			if (keysToRemove.has(key)) {
-				const rest = rawValue.trim();
-				if (!rest || rest.startsWith("#")) {
-					skippingList = true;
-				}
-				continue;
-			}
-		}
-
-		if (!skippingList) {
-			filtered.push(line);
-		}
-	}
-
-	const eol = contents.includes("\r\n") ? "\r\n" : "\n";
-	const outputLines = [lines[0], ...filtered, ...lines.slice(endIndex)];
-	return outputLines.join(eol);
 }
 
 async function listSkillDirectories(root: string): Promise<string[]> {
@@ -307,6 +258,20 @@ function buildActionSummary(
 	return { actions, summary };
 }
 
+function buildInvalidTargetWarnings(subagents: SubagentDefinition[]): string[] {
+	const warnings: string[] = [];
+	for (const subagent of subagents) {
+		if (subagent.invalidTargets.length === 0) {
+			continue;
+		}
+		const invalidList = subagent.invalidTargets.join(", ");
+		warnings.push(
+			`Subagent "${subagent.resolvedName}" has unsupported targets (${invalidList}) in ${subagent.sourcePath}.`,
+		);
+	}
+	return warnings;
+}
+
 async function buildTargetPlan(
 	params: {
 		request: SubagentSyncRequest;
@@ -348,6 +313,16 @@ async function buildTargetPlan(
 	const catalogNames = new Set<string>();
 
 	for (const subagent of subagents) {
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: subagent.targetAgents,
+			overrideOnly: request.overrideOnly ?? undefined,
+			overrideSkip: request.overrideSkip ?? undefined,
+			allTargets: ALL_TARGET_NAMES,
+		});
+		if (effectiveTargets.length === 0 || !effectiveTargets.includes(targetName)) {
+			continue;
+		}
+
 		const nameKey = normalizeName(subagent.resolvedName);
 		catalogNames.add(nameKey);
 		const canonicalSkillKey =
@@ -386,7 +361,7 @@ async function buildTargetPlan(
 		const output =
 			outputKind === "skill"
 				? stripFrontmatterFields(templatedContents, SKILL_FRONTMATTER_KEYS_TO_REMOVE)
-				: templatedContents;
+				: stripFrontmatterFields(templatedContents, TARGET_FRONTMATTER_KEYS);
 		const outputHash = hashContent(output);
 		const { destinationPath } = resolveOutputPaths(
 			outputKind,
@@ -581,6 +556,7 @@ export async function planSubagentSync(
 		plan: planSummary,
 		targetPlans,
 		targetSummaries,
+		warnings: buildInvalidTargetWarnings(catalog.subagents),
 	};
 }
 
@@ -696,7 +672,7 @@ export async function applySubagentSync(
 		});
 	}
 
-	const warnings = results.flatMap((result) => result.warnings);
+	const warnings = [...planDetails.warnings, ...results.flatMap((result) => result.warnings)];
 
 	return {
 		sourcePath: planDetails.sourcePath,
@@ -743,6 +719,11 @@ export function formatSubagentSummary(summary: SubagentSyncSummary, jsonOutput: 
 	for (const result of summary.results) {
 		lines.push(result.message);
 		for (const warning of result.warnings) {
+			lines.push(`Warning: ${warning}`);
+		}
+	}
+	for (const warning of summary.warnings) {
+		if (!lines.includes(`Warning: ${warning}`)) {
 			lines.push(`Warning: ${warning}`);
 		}
 	}
