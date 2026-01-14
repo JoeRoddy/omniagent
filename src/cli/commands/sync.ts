@@ -37,14 +37,14 @@ import {
 	type SubagentTargetName,
 } from "../../lib/subagents/targets.js";
 import { SUPPORTED_AGENT_NAMES } from "../../lib/supported-targets.js";
-import { copyDirectoryWithTemplating } from "../../lib/sync-copy.js";
+import { syncSkills as syncSkillTargets } from "../../lib/skills/sync.js";
 import {
 	buildSummary,
 	formatSummary,
 	type SyncResult,
 	type SyncSummary,
 } from "../../lib/sync-results.js";
-import { TARGETS } from "../../lib/sync-targets.js";
+import { TARGETS, type TargetName as SkillTargetName } from "../../lib/sync-targets.js";
 
 type SyncArgs = {
 	skip?: string | string[];
@@ -77,7 +77,7 @@ function parseList(value?: string | string[]): string[] {
 	const rawValues = Array.isArray(value) ? value : [value];
 	return rawValues
 		.flatMap((entry) => entry.split(","))
-		.map((entry) => entry.trim())
+		.map((entry) => entry.trim().toLowerCase())
 		.filter(Boolean);
 }
 
@@ -357,6 +357,7 @@ function buildCommandSummary(
 				counts: emptyCommandCounts(),
 			};
 		}),
+		warnings: [],
 		hadFailures: status === "failed",
 	};
 }
@@ -425,6 +426,8 @@ function buildSubagentSummary(
 type SubagentSyncOptions = {
 	repoRoot: string;
 	targets: SubagentTargetName[];
+	overrideOnly?: SubagentTargetName[];
+	overrideSkip?: SubagentTargetName[];
 	removeMissing: boolean;
 	validAgents: string[];
 };
@@ -440,6 +443,8 @@ async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSync
 		planDetails = await planSubagentSync({
 			repoRoot: options.repoRoot,
 			targets: options.targets,
+			overrideOnly: options.overrideOnly,
+			overrideSkip: options.overrideSkip,
 			removeMissing: options.removeMissing,
 			validAgents: options.validAgents,
 		});
@@ -456,57 +461,11 @@ async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSync
 	}
 }
 
-async function syncSkills(
-	repoRoot: string,
-	targets: SkillTarget[],
-	sourceAvailable: boolean,
-	validAgents: string[],
-): Promise<SyncSummary> {
-	const sourcePath = path.join(repoRoot, "agents", "skills");
-	if (targets.length === 0) {
-		return buildSummary(sourcePath, []);
-	}
-	if (!sourceAvailable) {
-		const reason = `Canonical config source not found at ${sourcePath}.`;
-		return buildSkillsSummary(repoRoot, sourcePath, targets, "skipped", reason);
-	}
-
-	const results: SyncResult[] = [];
-	const sourceDisplay = formatDisplayPath(repoRoot, sourcePath);
-
-	for (const target of targets) {
-		const destPath = path.join(repoRoot, target.relativePath);
-		const destDisplay = formatDisplayPath(repoRoot, destPath);
-
-		try {
-			await copyDirectoryWithTemplating({
-				source: sourcePath,
-				destination: destPath,
-				target: target.name,
-				validAgents,
-			});
-			results.push({
-				targetName: target.name,
-				status: "synced",
-				message: formatResultMessage("synced", sourceDisplay, destDisplay),
-			});
-		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			results.push({
-				targetName: target.name,
-				status: "failed",
-				message: formatResultMessage("failed", sourceDisplay, destDisplay, errorMessage),
-				error: errorMessage,
-			});
-		}
-	}
-
-	return buildSummary(sourcePath, results);
-}
-
 type CommandSyncOptions = {
 	repoRoot: string;
 	targets: CommandTargetName[];
+	overrideOnly?: CommandTargetName[];
+	overrideSkip?: CommandTargetName[];
 	jsonOutput: boolean;
 	yes: boolean;
 	removeMissing: boolean;
@@ -578,6 +537,8 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 	const planRequestBase = {
 		repoRoot: options.repoRoot,
 		targets: options.targets,
+		overrideOnly: options.overrideOnly,
+		overrideSkip: options.overrideSkip,
 		scopeByTarget,
 		removeMissing: options.removeMissing,
 		unsupportedFallback: unsupportedFallback ?? (nonInteractive ? "skip" : undefined),
@@ -684,12 +645,6 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 		const skipList = parseList(argv.skip);
 		const onlyList = parseList(argv.only);
 
-		if (skipList.length > 0 && onlyList.length > 0) {
-			console.error("Error: Use either --skip or --only, not both.");
-			process.exit(1);
-			return;
-		}
-
 		const supportedTargetSet = new Set(ALL_TARGETS);
 		const unknownTargets = [...skipList, ...onlyList].filter(
 			(name) => !supportedTargetSet.has(name),
@@ -706,14 +661,16 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 		const skipSet = new Set(skipList);
 		const onlySet = new Set(onlyList);
 		const selectedTargets = ALL_TARGETS.filter((name) => {
-			if (onlySet.size > 0) {
-				return onlySet.has(name);
+			if (onlySet.size > 0 && !onlySet.has(name)) {
+				return false;
 			}
-			if (skipSet.size > 0) {
-				return !skipSet.has(name);
+			if (skipSet.size > 0 && skipSet.has(name)) {
+				return false;
 			}
 			return true;
 		});
+		const overrideOnly = onlyList.length > 0 ? onlyList : undefined;
+		const overrideSkip = skipList.length > 0 ? skipList : undefined;
 		const validAgents = [...SUPPORTED_AGENT_NAMES];
 
 		if (selectedTargets.length === 0) {
@@ -788,6 +745,8 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 		const commandsSummary = await syncSlashCommands({
 			repoRoot,
 			targets: selectedCommandTargets,
+			overrideOnly: overrideOnly as CommandTargetName[] | undefined,
+			overrideSkip: overrideSkip as CommandTargetName[] | undefined,
 			jsonOutput: argv.json,
 			yes: argv.yes,
 			removeMissing: argv.removeMissing,
@@ -799,17 +758,34 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 		const subagentSummary = await syncSubagents({
 			repoRoot,
 			targets: selectedSubagentTargets,
+			overrideOnly: overrideOnly as SubagentTargetName[] | undefined,
+			overrideSkip: overrideSkip as SubagentTargetName[] | undefined,
 			removeMissing: argv.removeMissing,
 			validAgents,
 		});
 
 		// Sync conversions before copying canonical skills.
-		const skillsSummary = await syncSkills(
-			repoRoot,
-			selectedSkillTargets,
-			skillsAvailable,
-			validAgents,
-		);
+		let skillsSummary: SyncSummary;
+		if (selectedSkillTargets.length === 0) {
+			skillsSummary = buildSummary(skillsSourcePath, []);
+		} else if (!skillsAvailable) {
+			const reason = `Canonical config source not found at ${skillsSourcePath}.`;
+			skillsSummary = buildSkillsSummary(
+				repoRoot,
+				skillsSourcePath,
+				selectedSkillTargets,
+				"skipped",
+				reason,
+			);
+		} else {
+			skillsSummary = await syncSkillTargets({
+				repoRoot,
+				targets: selectedSkillTargets,
+				overrideOnly: overrideOnly as SkillTargetName[] | undefined,
+				overrideSkip: overrideSkip as SkillTargetName[] | undefined,
+				validAgents,
+			});
+		}
 
 		const combined = {
 			skills: skillsSummary,

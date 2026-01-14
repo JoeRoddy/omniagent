@@ -1,5 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { resolveFrontmatterTargets } from "../sync-targets.js";
+import { isSubagentTargetName, type SubagentTargetName } from "./targets.js";
 
 export type FrontmatterValue = string | string[];
 
@@ -10,6 +12,8 @@ export type SubagentDefinition = {
 	rawContents: string;
 	frontmatter: Record<string, FrontmatterValue>;
 	body: string;
+	targetAgents: SubagentTargetName[] | null;
+	invalidTargets: string[];
 };
 
 export type SubagentCatalog = {
@@ -218,6 +222,11 @@ export async function loadSubagentCatalog(repoRoot: string): Promise<SubagentCat
 		}
 		seenNames.set(nameKey, filePath);
 
+		const { targets, invalidTargets } = resolveFrontmatterTargets(
+			[frontmatter.targets, frontmatter.targetAgents],
+			isSubagentTargetName,
+		);
+
 		subagents.push({
 			resolvedName,
 			sourcePath: filePath,
@@ -225,6 +234,8 @@ export async function loadSubagentCatalog(repoRoot: string): Promise<SubagentCat
 			rawContents: contents,
 			frontmatter,
 			body,
+			targetAgents: targets,
+			invalidTargets,
 		});
 	}
 

@@ -1,7 +1,8 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { extractFrontmatter, type FrontmatterValue, normalizeTargetList } from "./frontmatter.js";
-import type { TargetName } from "./targets.js";
+import { extractFrontmatter, type FrontmatterValue } from "./frontmatter.js";
+import { resolveFrontmatterTargets } from "../sync-targets.js";
+import { isSlashCommandTargetName, type TargetName } from "./targets.js";
 
 export type { FrontmatterValue } from "./frontmatter.js";
 
@@ -11,6 +12,7 @@ export type SlashCommandDefinition = {
 	sourcePath: string;
 	rawContents: string;
 	targetAgents: TargetName[] | null;
+	invalidTargets: string[];
 	frontmatter: Record<string, FrontmatterValue>;
 };
 
@@ -75,13 +77,17 @@ export async function loadCommandCatalog(repoRoot: string): Promise<CommandCatal
 			throw new Error(`Slash command "${fileName}" has an empty prompt.`);
 		}
 
-		const rawTargets = frontmatter.targetAgents ?? frontmatter.targets;
+		const { targets, invalidTargets } = resolveFrontmatterTargets(
+			[frontmatter.targets, frontmatter.targetAgents],
+			isSlashCommandTargetName,
+		);
 		commands.push({
 			name: fileName,
 			prompt,
 			sourcePath: filePath,
 			rawContents: contents,
-			targetAgents: normalizeTargetList(rawTargets),
+			targetAgents: targets,
+			invalidTargets,
 			frontmatter,
 		});
 	}

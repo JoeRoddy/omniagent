@@ -38,16 +38,14 @@ TypeScript 5.x, Node.js 18+: Enforced by Biome (formatting and linting)
 - Run `npm run format` before committing
 
 ## Recent Changes
+- 008-honor-targets-frontmatter: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js `fs/promises`, `path`
 - 007-agent-templating: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js `fs/promises`, `path`, Vitest, Vite, Biome
 - 006-add-custom-subagents: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js fs/promises + path
-- 005-sync-slash-commands: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js fs/promises + path, Vitest, Vite, Biome
 
 
 
 
 <!-- MANUAL ADDITIONS START -->
-- Agent-scoped templating (`<agents selector-list> ... </agents>`) applies to all syncable features
   (skills, subagents, slash commands) and must be supported by future syncable features.
-- Keep `.npmignore` (or a `files` whitelist in `package.json`) updated for any new generated or
   tool-specific directories so we don't publish junk.
 <!-- MANUAL ADDITIONS END -->

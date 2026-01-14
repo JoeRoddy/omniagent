@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/p
 import os from "node:os";
 import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
+import { resolveEffectiveTargets } from "../sync-targets.js";
 import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
 import { loadCommandCatalog, type SlashCommandDefinition } from "./catalog.js";
 import {
@@ -36,6 +37,8 @@ export type CodexConversionScope = "global" | "project" | "skip";
 export type SyncRequest = {
 	repoRoot: string;
 	targets?: TargetName[];
+	overrideOnly?: TargetName[] | null;
+	overrideSkip?: TargetName[] | null;
 	scopeByTarget?: Partial<Record<TargetName, Scope>>;
 	conflictResolution?: ConflictResolution;
 	removeMissing?: boolean;
@@ -84,6 +87,7 @@ export type SyncResult = {
 export type SyncSummary = {
 	sourcePath: string;
 	results: SyncResult[];
+	warnings: string[];
 	hadFailures: boolean;
 };
 
@@ -127,6 +131,7 @@ export type SyncPlanDetails = {
 	targetPlans: TargetPlan[];
 	targetSummaries: TargetPlanSummary[];
 	conflicts: number;
+	warnings: string[];
 };
 
 const PROJECT_SKILL_PATHS: Record<TargetName, string> = {
@@ -140,6 +145,7 @@ const DEFAULT_CONFLICT_RESOLUTION: ConflictResolution = "skip";
 const DEFAULT_UNSUPPORTED_FALLBACK: UnsupportedFallback = "skip";
 const DEFAULT_CODEX_OPTION: CodexOption = "prompts";
 const DEFAULT_CODEX_CONVERSION_SCOPE: CodexConversionScope = "global";
+const ALL_TARGET_NAMES = SLASH_COMMAND_TARGETS.map((target) => target.name);
 
 function emptySummaryCounts(): SummaryCounts {
 	return { create: 0, update: 0, remove: 0, convert: 0, skip: 0 };
@@ -337,13 +343,34 @@ function isSkillScopeSupported(targetName: TargetName, scope: Scope): boolean {
 function resolveTargetCommands(
 	commands: SlashCommandDefinition[],
 	targetName: TargetName,
+	request: SyncRequest,
 ): SlashCommandDefinition[] {
 	return commands.filter((command) => {
-		if (!command.targetAgents || command.targetAgents.length === 0) {
-			return true;
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: command.targetAgents,
+			overrideOnly: request.overrideOnly ?? undefined,
+			overrideSkip: request.overrideSkip ?? undefined,
+			allTargets: ALL_TARGET_NAMES,
+		});
+		if (effectiveTargets.length === 0) {
+			return false;
 		}
-		return command.targetAgents.some((agent) => normalizeName(agent) === targetName);
+		return effectiveTargets.some((agent) => normalizeName(agent) === targetName);
 	});
+}
+
+function buildInvalidTargetWarnings(commands: SlashCommandDefinition[]): string[] {
+	const warnings: string[] = [];
+	for (const command of commands) {
+		if (command.invalidTargets.length === 0) {
+			continue;
+		}
+		const invalidList = command.invalidTargets.join(", ");
+		warnings.push(
+			`Slash command "${command.name}" has unsupported targets (${invalidList}) in ${command.sourcePath}.`,
+		);
+	}
+	return warnings;
 }
 
 function applyTemplatingToCommand(
@@ -459,7 +486,7 @@ async function buildTargetPlan(
 		codexConversionScope,
 	);
 	const displayName = profile.displayName;
-	const targetCommands = resolveTargetCommands(commands, targetName);
+	const targetCommands = resolveTargetCommands(commands, targetName, request);
 	const summary = emptySummaryCounts();
 	const actions: PlannedAction[] = [];
 	let conflicts = 0;
@@ -853,6 +880,7 @@ export async function planSlashCommandSync(request: SyncRequest): Promise<SyncPl
 		targetPlans,
 		targetSummaries,
 		conflicts,
+		warnings: buildInvalidTargetWarnings(catalog.commands),
 	};
 }
 
@@ -996,6 +1024,7 @@ export async function applySlashCommandSync(planDetails: SyncPlanDetails): Promi
 	return {
 		sourcePath: planDetails.sourcePath,
 		results,
+		warnings: planDetails.warnings,
 		hadFailures,
 	};
 }
@@ -1037,7 +1066,12 @@ export function formatSyncSummary(summary: SyncSummary, jsonOutput: boolean): st
 	if (jsonOutput) {
 		return JSON.stringify(summary, null, 2);
 	}
-	return summary.results.map((result) => result.message).join("\n");
+
+	const lines = summary.results.map((result) => result.message);
+	for (const warning of summary.warnings) {
+		lines.push(`Warning: ${warning}`);
+	}
+	return lines.join("\n");
 }
 
 export function formatPlanSummary(plan: SyncPlan, targetSummaries: TargetPlanSummary[]): string {

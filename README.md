@@ -16,9 +16,12 @@ Right now, omniagent focuses on **skills**, **subagents**, and **slash commands*
 - Canonical subagents: `agents/agents/` (Claude Code subagent format: Markdown with YAML
   frontmatter; `name` overrides the filename when present)
 - Canonical slash commands: `agents/commands/` (Claude Code format: Markdown with optional YAML
-  frontmatter; filename becomes the command name; use `targets`/`targetAgents` to scope sync)
+  frontmatter; filename becomes the command name)
 - `omniagent sync` copies skills, syncs subagents to Claude Code (and converts to skills for other
   targets), and maps slash commands into each supported target's expected location
+
+All syncable Markdown files can include `targets` or `targetAgents` in frontmatter to scope
+default sync targets (values: `claude`, `gemini`, `codex`, `copilot`).
 
 ## Supported targets (current)
 
@@ -58,6 +61,7 @@ Example outputs:
 ## Skills
 
 Canonical skills live in `agents/skills/` (each skill folder contains `SKILL.md`).
+Frontmatter in `SKILL.md` can include `targets` or `targetAgents` to scope where the skill syncs.
 
 ## Slash commands
 
@@ -72,6 +76,8 @@ Subagents are Markdown files in `agents/agents/` using the Claude Code subagent 
 frontmatter + prompt body). The `name` frontmatter field overrides the filename; if omitted, the
 filename (without `.md`) is used. Non-Claude targets receive converted skills at
 `.target/skills/<name>/SKILL.md`.
+Frontmatter can include `targets` or `targetAgents` to scope where the subagent (or converted
+skill) syncs.
 
 ## Agent Scoped Templating
 
@@ -106,9 +112,14 @@ npx omniagent@latest sync --yes
 npx omniagent@latest sync --json
 ```
 
+Run-level overrides:
+
+- `--only` replaces per-file frontmatter defaults for this run.
+- `--skip` filters the active target set (frontmatter defaults or all targets).
+- If both are provided, `--only` applies first, then `--skip`.
+
 ## Roadmap
 
-- Honor `targets`/`targetAgents` frontmatter across skills, subagents, and slash commands, and strip it from generated outputs/conversions
 - Skills, agents, and slash commands unification
 - AGENT.md unification (mirroring CLAUDE.md, cursor rules, etc)
 - private / local config
