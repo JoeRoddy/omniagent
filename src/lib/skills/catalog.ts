@@ -45,10 +45,7 @@ async function listSkillDirectories(root: string): Promise<string[]> {
 	return directories;
 }
 
-function resolveSkillName(
-	frontmatter: Record<string, FrontmatterValue>,
-	fallback: string,
-): string {
+function resolveSkillName(frontmatter: Record<string, FrontmatterValue>, fallback: string): string {
 	const rawName = frontmatter.name;
 	if (typeof rawName === "string") {
 		const trimmed = rawName.trim();

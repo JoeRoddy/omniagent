@@ -3,8 +3,8 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/p
 import os from "node:os";
 import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
-import { resolveEffectiveTargets } from "../sync-targets.js";
 import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
+import { resolveEffectiveTargets } from "../sync-targets.js";
 import { loadCommandCatalog, type SlashCommandDefinition } from "./catalog.js";
 import {
 	renderClaudeCommand,

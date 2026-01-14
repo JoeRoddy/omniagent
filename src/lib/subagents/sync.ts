@@ -4,8 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
 import { stripFrontmatterFields } from "../frontmatter-strip.js";
-import { resolveEffectiveTargets } from "../sync-targets.js";
 import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
+import { resolveEffectiveTargets } from "../sync-targets.js";
 import { loadSubagentCatalog, type SubagentDefinition } from "./catalog.js";
 import {
 	type ManagedSubagent,
@@ -672,10 +672,7 @@ export async function applySubagentSync(
 		});
 	}
 
-	const warnings = [
-		...planDetails.warnings,
-		...results.flatMap((result) => result.warnings),
-	];
+	const warnings = [...planDetails.warnings, ...results.flatMap((result) => result.warnings)];
 
 	return {
 		sourcePath: planDetails.sourcePath,

@@ -40,8 +40,9 @@ async function createRepoRoot(root: string): Promise<void> {
 
 async function createCanonicalSkills(root: string): Promise<string> {
 	const sourceDir = path.join(root, "agents", "skills");
-	await mkdir(sourceDir, { recursive: true });
-	await writeFile(path.join(sourceDir, "example.txt"), "hello");
+	const skillDir = path.join(sourceDir, "example");
+	await mkdir(skillDir, { recursive: true });
+	await writeFile(path.join(skillDir, "SKILL.md"), "hello");
 	return await realpath(sourceDir);
 }
 
@@ -51,8 +52,10 @@ async function writeCanonicalSkillFile(
 	contents: string,
 ): Promise<string> {
 	const sourceDir = path.join(root, "agents", "skills");
-	await mkdir(sourceDir, { recursive: true });
-	const filePath = path.join(sourceDir, fileName);
+	const skillName = path.parse(fileName).name;
+	const skillDir = path.join(sourceDir, skillName);
+	await mkdir(skillDir, { recursive: true });
+	const filePath = path.join(skillDir, "SKILL.md");
 	await writeFile(filePath, contents, "utf8");
 	return filePath;
 }
@@ -112,10 +115,22 @@ describe.sequential("sync command", () => {
 				await runCli(["node", "agentctrl", "sync"]);
 			});
 
-			const codex = await readFile(path.join(root, ".codex", "skills", "example.txt"), "utf8");
-			const claude = await readFile(path.join(root, ".claude", "skills", "example.txt"), "utf8");
-			const copilot = await readFile(path.join(root, ".github", "skills", "example.txt"), "utf8");
-			const gemini = await readFile(path.join(root, ".gemini", "skills", "example.txt"), "utf8");
+			const codex = await readFile(
+				path.join(root, ".codex", "skills", "example", "SKILL.md"),
+				"utf8",
+			);
+			const claude = await readFile(
+				path.join(root, ".claude", "skills", "example", "SKILL.md"),
+				"utf8",
+			);
+			const copilot = await readFile(
+				path.join(root, ".github", "skills", "example", "SKILL.md"),
+				"utf8",
+			);
+			const gemini = await readFile(
+				path.join(root, ".gemini", "skills", "example", "SKILL.md"),
+				"utf8",
+			);
 			const claudeCommand = await readFile(
 				path.join(root, ".claude", "commands", "example.md"),
 				"utf8",
@@ -140,7 +155,9 @@ describe.sequential("sync command", () => {
 				await runCli(["node", "agentctrl", "sync", "--only", "claude"]);
 			});
 
-			expect(await pathExists(path.join(root, ".claude", "skills", "example.txt"))).toBe(true);
+			expect(await pathExists(path.join(root, ".claude", "skills", "example", "SKILL.md"))).toBe(
+				true,
+			);
 			expect(await pathExists(path.join(root, ".claude", "commands", "example.md"))).toBe(true);
 			expect(await pathExists(path.join(root, ".codex", "skills"))).toBe(false);
 			expect(await pathExists(path.join(root, ".github", "skills"))).toBe(false);
@@ -167,18 +184,22 @@ describe.sequential("sync command", () => {
 		});
 	});
 
-	it("errors when --skip and --only are both provided", async () => {
+	it("applies --only then --skip when both are provided", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
 			await createCanonicalSkills(root);
 			await createCanonicalCommands(root);
 
 			await withCwd(root, async () => {
-				await runCli(["node", "agentctrl", "sync", "--skip", "codex", "--only", "claude"]);
+				await runCli(["node", "agentctrl", "sync", "--only", "claude,codex", "--skip", "codex"]);
 			});
 
-			expect(errorSpy).toHaveBeenCalledWith("Error: Use either --skip or --only, not both.");
-			expect(exitSpy).toHaveBeenCalledWith(1);
+			expect(errorSpy).not.toHaveBeenCalled();
+			expect(exitSpy).not.toHaveBeenCalled();
+			expect(await pathExists(path.join(root, ".claude", "skills", "example", "SKILL.md"))).toBe(
+				true,
+			);
+			expect(await pathExists(path.join(root, ".codex", "skills"))).toBe(false);
 		});
 	});
 
@@ -297,7 +318,7 @@ describe.sequential("sync command", () => {
 			});
 
 			const skillOutput = await readFile(
-				path.join(root, ".claude", "skills", "example.txt"),
+				path.join(root, ".claude", "skills", "example", "SKILL.md"),
 				"utf8",
 			);
 			const commandOutput = await readFile(

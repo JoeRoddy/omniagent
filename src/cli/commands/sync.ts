@@ -5,6 +5,7 @@ import { TextDecoder } from "node:util";
 import type { CommandModule } from "yargs";
 import { validateAgentTemplating } from "../../lib/agent-templating.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
+import { syncSkills as syncSkillTargets } from "../../lib/skills/sync.js";
 import {
 	applySlashCommandSync,
 	type CodexConversionScope,
@@ -37,14 +38,13 @@ import {
 	type SubagentTargetName,
 } from "../../lib/subagents/targets.js";
 import { SUPPORTED_AGENT_NAMES } from "../../lib/supported-targets.js";
-import { syncSkills as syncSkillTargets } from "../../lib/skills/sync.js";
 import {
 	buildSummary,
 	formatSummary,
 	type SyncResult,
 	type SyncSummary,
 } from "../../lib/sync-results.js";
-import { TARGETS, type TargetName as SkillTargetName } from "../../lib/sync-targets.js";
+import { type TargetName as SkillTargetName, TARGETS } from "../../lib/sync-targets.js";
 
 type SyncArgs = {
 	skip?: string | string[];

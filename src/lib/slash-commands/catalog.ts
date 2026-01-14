@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { extractFrontmatter, type FrontmatterValue } from "./frontmatter.js";
 import { resolveFrontmatterTargets } from "../sync-targets.js";
+import { extractFrontmatter, type FrontmatterValue } from "./frontmatter.js";
 import { isSlashCommandTargetName, type TargetName } from "./targets.js";
 
 export type { FrontmatterValue } from "./frontmatter.js";
