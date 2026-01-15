@@ -1,6 +1,14 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import {
+	buildSourceMetadata,
+	type LocalMarkerType,
+	resolveLocalCategoryRoot,
+	resolveSharedCategoryRoot,
+	type SourceType,
+	stripLocalSuffix,
+} from "../local-sources.js";
+import {
 	hasRawTargetValues,
 	InvalidFrontmatterTargetsError,
 	resolveFrontmatterTargets,
@@ -14,6 +22,9 @@ export type SlashCommandDefinition = {
 	name: string;
 	prompt: string;
 	sourcePath: string;
+	sourceType: SourceType;
+	markerType?: LocalMarkerType;
+	isLocalFallback: boolean;
 	rawContents: string;
 	targetAgents: TargetName[] | null;
 	invalidTargets: string[];
@@ -23,8 +34,16 @@ export type SlashCommandDefinition = {
 export type CommandCatalog = {
 	repoRoot: string;
 	commandsPath: string;
+	localCommandsPath: string;
 	canonicalStandard: "claude_code";
 	commands: SlashCommandDefinition[];
+	sharedCommands: SlashCommandDefinition[];
+	localCommands: SlashCommandDefinition[];
+	localEffectiveCommands: SlashCommandDefinition[];
+};
+
+export type LoadCommandCatalogOptions = {
+	includeLocal?: boolean;
 };
 
 async function listMarkdownFiles(root: string): Promise<string[]> {
@@ -43,75 +62,181 @@ async function listMarkdownFiles(root: string): Promise<string[]> {
 	return files;
 }
 
-export async function loadCommandCatalog(repoRoot: string): Promise<CommandCatalog> {
-	const commandsPath = path.join(repoRoot, "agents", "commands");
-	let stats: Awaited<ReturnType<typeof stat>>;
+async function readDirectoryStats(
+	directory: string,
+): Promise<Awaited<ReturnType<typeof stat>> | null> {
 	try {
-		stats = await stat(commandsPath);
-	} catch {
-		throw new Error(`Command catalog directory not found at ${commandsPath}.`);
+		return await stat(directory);
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ENOENT") {
+			return null;
+		}
+		throw error;
 	}
-	if (!stats.isDirectory()) {
+}
+
+function normalizeName(name: string): string {
+	return name.toLowerCase();
+}
+
+async function buildCommandDefinition(options: {
+	filePath: string;
+	commandName: string;
+	sourceType: SourceType;
+	markerType?: LocalMarkerType;
+}): Promise<SlashCommandDefinition> {
+	const contents = await readFile(options.filePath, "utf8");
+	const { frontmatter, body } = extractFrontmatter(contents);
+	const prompt = body.trimEnd();
+	if (!prompt.trim()) {
+		throw new Error(`Slash command "${options.commandName}" has an empty prompt.`);
+	}
+
+	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
+	const { targets, invalidTargets } = resolveFrontmatterTargets(
+		rawTargets,
+		isSlashCommandTargetName,
+	);
+	if (invalidTargets.length > 0) {
+		const invalidList = invalidTargets.join(", ");
+		throw new InvalidFrontmatterTargetsError(
+			`Slash command "${options.commandName}" has unsupported targets (${invalidList}) in ${options.filePath}.`,
+		);
+	}
+	if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
+		throw new InvalidFrontmatterTargetsError(
+			`Slash command "${options.commandName}" has empty targets in ${options.filePath}.`,
+		);
+	}
+
+	const metadata = buildSourceMetadata(options.sourceType, options.markerType);
+
+	return {
+		name: options.commandName,
+		prompt,
+		sourcePath: options.filePath,
+		sourceType: metadata.sourceType,
+		markerType: metadata.markerType,
+		isLocalFallback: metadata.isLocalFallback,
+		rawContents: contents,
+		targetAgents: targets,
+		invalidTargets,
+		frontmatter,
+	};
+}
+
+function registerUniqueName(
+	seen: Map<string, string>,
+	commandName: string,
+	filePath: string,
+): void {
+	const lowerName = normalizeName(commandName);
+	if (seen.has(lowerName)) {
+		const existing = seen.get(lowerName);
+		throw new Error(
+			`Duplicate command name "${commandName}" (case-insensitive). Also found: ${existing}.`,
+		);
+	}
+	seen.set(lowerName, filePath);
+}
+
+export async function loadCommandCatalog(
+	repoRoot: string,
+	options: LoadCommandCatalogOptions = {},
+): Promise<CommandCatalog> {
+	const includeLocal = options.includeLocal ?? true;
+	const commandsPath = resolveSharedCategoryRoot(repoRoot, "commands");
+	const localCommandsPath = resolveLocalCategoryRoot(repoRoot, "commands");
+
+	const sharedStats = await readDirectoryStats(commandsPath);
+	if (sharedStats && !sharedStats.isDirectory()) {
 		throw new Error(`Command catalog path is not a directory: ${commandsPath}.`);
 	}
-
-	const files = await listMarkdownFiles(commandsPath);
-	if (files.length === 0) {
-		throw new Error(`No slash command definitions found in ${commandsPath}.`);
+	const localStats = await readDirectoryStats(localCommandsPath);
+	if (localStats && !localStats.isDirectory()) {
+		throw new Error(`Local command catalog path is not a directory: ${localCommandsPath}.`);
 	}
 
-	const commands: SlashCommandDefinition[] = [];
-	const seen = new Map<string, string>();
+	const sharedFiles = sharedStats ? await listMarkdownFiles(commandsPath) : [];
+	const localFiles = localStats ? await listMarkdownFiles(localCommandsPath) : [];
 
-	for (const filePath of files) {
-		const fileName = path.basename(filePath, ".md");
-		const lowerName = fileName.toLowerCase();
-		if (seen.has(lowerName)) {
-			const existing = seen.get(lowerName);
-			throw new Error(
-				`Duplicate command name "${fileName}" (case-insensitive). Also found: ${existing}.`,
+	const sharedCommands: SlashCommandDefinition[] = [];
+	const localPathCommands: SlashCommandDefinition[] = [];
+	const localSuffixCommands: SlashCommandDefinition[] = [];
+	const seenShared = new Map<string, string>();
+	const seenLocalPath = new Map<string, string>();
+	const seenLocalSuffix = new Map<string, string>();
+
+	for (const filePath of sharedFiles) {
+		const fileName = path.basename(filePath);
+		const { baseName, hadLocalSuffix } = stripLocalSuffix(fileName, ".md");
+		if (!baseName) {
+			continue;
+		}
+		if (hadLocalSuffix) {
+			registerUniqueName(seenLocalSuffix, baseName, filePath);
+			localSuffixCommands.push(
+				await buildCommandDefinition({
+					filePath,
+					commandName: baseName,
+					sourceType: "local",
+					markerType: "suffix",
+				}),
+			);
+		} else {
+			registerUniqueName(seenShared, baseName, filePath);
+			sharedCommands.push(
+				await buildCommandDefinition({
+					filePath,
+					commandName: baseName,
+					sourceType: "shared",
+				}),
 			);
 		}
-		seen.set(lowerName, filePath);
+	}
 
-		const contents = await readFile(filePath, "utf8");
-		const { frontmatter, body } = extractFrontmatter(contents);
-		const prompt = body.trimEnd();
-		if (!prompt.trim()) {
-			throw new Error(`Slash command "${fileName}" has an empty prompt.`);
+	for (const filePath of localFiles) {
+		const fileName = path.basename(filePath);
+		const { baseName } = stripLocalSuffix(fileName, ".md");
+		if (!baseName) {
+			continue;
 		}
-
-		const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
-		const { targets, invalidTargets } = resolveFrontmatterTargets(
-			rawTargets,
-			isSlashCommandTargetName,
+		registerUniqueName(seenLocalPath, baseName, filePath);
+		localPathCommands.push(
+			await buildCommandDefinition({
+				filePath,
+				commandName: baseName,
+				sourceType: "local",
+				markerType: "path",
+			}),
 		);
-		if (invalidTargets.length > 0) {
-			const invalidList = invalidTargets.join(", ");
-			throw new InvalidFrontmatterTargetsError(
-				`Slash command "${fileName}" has unsupported targets (${invalidList}) in ${filePath}.`,
-			);
-		}
-		if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
-			throw new InvalidFrontmatterTargetsError(
-				`Slash command "${fileName}" has empty targets in ${filePath}.`,
-			);
-		}
-		commands.push({
-			name: fileName,
-			prompt,
-			sourcePath: filePath,
-			rawContents: contents,
-			targetAgents: targets,
-			invalidTargets,
-			frontmatter,
-		});
 	}
+
+	const localCommands = [...localPathCommands, ...localSuffixCommands];
+	const localPathNames = new Set(localPathCommands.map((command) => normalizeName(command.name)));
+	const localEffectiveCommands = [
+		...localPathCommands,
+		...localSuffixCommands.filter((command) => !localPathNames.has(normalizeName(command.name))),
+	];
+	const localEffectiveNames = new Set(
+		localEffectiveCommands.map((command) => normalizeName(command.name)),
+	);
+	const sharedEffectiveCommands = sharedCommands.filter(
+		(command) => !localEffectiveNames.has(normalizeName(command.name)),
+	);
+	const commands = includeLocal
+		? [...localEffectiveCommands, ...sharedEffectiveCommands]
+		: sharedCommands;
 
 	return {
 		repoRoot,
 		commandsPath,
+		localCommandsPath,
 		canonicalStandard: "claude_code",
 		commands,
+		sharedCommands,
+		localCommands,
+		localEffectiveCommands,
 	};
 }

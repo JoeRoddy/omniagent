@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
 import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
+import type { SyncSourceCounts } from "../sync-results.js";
 import { resolveEffectiveTargets } from "../sync-targets.js";
 import { loadCommandCatalog, type SlashCommandDefinition } from "./catalog.js";
 import {
@@ -48,6 +49,7 @@ export type SyncRequest = {
 	nonInteractive?: boolean;
 	useDefaults?: boolean;
 	validAgents?: string[];
+	excludeLocal?: boolean;
 };
 
 export type SyncPlanAction = {
@@ -89,6 +91,7 @@ export type SyncSummary = {
 	results: SyncResult[];
 	warnings: string[];
 	hadFailures: boolean;
+	sourceCounts?: SyncSourceCounts;
 };
 
 type OutputKind = "command" | "skill";
@@ -132,6 +135,7 @@ export type SyncPlanDetails = {
 	targetSummaries: TargetPlanSummary[];
 	conflicts: number;
 	warnings: string[];
+	sourceCounts?: SyncSourceCounts;
 };
 
 const PROJECT_SKILL_PATHS: Record<TargetName, string> = {
@@ -357,6 +361,39 @@ function resolveTargetCommands(
 		}
 		return effectiveTargets.some((agent) => normalizeName(agent) === targetName);
 	});
+}
+
+function buildSourceCounts(
+	commands: SlashCommandDefinition[],
+	targets: TargetName[],
+	request: SyncRequest,
+): SyncSourceCounts {
+	const targetSet = new Set(targets.map((target) => normalizeName(target)));
+	const counts: SyncSourceCounts = {
+		shared: 0,
+		local: 0,
+		excludedLocal: request.excludeLocal ?? false,
+	};
+	for (const command of commands) {
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: command.targetAgents,
+			overrideOnly: request.overrideOnly ?? undefined,
+			overrideSkip: request.overrideSkip ?? undefined,
+			allTargets: ALL_TARGET_NAMES,
+		});
+		if (effectiveTargets.length === 0) {
+			continue;
+		}
+		if (!effectiveTargets.some((agent) => targetSet.has(normalizeName(agent)))) {
+			continue;
+		}
+		if (command.sourceType === "local") {
+			counts.local += 1;
+		} else {
+			counts.shared += 1;
+		}
+	}
+	return counts;
 }
 
 function buildInvalidTargetWarnings(commands: SlashCommandDefinition[]): string[] {
@@ -827,7 +864,9 @@ async function buildTargetPlan(
 }
 
 export async function planSlashCommandSync(request: SyncRequest): Promise<SyncPlanDetails> {
-	const catalog = await loadCommandCatalog(request.repoRoot);
+	const catalog = await loadCommandCatalog(request.repoRoot, {
+		includeLocal: !request.excludeLocal,
+	});
 	const selectedTargets =
 		request.targets && request.targets.length > 0
 			? request.targets
@@ -881,6 +920,7 @@ export async function planSlashCommandSync(request: SyncRequest): Promise<SyncPl
 		targetSummaries,
 		conflicts,
 		warnings: buildInvalidTargetWarnings(catalog.commands),
+		sourceCounts: buildSourceCounts(catalog.commands, selectedTargets, request),
 	};
 }
 
@@ -1026,6 +1066,7 @@ export async function applySlashCommandSync(planDetails: SyncPlanDetails): Promi
 		results,
 		warnings: planDetails.warnings,
 		hadFailures,
+		sourceCounts: planDetails.sourceCounts,
 	};
 }
 
@@ -1070,6 +1111,11 @@ export function formatSyncSummary(summary: SyncSummary, jsonOutput: boolean): st
 	const lines = summary.results.map((result) => result.message);
 	for (const warning of summary.warnings) {
 		lines.push(`Warning: ${warning}`);
+	}
+	if (summary.sourceCounts) {
+		const { shared, local, excludedLocal } = summary.sourceCounts;
+		const suffix = excludedLocal ? " (local excluded)" : "";
+		lines.push(`Sources: shared ${shared}, local ${local}${suffix}`);
 	}
 	return lines.join("\n");
 }

@@ -3,7 +3,12 @@ import path from "node:path";
 import { TextDecoder } from "node:util";
 import { applyAgentTemplating } from "../agent-templating.js";
 import { stripFrontmatterFields } from "../frontmatter-strip.js";
-import { buildSummary, type SyncResult, type SyncSummary } from "../sync-results.js";
+import {
+	buildSummary,
+	type SyncResult,
+	type SyncSourceCounts,
+	type SyncSummary,
+} from "../sync-results.js";
 import {
 	resolveEffectiveTargets,
 	TARGETS,
@@ -18,6 +23,7 @@ export type SkillSyncRequest = {
 	overrideOnly?: TargetName[] | null;
 	overrideSkip?: TargetName[] | null;
 	validAgents: string[];
+	excludeLocal?: boolean;
 };
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
@@ -43,18 +49,29 @@ async function copySkillDirectory(options: {
 	destination: string;
 	target: TargetName;
 	validAgents: string[];
+	skillFileName: string;
+	outputFileName: string;
 }): Promise<void> {
 	await mkdir(options.destination, { recursive: true });
 	const entries = await readdir(options.source, { withFileTypes: true });
+	const selectedSkillFile = options.skillFileName.toLowerCase();
+	const outputSkillFile = options.outputFileName;
 
 	for (const entry of entries) {
 		const sourcePath = path.join(options.source, entry.name);
-		const destinationPath = path.join(options.destination, entry.name);
+		const entryLowerName = entry.name.toLowerCase();
+		const isSkillFile = entryLowerName === "skill.md" || entryLowerName === "skill.local.md";
+		if (isSkillFile && entryLowerName !== selectedSkillFile) {
+			continue;
+		}
+		const destinationPath = isSkillFile
+			? path.join(options.destination, outputSkillFile)
+			: path.join(options.destination, entry.name);
 		if (entry.isDirectory()) {
 			await copySkillDirectory({
 				...options,
 				source: sourcePath,
-				destination: destinationPath,
+				destination: path.join(options.destination, entry.name),
 			});
 			continue;
 		}
@@ -76,10 +93,9 @@ async function copySkillDirectory(options: {
 			validAgents: options.validAgents,
 			sourcePath,
 		});
-		const output =
-			entry.name.toLowerCase() === "skill.md"
-				? stripFrontmatterFields(templated, TARGET_FRONTMATTER_KEYS)
-				: templated;
+		const output = isSkillFile
+			? stripFrontmatterFields(templated, TARGET_FRONTMATTER_KEYS)
+			: templated;
 		await mkdir(path.dirname(destinationPath), { recursive: true });
 		await writeFile(destinationPath, output, "utf8");
 	}
@@ -115,10 +131,16 @@ function resolveEffectiveTargetsForSkill(
 export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary> {
 	const sourcePath = path.join(request.repoRoot, "agents", "skills");
 	if (request.targets.length === 0) {
-		return buildSummary(sourcePath, []);
+		return buildSummary(sourcePath, [], [], {
+			shared: 0,
+			local: 0,
+			excludedLocal: request.excludeLocal ?? false,
+		});
 	}
 
-	const catalog = await loadSkillCatalog(request.repoRoot);
+	const catalog = await loadSkillCatalog(request.repoRoot, {
+		includeLocal: !request.excludeLocal,
+	});
 	const warnings = buildInvalidTargetWarnings(catalog.skills);
 	const effectiveTargetsBySkill = new Map<SkillDefinition, TargetName[]>();
 	for (const skill of catalog.skills) {
@@ -126,6 +148,24 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 			skill,
 			resolveEffectiveTargetsForSkill(skill, request.overrideOnly, request.overrideSkip),
 		);
+	}
+
+	const targetNames = new Set(request.targets.map((target) => target.name));
+	const sourceCounts: SyncSourceCounts = {
+		shared: 0,
+		local: 0,
+		excludedLocal: request.excludeLocal ?? false,
+	};
+	for (const skill of catalog.skills) {
+		const effectiveTargets = effectiveTargetsBySkill.get(skill) ?? [];
+		if (!effectiveTargets.some((targetName) => targetNames.has(targetName))) {
+			continue;
+		}
+		if (skill.sourceType === "local") {
+			sourceCounts.local += 1;
+		} else {
+			sourceCounts.shared += 1;
+		}
 	}
 
 	const results: SyncResult[] = [];
@@ -147,6 +187,8 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 					destination: destinationDir,
 					target: target.name,
 					validAgents: request.validAgents,
+					skillFileName: skill.skillFileName,
+					outputFileName: skill.outputFileName,
 				});
 			}
 			results.push({
@@ -165,5 +207,5 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 		}
 	}
 
-	return buildSummary(sourcePath, results, warnings);
+	return buildSummary(sourcePath, results, warnings, sourceCounts);
 }

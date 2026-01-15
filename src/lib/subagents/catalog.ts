@@ -1,6 +1,14 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import {
+	buildSourceMetadata,
+	type LocalMarkerType,
+	resolveLocalCategoryRoot,
+	resolveSharedCategoryRoot,
+	type SourceType,
+	stripLocalSuffix,
+} from "../local-sources.js";
+import {
 	hasRawTargetValues,
 	InvalidFrontmatterTargetsError,
 	resolveFrontmatterTargets,
@@ -13,6 +21,9 @@ export type SubagentDefinition = {
 	resolvedName: string;
 	sourcePath: string;
 	fileName: string;
+	sourceType: SourceType;
+	markerType?: LocalMarkerType;
+	isLocalFallback: boolean;
 	rawContents: string;
 	frontmatter: Record<string, FrontmatterValue>;
 	body: string;
@@ -23,8 +34,12 @@ export type SubagentDefinition = {
 export type SubagentCatalog = {
 	repoRoot: string;
 	catalogPath: string;
+	localCatalogPath: string;
 	canonicalStandard: "claude_code";
 	subagents: SubagentDefinition[];
+	sharedSubagents: SubagentDefinition[];
+	localSubagents: SubagentDefinition[];
+	localEffectiveSubagents: SubagentDefinition[];
 };
 
 const FRONTMATTER_MARKER = "---";
@@ -44,6 +59,10 @@ async function listCatalogFiles(root: string): Promise<string[]> {
 	}
 	return files;
 }
+
+export type LoadSubagentCatalogOptions = {
+	includeLocal?: boolean;
+};
 
 function parseScalar(rawValue: string): string {
 	const trimmed = rawValue.trim();
@@ -149,113 +168,197 @@ function resolveSubagentName(
 	return trimmed;
 }
 
-export async function loadSubagentCatalog(repoRoot: string): Promise<SubagentCatalog> {
-	const catalogPath = path.join(repoRoot, "agents", "agents");
-	let stats: Awaited<ReturnType<typeof stat>> | null = null;
+async function readDirectoryStats(
+	directory: string,
+): Promise<Awaited<ReturnType<typeof stat>> | null> {
 	try {
-		stats = await stat(catalogPath);
+		return await stat(directory);
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code === "ENOENT") {
-			return {
-				repoRoot,
-				catalogPath,
-				canonicalStandard: "claude_code",
-				subagents: [],
-			};
+			return null;
 		}
 		throw error;
 	}
+}
 
-	if (!stats.isDirectory()) {
+function normalizeName(name: string): string {
+	return name.toLowerCase();
+}
+
+async function buildSubagentDefinition(options: {
+	filePath: string;
+	fileName: string;
+	sourceType: SourceType;
+	markerType?: LocalMarkerType;
+}): Promise<SubagentDefinition> {
+	const contents = await readFile(options.filePath, "utf8");
+	if (!contents.trim()) {
+		throw new Error(`Subagent file is empty: ${options.filePath}.`);
+	}
+
+	let frontmatter: Record<string, FrontmatterValue>;
+	let body: string;
+	try {
+		({ frontmatter, body } = extractFrontmatter(contents));
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(`Invalid frontmatter in ${options.filePath}: ${message}`);
+	}
+
+	if (!body.trim()) {
+		throw new Error(`Subagent file has empty body: ${options.filePath}.`);
+	}
+
+	let resolvedName: string;
+	try {
+		resolvedName = resolveSubagentName(frontmatter, options.fileName);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(`Invalid frontmatter in ${options.filePath}: ${message}`);
+	}
+
+	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
+	const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, isSubagentTargetName);
+	if (invalidTargets.length > 0) {
+		const invalidList = invalidTargets.join(", ");
+		throw new InvalidFrontmatterTargetsError(
+			`Subagent "${resolvedName}" has unsupported targets (${invalidList}) in ${options.filePath}.`,
+		);
+	}
+	if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
+		throw new InvalidFrontmatterTargetsError(
+			`Subagent "${resolvedName}" has empty targets in ${options.filePath}.`,
+		);
+	}
+
+	const metadata = buildSourceMetadata(options.sourceType, options.markerType);
+
+	return {
+		resolvedName,
+		sourcePath: options.filePath,
+		fileName: options.fileName,
+		sourceType: metadata.sourceType,
+		markerType: metadata.markerType,
+		isLocalFallback: metadata.isLocalFallback,
+		rawContents: contents,
+		frontmatter,
+		body,
+		targetAgents: targets,
+		invalidTargets,
+	};
+}
+
+function registerUniqueName(
+	seen: Map<string, string>,
+	resolvedName: string,
+	filePath: string,
+): void {
+	const nameKey = normalizeName(resolvedName);
+	const existingPath = seen.get(nameKey);
+	if (existingPath) {
+		throw new Error(
+			`Duplicate subagent name "${resolvedName}" (case-insensitive) found in: ` +
+				`${existingPath} and ${filePath}.`,
+		);
+	}
+	seen.set(nameKey, filePath);
+}
+
+export async function loadSubagentCatalog(
+	repoRoot: string,
+	options: LoadSubagentCatalogOptions = {},
+): Promise<SubagentCatalog> {
+	const includeLocal = options.includeLocal ?? true;
+	const catalogPath = resolveSharedCategoryRoot(repoRoot, "agents");
+	const localCatalogPath = resolveLocalCategoryRoot(repoRoot, "agents");
+
+	const sharedStats = await readDirectoryStats(catalogPath);
+	if (sharedStats && !sharedStats.isDirectory()) {
 		throw new Error(`Subagent catalog path is not a directory: ${catalogPath}.`);
 	}
-
-	const files = await listCatalogFiles(catalogPath);
-	if (files.length === 0) {
-		return {
-			repoRoot,
-			catalogPath,
-			canonicalStandard: "claude_code",
-			subagents: [],
-		};
+	const localStats = await readDirectoryStats(localCatalogPath);
+	if (localStats && !localStats.isDirectory()) {
+		throw new Error(`Local subagent catalog path is not a directory: ${localCatalogPath}.`);
 	}
 
-	const subagents: SubagentDefinition[] = [];
-	const seenNames = new Map<string, string>();
+	const sharedFiles = sharedStats ? await listCatalogFiles(catalogPath) : [];
+	const localFiles = localStats ? await listCatalogFiles(localCatalogPath) : [];
 
-	for (const filePath of files) {
+	const sharedSubagents: SubagentDefinition[] = [];
+	const localPathSubagents: SubagentDefinition[] = [];
+	const localSuffixSubagents: SubagentDefinition[] = [];
+	const seenShared = new Map<string, string>();
+	const seenLocalPath = new Map<string, string>();
+	const seenLocalSuffix = new Map<string, string>();
+
+	for (const filePath of sharedFiles) {
 		if (!filePath.toLowerCase().endsWith(".md")) {
 			throw new Error(`Non-Markdown file found in subagent catalog: ${filePath}.`);
 		}
-
-		const contents = await readFile(filePath, "utf8");
-		if (!contents.trim()) {
-			throw new Error(`Subagent file is empty: ${filePath}.`);
-		}
-
-		let frontmatter: Record<string, FrontmatterValue>;
-		let body: string;
-		try {
-			({ frontmatter, body } = extractFrontmatter(contents));
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			throw new Error(`Invalid frontmatter in ${filePath}: ${message}`);
-		}
-
-		if (!body.trim()) {
-			throw new Error(`Subagent file has empty body: ${filePath}.`);
-		}
-
-		const fileName = path.basename(filePath, ".md");
-		let resolvedName: string;
-		try {
-			resolvedName = resolveSubagentName(frontmatter, fileName);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			throw new Error(`Invalid frontmatter in ${filePath}: ${message}`);
-		}
-
-		const nameKey = resolvedName.toLowerCase();
-		const existingPath = seenNames.get(nameKey);
-		if (existingPath) {
-			throw new Error(
-				`Duplicate subagent name "${resolvedName}" (case-insensitive) found in: ` +
-					`${existingPath} and ${filePath}.`,
-			);
-		}
-		seenNames.set(nameKey, filePath);
-
-		const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
-		const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, isSubagentTargetName);
-		if (invalidTargets.length > 0) {
-			const invalidList = invalidTargets.join(", ");
-			throw new InvalidFrontmatterTargetsError(
-				`Subagent "${resolvedName}" has unsupported targets (${invalidList}) in ${filePath}.`,
-			);
-		}
-		if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
-			throw new InvalidFrontmatterTargetsError(
-				`Subagent "${resolvedName}" has empty targets in ${filePath}.`,
-			);
-		}
-
-		subagents.push({
-			resolvedName,
-			sourcePath: filePath,
+		const fileNameWithExt = path.basename(filePath);
+		const { baseName, hadLocalSuffix } = stripLocalSuffix(fileNameWithExt, ".md");
+		const fileName = baseName || path.basename(filePath, ".md");
+		const definition = await buildSubagentDefinition({
+			filePath,
 			fileName,
-			rawContents: contents,
-			frontmatter,
-			body,
-			targetAgents: targets,
-			invalidTargets,
+			sourceType: hadLocalSuffix ? "local" : "shared",
+			markerType: hadLocalSuffix ? "suffix" : undefined,
 		});
+		if (hadLocalSuffix) {
+			registerUniqueName(seenLocalSuffix, definition.resolvedName, filePath);
+			localSuffixSubagents.push(definition);
+		} else {
+			registerUniqueName(seenShared, definition.resolvedName, filePath);
+			sharedSubagents.push(definition);
+		}
 	}
+
+	for (const filePath of localFiles) {
+		if (!filePath.toLowerCase().endsWith(".md")) {
+			throw new Error(`Non-Markdown file found in local subagent catalog: ${filePath}.`);
+		}
+		const fileNameWithExt = path.basename(filePath);
+		const { baseName } = stripLocalSuffix(fileNameWithExt, ".md");
+		const fileName = baseName || path.basename(filePath, ".md");
+		const definition = await buildSubagentDefinition({
+			filePath,
+			fileName,
+			sourceType: "local",
+			markerType: "path",
+		});
+		registerUniqueName(seenLocalPath, definition.resolvedName, filePath);
+		localPathSubagents.push(definition);
+	}
+
+	const localSubagents = [...localPathSubagents, ...localSuffixSubagents];
+	const localPathNames = new Set(
+		localPathSubagents.map((subagent) => normalizeName(subagent.resolvedName)),
+	);
+	const localEffectiveSubagents = [
+		...localPathSubagents,
+		...localSuffixSubagents.filter(
+			(subagent) => !localPathNames.has(normalizeName(subagent.resolvedName)),
+		),
+	];
+	const localEffectiveNames = new Set(
+		localEffectiveSubagents.map((subagent) => normalizeName(subagent.resolvedName)),
+	);
+	const sharedEffectiveSubagents = sharedSubagents.filter(
+		(subagent) => !localEffectiveNames.has(normalizeName(subagent.resolvedName)),
+	);
+	const subagents = includeLocal
+		? [...localEffectiveSubagents, ...sharedEffectiveSubagents]
+		: sharedSubagents;
 
 	return {
 		repoRoot,
 		catalogPath,
+		localCatalogPath,
 		canonicalStandard: "claude_code",
 		subagents,
+		sharedSubagents,
+		localSubagents,
+		localEffectiveSubagents,
 	};
 }

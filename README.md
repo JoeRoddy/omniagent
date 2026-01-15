@@ -17,6 +17,9 @@ Right now, omniagent focuses on **skills**, **subagents**, and **slash commands*
   frontmatter; `name` overrides the filename when present)
 - Canonical slash commands: `agents/commands/` (Claude Code format: Markdown with optional YAML
   frontmatter; filename becomes the command name)
+- Local overrides: `agents/.local/` and `.local` filename suffixes (for example,
+  `deploy.local.md`, `SKILL.local.md`) override shared items with the same name and never appear in
+  output paths
 - `omniagent sync` copies skills, syncs subagents to Claude Code (and converts to skills for other
   targets), and maps slash commands into each supported target's expected location
 
@@ -95,6 +98,18 @@ frontmatter + prompt body). The `name` frontmatter field overrides the filename;
 filename (without `.md`) is used. Non-Claude targets receive converted skills at
 `.target/skills/<name>/SKILL.md`.
 
+## Local overrides
+
+Keep personal config out of the repo by placing local items under `agents/.local/` or by using a
+`.local` filename suffix in shared directories (for example, `agents/commands/deploy.local.md` or
+`agents/skills/review-helper/SKILL.local.md`). Local items override shared items with the same
+name. If both a `.local/` directory entry and a `.local` filename exist, the `.local/` entry wins.
+Outputs are always normalized (no `.local` in output paths).
+
+When local items exist and `.gitignore` is missing rules for `agents/.local/` and `**/*.local.md`,
+interactive sync runs offer to add them once per project. Non-interactive runs never prompt and
+instead report missing ignore rules in the summary.
+
 ## Agent Scoped Templating
 
 Agent scoped templating lets you keep a single canonical file while including or excluding blocks
@@ -124,6 +139,9 @@ npx omniagent@latest sync
 npx omniagent@latest sync --only claude
 npx omniagent@latest sync --only gemini
 npx omniagent@latest sync --skip codex
+npx omniagent@latest sync --exclude-local
+npx omniagent@latest sync --exclude-local=skills,commands
+npx omniagent@latest sync --list-local
 npx omniagent@latest sync --yes
 npx omniagent@latest sync --json
 ```
@@ -132,10 +150,11 @@ Run-level overrides:
 
 - `--only` replaces per-file frontmatter defaults for this run.
 - `--skip` filters the active target set (frontmatter defaults or all targets).
+- `--exclude-local` omits local sources entirely (or only for the listed categories).
+- `--list-local` prints detected local items and exits.
 - If both are provided, `--only` applies first, then `--skip`.
 
 ## Roadmap
 
 - Skills, agents, and slash commands unification
 - AGENT.md unification (mirroring CLAUDE.md, cursor rules, etc)
-- private / local config

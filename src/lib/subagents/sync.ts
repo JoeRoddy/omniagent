@@ -5,6 +5,7 @@ import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
 import { stripFrontmatterFields } from "../frontmatter-strip.js";
 import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
+import type { SyncSourceCounts } from "../sync-results.js";
 import { resolveEffectiveTargets } from "../sync-targets.js";
 import { loadSubagentCatalog, type SubagentDefinition } from "./catalog.js";
 import {
@@ -29,6 +30,7 @@ export type SubagentSyncRequest = {
 	overrideSkip?: SubagentTargetName[] | null;
 	removeMissing?: boolean;
 	validAgents?: string[];
+	excludeLocal?: boolean;
 };
 
 export type SubagentSyncPlanAction = {
@@ -67,6 +69,7 @@ export type SubagentSyncPlanDetails = {
 	targetPlans: TargetPlan[];
 	targetSummaries: SubagentTargetSummary[];
 	warnings: string[];
+	sourceCounts?: SyncSourceCounts;
 };
 
 export type SubagentSyncResult = {
@@ -83,6 +86,7 @@ export type SubagentSyncSummary = {
 	results: SubagentSyncResult[];
 	warnings: string[];
 	hadFailures: boolean;
+	sourceCounts?: SyncSourceCounts;
 };
 
 type OutputKind = "subagent" | "skill";
@@ -124,6 +128,39 @@ function normalizeName(name: string): string {
 
 function normalizeSkillKey(name: string): string {
 	return path.normalize(name).replace(/\\/g, "/").toLowerCase();
+}
+
+function buildSourceCounts(
+	subagents: SubagentDefinition[],
+	targets: SubagentTargetName[],
+	request: SubagentSyncRequest,
+): SyncSourceCounts {
+	const targetSet = new Set(targets.map((target) => target.toLowerCase()));
+	const counts: SyncSourceCounts = {
+		shared: 0,
+		local: 0,
+		excludedLocal: request.excludeLocal ?? false,
+	};
+	for (const subagent of subagents) {
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: subagent.targetAgents,
+			overrideOnly: request.overrideOnly ?? undefined,
+			overrideSkip: request.overrideSkip ?? undefined,
+			allTargets: ALL_TARGET_NAMES,
+		});
+		if (effectiveTargets.length === 0) {
+			continue;
+		}
+		if (!effectiveTargets.some((agent) => targetSet.has(agent.toLowerCase()))) {
+			continue;
+		}
+		if (subagent.sourceType === "local") {
+			counts.local += 1;
+		} else {
+			counts.shared += 1;
+		}
+	}
+	return counts;
 }
 
 async function listSkillDirectories(root: string): Promise<string[]> {
@@ -515,7 +552,9 @@ async function buildTargetPlan(
 export async function planSubagentSync(
 	request: SubagentSyncRequest,
 ): Promise<SubagentSyncPlanDetails> {
-	const catalog = await loadSubagentCatalog(request.repoRoot);
+	const catalog = await loadSubagentCatalog(request.repoRoot, {
+		includeLocal: !request.excludeLocal,
+	});
 	const canonicalSkills = await loadCanonicalSkillIndex(request.repoRoot);
 	const selectedTargets =
 		request.targets && request.targets.length > 0
@@ -557,6 +596,7 @@ export async function planSubagentSync(
 		targetPlans,
 		targetSummaries,
 		warnings: buildInvalidTargetWarnings(catalog.subagents),
+		sourceCounts: buildSourceCounts(catalog.subagents, selectedTargets, request),
 	};
 }
 
@@ -679,6 +719,7 @@ export async function applySubagentSync(
 		results,
 		warnings,
 		hadFailures,
+		sourceCounts: planDetails.sourceCounts,
 	};
 }
 
@@ -726,6 +767,11 @@ export function formatSubagentSummary(summary: SubagentSyncSummary, jsonOutput: 
 		if (!lines.includes(`Warning: ${warning}`)) {
 			lines.push(`Warning: ${warning}`);
 		}
+	}
+	if (summary.sourceCounts) {
+		const { shared, local, excludedLocal } = summary.sourceCounts;
+		const suffix = excludedLocal ? " (local excluded)" : "";
+		lines.push(`Sources: shared ${shared}, local ${local}${suffix}`);
 	}
 	return lines.join("\n");
 }
