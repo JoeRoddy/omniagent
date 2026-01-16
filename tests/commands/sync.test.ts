@@ -282,6 +282,7 @@ describe.sequential("sync command", () => {
 			await mkdir(path.join(root, "subdir"), { recursive: true });
 			const skillsPath = path.join(root, "agents", "skills");
 			const commandsPath = path.join(root, "agents", "commands");
+			const localCommandsPath = path.join(root, "agents", ".local", "commands");
 
 			await withCwd(path.join(root, "subdir"), async () => {
 				await runCli(["node", "agentctrl", "sync"]);
@@ -292,7 +293,9 @@ describe.sequential("sync command", () => {
 				.join("\n");
 
 			expect(loggedMessages).toContain(`Canonical config source not found at ${skillsPath}.`);
-			expect(loggedMessages).toContain(`Command catalog directory not found at ${commandsPath}.`);
+			expect(loggedMessages).toContain(
+				`Command catalog directory not found at ${commandsPath} or ${localCommandsPath}.`,
+			);
 			expect(errorSpy).not.toHaveBeenCalled();
 			expect(exitSpy).not.toHaveBeenCalled();
 		});

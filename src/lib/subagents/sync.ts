@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
+import { listSkillDirectories, normalizeName, type SkillDirectoryEntry } from "../catalog-utils.js";
 import { stripFrontmatterFields } from "../frontmatter-strip.js";
+import { stripLocalPathSuffix } from "../local-sources.js";
 import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
+import type { SyncSourceCounts } from "../sync-results.js";
 import { resolveEffectiveTargets } from "../sync-targets.js";
 import { loadSubagentCatalog, type SubagentDefinition } from "./catalog.js";
 import {
@@ -29,6 +32,8 @@ export type SubagentSyncRequest = {
 	overrideSkip?: SubagentTargetName[] | null;
 	removeMissing?: boolean;
 	validAgents?: string[];
+	excludeLocal?: boolean;
+	includeLocalSkills?: boolean;
 };
 
 export type SubagentSyncPlanAction = {
@@ -67,6 +72,7 @@ export type SubagentSyncPlanDetails = {
 	targetPlans: TargetPlan[];
 	targetSummaries: SubagentTargetSummary[];
 	warnings: string[];
+	sourceCounts?: SyncSourceCounts;
 };
 
 export type SubagentSyncResult = {
@@ -83,6 +89,7 @@ export type SubagentSyncSummary = {
 	results: SubagentSyncResult[];
 	warnings: string[];
 	hadFailures: boolean;
+	sourceCounts?: SyncSourceCounts;
 };
 
 type OutputKind = "subagent" | "skill";
@@ -118,62 +125,129 @@ function hashContent(content: string): string {
 	return createHash("sha256").update(content).digest("hex");
 }
 
-function normalizeName(name: string): string {
-	return name.toLowerCase();
-}
-
 function normalizeSkillKey(name: string): string {
 	return path.normalize(name).replace(/\\/g, "/").toLowerCase();
 }
 
-async function listSkillDirectories(root: string): Promise<string[]> {
-	const entries = await readdir(root, { withFileTypes: true });
-	const directories: string[] = [];
-	let hasSkillFile = false;
-
-	for (const entry of entries) {
-		if (entry.isFile() && entry.name.toLowerCase() === "skill.md") {
-			hasSkillFile = true;
-		}
+function normalizeSkillRelativePath(relativePath: string): string {
+	if (!relativePath) {
+		return relativePath;
 	}
-
-	if (hasSkillFile) {
-		directories.push(root);
-	}
-
-	for (const entry of entries) {
-		if (entry.isDirectory()) {
-			directories.push(...(await listSkillDirectories(path.join(root, entry.name))));
-		}
-	}
-
-	return directories;
+	const baseName = path.basename(relativePath);
+	const { baseName: strippedBase } = stripLocalPathSuffix(baseName);
+	const parent = path.dirname(relativePath);
+	return parent === "." ? strippedBase : path.join(parent, strippedBase);
 }
 
-async function loadCanonicalSkillIndex(repoRoot: string): Promise<Map<string, string>> {
+function buildSourceCounts(
+	subagents: SubagentDefinition[],
+	targets: SubagentTargetName[],
+	request: SubagentSyncRequest,
+): SyncSourceCounts {
+	const targetSet = new Set(targets.map((target) => target.toLowerCase()));
+	const counts: SyncSourceCounts = {
+		shared: 0,
+		local: 0,
+		excludedLocal: request.excludeLocal ?? false,
+	};
+	for (const subagent of subagents) {
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: subagent.targetAgents,
+			overrideOnly: request.overrideOnly ?? undefined,
+			overrideSkip: request.overrideSkip ?? undefined,
+			allTargets: ALL_TARGET_NAMES,
+		});
+		if (effectiveTargets.length === 0) {
+			continue;
+		}
+		if (!effectiveTargets.some((agent) => targetSet.has(agent.toLowerCase()))) {
+			continue;
+		}
+		if (subagent.sourceType === "local") {
+			counts.local += 1;
+		} else {
+			counts.shared += 1;
+		}
+	}
+	return counts;
+}
+
+type CanonicalSkillIndexOptions = {
+	includeLocal?: boolean;
+};
+
+async function loadCanonicalSkillIndex(
+	repoRoot: string,
+	options: CanonicalSkillIndexOptions = {},
+): Promise<Map<string, string>> {
+	const includeLocal = options.includeLocal ?? true;
 	const skillsRoot = path.join(repoRoot, "agents", "skills");
-	let directories: string[] = [];
+	const localSkillsRoot = path.join(repoRoot, "agents", ".local", "skills");
+	let directories: SkillDirectoryEntry[] = [];
 	try {
 		directories = await listSkillDirectories(skillsRoot);
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code;
-		if (code === "ENOENT" || code === "ENOTDIR") {
-			return new Map();
+		if (code !== "ENOENT" && code !== "ENOTDIR") {
+			throw error;
 		}
-		throw error;
 	}
 
 	const index = new Map<string, string>();
-	for (const directory of directories) {
-		const relative = path.relative(skillsRoot, directory);
+	const addEntry = (relativePath: string, skillPath: string) => {
+		if (!relativePath) {
+			return;
+		}
+		const normalized = normalizeSkillKey(normalizeSkillRelativePath(relativePath));
+		index.set(normalized, skillPath);
+	};
+
+	for (const entry of directories) {
+		const relative = path.relative(skillsRoot, entry.directoryPath);
 		if (!relative) {
 			continue;
 		}
-		const key = normalizeSkillKey(relative);
-		if (!index.has(key)) {
-			index.set(key, relative);
+		const isLocalDir = stripLocalPathSuffix(path.basename(entry.directoryPath)).hadLocalSuffix;
+		if (!isLocalDir && entry.sharedSkillFile) {
+			addEntry(relative, path.join(entry.directoryPath, entry.sharedSkillFile));
+		}
+		if (includeLocal) {
+			if (isLocalDir) {
+				const skillFileName = entry.localSkillFile ?? entry.sharedSkillFile;
+				if (skillFileName) {
+					addEntry(relative, path.join(entry.directoryPath, skillFileName));
+				}
+			} else if (entry.localSkillFile) {
+				addEntry(relative, path.join(entry.directoryPath, entry.localSkillFile));
+			}
 		}
 	}
+
+	if (includeLocal) {
+		let localDirectories: SkillDirectoryEntry[] = [];
+		try {
+			localDirectories = await listSkillDirectories(localSkillsRoot);
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code === "ENOENT" || code === "ENOTDIR") {
+				return index;
+			}
+			throw error;
+		}
+
+		for (const entry of localDirectories) {
+			const relative = path.relative(localSkillsRoot, entry.directoryPath);
+			if (!relative) {
+				continue;
+			}
+			const skillFileName = entry.sharedSkillFile ?? entry.localSkillFile;
+			if (!skillFileName) {
+				continue;
+			}
+			addEntry(relative, path.join(entry.directoryPath, skillFileName));
+		}
+	}
+
 	return index;
 }
 
@@ -293,7 +367,6 @@ async function buildTargetPlan(
 	const warnings: string[] = [];
 	const summary = emptySummaryCounts();
 	const actions: SubagentSyncPlanAction[] = [];
-	const canonicalSkillsRoot = path.join(request.repoRoot, "agents", "skills");
 
 	if (!profile.supportsSubagents && subagents.length > 0) {
 		warnings.push(
@@ -327,15 +400,13 @@ async function buildTargetPlan(
 		catalogNames.add(nameKey);
 		const canonicalSkillKey =
 			outputKind === "skill" ? normalizeSkillKey(subagent.resolvedName) : null;
-		const canonicalSkillRelative =
-			canonicalSkillKey && params.canonicalSkills.get(canonicalSkillKey);
-		if (outputKind === "skill" && canonicalSkillRelative) {
+		const canonicalSkillPath = canonicalSkillKey && params.canonicalSkills.get(canonicalSkillKey);
+		if (outputKind === "skill" && canonicalSkillPath) {
 			const { destinationPath } = resolveOutputPaths(
 				outputKind,
 				destinationDir,
 				subagent.resolvedName,
 			);
-			const canonicalSkillPath = path.join(canonicalSkillsRoot, canonicalSkillRelative, "SKILL.md");
 			actions.push({
 				targetName,
 				action: "skip",
@@ -458,13 +529,8 @@ async function buildTargetPlan(
 					: path.join(destinationDir, removalBase);
 			if (outputKind === "skill") {
 				const canonicalSkillKey = normalizeSkillKey(entry.name);
-				const canonicalSkillRelative = params.canonicalSkills.get(canonicalSkillKey);
-				if (canonicalSkillRelative) {
-					const canonicalSkillPath = path.join(
-						canonicalSkillsRoot,
-						canonicalSkillRelative,
-						"SKILL.md",
-					);
+				const canonicalSkillPath = params.canonicalSkills.get(canonicalSkillKey);
+				if (canonicalSkillPath) {
 					actions.push({
 						targetName,
 						action: "skip",
@@ -515,8 +581,12 @@ async function buildTargetPlan(
 export async function planSubagentSync(
 	request: SubagentSyncRequest,
 ): Promise<SubagentSyncPlanDetails> {
-	const catalog = await loadSubagentCatalog(request.repoRoot);
-	const canonicalSkills = await loadCanonicalSkillIndex(request.repoRoot);
+	const catalog = await loadSubagentCatalog(request.repoRoot, {
+		includeLocal: !request.excludeLocal,
+	});
+	const canonicalSkills = await loadCanonicalSkillIndex(request.repoRoot, {
+		includeLocal: request.includeLocalSkills ?? true,
+	});
 	const selectedTargets =
 		request.targets && request.targets.length > 0
 			? request.targets
@@ -557,6 +627,7 @@ export async function planSubagentSync(
 		targetPlans,
 		targetSummaries,
 		warnings: buildInvalidTargetWarnings(catalog.subagents),
+		sourceCounts: buildSourceCounts(catalog.subagents, selectedTargets, request),
 	};
 }
 
@@ -679,6 +750,7 @@ export async function applySubagentSync(
 		results,
 		warnings,
 		hadFailures,
+		sourceCounts: planDetails.sourceCounts,
 	};
 }
 
@@ -726,6 +798,11 @@ export function formatSubagentSummary(summary: SubagentSyncSummary, jsonOutput: 
 		if (!lines.includes(`Warning: ${warning}`)) {
 			lines.push(`Warning: ${warning}`);
 		}
+	}
+	if (summary.sourceCounts) {
+		const { shared, local, excludedLocal } = summary.sourceCounts;
+		const suffix = excludedLocal ? " (local excluded)" : "";
+		lines.push(`Sources: shared ${shared}, local ${local}${suffix}`);
 	}
 	return lines.join("\n");
 }

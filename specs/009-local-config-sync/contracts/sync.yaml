@@ -1,0 +1,80 @@
+openapi: 3.0.3
+info:
+  title: Omniagent Sync API (Conceptual)
+  version: 1.0.0
+  description: |
+    Conceptual API contract representing CLI sync operations for testing and
+    interface validation. This does not imply a server implementation.
+servers:
+  - url: http://localhost
+paths:
+  /sync:
+    post:
+      summary: Run sync with shared/local sources and optional exclusions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                excludeLocal:
+                  description: Exclude all local sources when true.
+                  type: boolean
+                excludeLocalCategories:
+                  description: Exclude local sources for specific categories.
+                  type: array
+                  items:
+                    type: string
+                    enum: [skills, agents, commands]
+                listLocal:
+                  description: Return local items instead of syncing outputs.
+                  type: boolean
+                nonInteractive:
+                  description: Disable prompts; report missing ignore rules.
+                  type: boolean
+              additionalProperties: false
+      responses:
+        "200":
+          description: Sync summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  appliedShared:
+                    type: integer
+                  appliedLocal:
+                    type: integer
+                  excludedLocal:
+                    type: boolean
+                  missingIgnoreRules:
+                    type: boolean
+                  invalidCategory:
+                    type: string
+                required: [appliedShared, appliedLocal, excludedLocal]
+        "400":
+          description: Invalid request (e.g., unknown category)
+  /local-items:
+    get:
+      summary: List detected local items
+      responses:
+        "200":
+          description: Local items by category
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skills:
+                    type: array
+                    items:
+                      type: string
+                  agents:
+                    type: array
+                    items:
+                      type: string
+                  commands:
+                    type: array
+                    items:
+                      type: string

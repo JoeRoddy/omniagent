@@ -4,8 +4,17 @@ import { createInterface } from "node:readline/promises";
 import { TextDecoder } from "node:util";
 import type { CommandModule } from "yargs";
 import { validateAgentTemplating } from "../../lib/agent-templating.js";
+import { readIgnorePreference, recordIgnorePromptDeclined } from "../../lib/ignore-preferences.js";
+import {
+	appendIgnoreRules,
+	DEFAULT_IGNORE_RULES,
+	getIgnoreRuleStatus,
+} from "../../lib/ignore-rules.js";
+import { isLocalSuffixFile, stripLocalPathSuffix } from "../../lib/local-sources.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
+import { loadSkillCatalog } from "../../lib/skills/catalog.js";
 import { syncSkills as syncSkillTargets } from "../../lib/skills/sync.js";
+import { loadCommandCatalog } from "../../lib/slash-commands/catalog.js";
 import {
 	applySlashCommandSync,
 	type CodexConversionScope,
@@ -25,6 +34,7 @@ import {
 	type Scope,
 	SLASH_COMMAND_TARGETS,
 } from "../../lib/slash-commands/targets.js";
+import { loadSubagentCatalog } from "../../lib/subagents/catalog.js";
 import {
 	applySubagentSync,
 	formatSubagentSummary,
@@ -57,12 +67,17 @@ type SyncArgs = {
 	yes: boolean;
 	removeMissing: boolean;
 	conflicts?: string;
+	excludeLocal?: string | string[] | boolean;
+	listLocal?: boolean;
 };
 
 type SkillTarget = (typeof TARGETS)[number];
 
 const ALL_TARGETS = [...SUPPORTED_AGENT_NAMES];
 const SUPPORTED_TARGETS = ALL_TARGETS.join(", ");
+const LOCAL_CATEGORIES = ["skills", "commands", "agents"] as const;
+type LocalCategory = (typeof LOCAL_CATEGORIES)[number];
+const LOCAL_CATEGORY_SET = new Set(LOCAL_CATEGORIES);
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -85,6 +100,94 @@ function parseList(value?: string | string[]): string[] {
 		.filter(Boolean);
 }
 
+type ExcludeLocalSelection = {
+	excludeAll: boolean;
+	categories: Set<LocalCategory>;
+	invalid: string[];
+};
+
+function parseExcludeLocal(value?: string | string[] | boolean): ExcludeLocalSelection {
+	if (value === undefined || value === false) {
+		return { excludeAll: false, categories: new Set(), invalid: [] };
+	}
+	if (value === true) {
+		return { excludeAll: true, categories: new Set(LOCAL_CATEGORIES), invalid: [] };
+	}
+	const list = parseList(value);
+	if (list.length === 0) {
+		return { excludeAll: true, categories: new Set(LOCAL_CATEGORIES), invalid: [] };
+	}
+	const invalid = list.filter((entry) => !LOCAL_CATEGORY_SET.has(entry as LocalCategory));
+	if (invalid.length > 0) {
+		return { excludeAll: false, categories: new Set(), invalid };
+	}
+	return {
+		excludeAll: false,
+		categories: new Set(list as LocalCategory[]),
+		invalid: [],
+	};
+}
+
+type LocalItem = {
+	name: string;
+	sourcePath: string;
+	markerType: "path" | "suffix";
+};
+
+type LocalItemsByCategory = {
+	skills: LocalItem[];
+	commands: LocalItem[];
+	agents: LocalItem[];
+	total: number;
+};
+
+function sortLocalItems(items: LocalItem[]): LocalItem[] {
+	return [...items].sort((left, right) => {
+		const nameCompare = left.name.localeCompare(right.name);
+		if (nameCompare !== 0) {
+			return nameCompare;
+		}
+		return left.sourcePath.localeCompare(right.sourcePath);
+	});
+}
+
+async function collectLocalItems(repoRoot: string): Promise<LocalItemsByCategory> {
+	const [skillCatalog, commandCatalog, subagentCatalog] = await Promise.all([
+		loadSkillCatalog(repoRoot),
+		loadCommandCatalog(repoRoot),
+		loadSubagentCatalog(repoRoot),
+	]);
+
+	const skills = sortLocalItems(
+		skillCatalog.localSkills.map((skill) => ({
+			name: skill.name,
+			sourcePath: skill.sourcePath,
+			markerType: skill.markerType ?? "path",
+		})),
+	);
+	const commands = sortLocalItems(
+		commandCatalog.localCommands.map((command) => ({
+			name: command.name,
+			sourcePath: command.sourcePath,
+			markerType: command.markerType ?? "path",
+		})),
+	);
+	const agents = sortLocalItems(
+		subagentCatalog.localSubagents.map((subagent) => ({
+			name: subagent.resolvedName,
+			sourcePath: subagent.sourcePath,
+			markerType: subagent.markerType ?? "path",
+		})),
+	);
+
+	return {
+		skills,
+		commands,
+		agents,
+		total: skills.length + commands.length + agents.length,
+	};
+}
+
 function decodeUtf8(buffer: Buffer): string | null {
 	try {
 		return utf8Decoder.decode(buffer);
@@ -97,6 +200,43 @@ function formatDisplayPath(repoRoot: string, absolutePath: string): string {
 	const relative = path.relative(repoRoot, absolutePath);
 	const isWithinRepo = relative && !relative.startsWith("..") && !path.isAbsolute(relative);
 	return isWithinRepo ? relative : absolutePath;
+}
+
+function formatLocalItemsOutput(
+	items: LocalItemsByCategory,
+	repoRoot: string,
+	jsonOutput: boolean,
+): string {
+	if (jsonOutput) {
+		return JSON.stringify(
+			{
+				skills: items.skills,
+				commands: items.commands,
+				agents: items.agents,
+			},
+			null,
+			2,
+		);
+	}
+
+	const lines: string[] = [];
+	const sections: Array<[string, LocalItem[]]> = [
+		["skills", items.skills],
+		["commands", items.commands],
+		["agents", items.agents],
+	];
+	for (const [label, list] of sections) {
+		lines.push(`Local ${label} (${list.length}):`);
+		if (list.length === 0) {
+			lines.push("(none)");
+			continue;
+		}
+		for (const item of list) {
+			const displayPath = formatDisplayPath(repoRoot, item.sourcePath);
+			lines.push(`- ${item.name} (${item.markerType}: ${displayPath})`);
+		}
+	}
+	return lines.join("\n");
 }
 
 async function assertSourceDirectory(sourcePath: string): Promise<boolean> {
@@ -157,30 +297,113 @@ async function listFiles(root: string): Promise<string[]> {
 	return files;
 }
 
+function hasLocalMarker(filePath: string): boolean {
+	const segments = filePath.split(path.sep);
+	for (const segment of segments) {
+		if (stripLocalPathSuffix(segment).hadLocalSuffix) {
+			return true;
+		}
+	}
+	const baseName = path.basename(filePath);
+	const extension = path.parse(baseName).ext;
+	return isLocalSuffixFile(baseName, extension);
+}
+
+async function hasLocalSources(repoRoot: string): Promise<boolean> {
+	const localRoots = [
+		path.join(repoRoot, "agents", ".local", "skills"),
+		path.join(repoRoot, "agents", ".local", "commands"),
+		path.join(repoRoot, "agents", ".local", "agents"),
+	];
+	for (const localRoot of localRoots) {
+		if (await assertSourceDirectory(localRoot)) {
+			if (await hasMarkdownFiles(localRoot)) {
+				return true;
+			}
+		}
+	}
+
+	const sharedChecks: Array<{
+		root: string;
+		listFiles: (root: string) => Promise<string[]>;
+	}> = [
+		{ root: path.join(repoRoot, "agents", "skills"), listFiles },
+		{ root: path.join(repoRoot, "agents", "commands"), listFiles: listMarkdownFiles },
+		{ root: path.join(repoRoot, "agents", "agents"), listFiles: listMarkdownFiles },
+	];
+
+	for (const check of sharedChecks) {
+		if (!(await assertSourceDirectory(check.root))) {
+			continue;
+		}
+		const files = await check.listFiles(check.root);
+		if (files.some((filePath) => hasLocalMarker(filePath))) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 async function validateTemplatingSources(options: {
 	repoRoot: string;
 	validAgents: string[];
 	commandsAvailable: boolean;
 	skillsAvailable: boolean;
+	includeLocalCommands: boolean;
+	includeLocalSkills: boolean;
+	includeLocalAgents: boolean;
 }): Promise<void> {
 	const directories: string[] = [];
 	if (options.commandsAvailable) {
-		directories.push(path.join(options.repoRoot, "agents", "commands"));
+		const commandsPath = path.join(options.repoRoot, "agents", "commands");
+		if (await assertSourceDirectory(commandsPath)) {
+			directories.push(commandsPath);
+		}
 	}
 	if (options.skillsAvailable) {
-		directories.push(path.join(options.repoRoot, "agents", "skills"));
+		const skillsPath = path.join(options.repoRoot, "agents", "skills");
+		if (await assertSourceDirectory(skillsPath)) {
+			directories.push(skillsPath);
+		}
+	}
+	if (options.includeLocalCommands) {
+		const localCommandsPath = path.join(options.repoRoot, "agents", ".local", "commands");
+		if (await assertSourceDirectory(localCommandsPath)) {
+			directories.push(localCommandsPath);
+		}
+	}
+	if (options.includeLocalSkills) {
+		const localSkillsPath = path.join(options.repoRoot, "agents", ".local", "skills");
+		if (await assertSourceDirectory(localSkillsPath)) {
+			directories.push(localSkillsPath);
+		}
 	}
 	const subagentsPath = path.join(options.repoRoot, "agents", "agents");
 	if (await assertSourceDirectory(subagentsPath)) {
 		directories.push(subagentsPath);
 	}
+	if (options.includeLocalAgents) {
+		const localSubagentsPath = path.join(options.repoRoot, "agents", ".local", "agents");
+		if (await assertSourceDirectory(localSubagentsPath)) {
+			directories.push(localSubagentsPath);
+		}
+	}
 
 	for (const directory of directories) {
+		const category = path.basename(directory);
+		const excludeLocal =
+			(category === "skills" && !options.includeLocalSkills) ||
+			(category === "commands" && !options.includeLocalCommands) ||
+			(category === "agents" && !options.includeLocalAgents);
 		const files =
 			path.basename(directory) === "skills"
 				? await listFiles(directory)
 				: await listMarkdownFiles(directory);
-		for (const filePath of files) {
+		const filesToValidate = excludeLocal
+			? files.filter((filePath) => !hasLocalMarker(filePath))
+			: files;
+		for (const filePath of filesToValidate) {
 			const buffer = await readFile(filePath);
 			const contents = decodeUtf8(buffer);
 			if (contents === null) {
@@ -195,26 +418,66 @@ async function validateTemplatingSources(options: {
 	}
 }
 
-async function getCommandCatalogStatus(commandsPath: string): Promise<CatalogStatus> {
+async function getCommandCatalogStatus(options: {
+	repoRoot: string;
+	includeLocal: boolean;
+}): Promise<CatalogStatus> {
+	const commandsPath = path.join(options.repoRoot, "agents", "commands");
+	const localCommandsPath = path.join(options.repoRoot, "agents", ".local", "commands");
+
+	let sharedStats: Awaited<ReturnType<typeof stat>> | null = null;
 	try {
-		const stats = await stat(commandsPath);
-		if (!stats.isDirectory()) {
+		sharedStats = await stat(commandsPath);
+		if (!sharedStats.isDirectory()) {
 			return {
 				available: false,
 				reason: `Command catalog path is not a directory: ${commandsPath}.`,
 			};
 		}
-	} catch {
-		return {
-			available: false,
-			reason: `Command catalog directory not found at ${commandsPath}.`,
-		};
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code !== "ENOENT") {
+			throw error;
+		}
 	}
 
-	if (!(await hasMarkdownFiles(commandsPath))) {
+	let localStats: Awaited<ReturnType<typeof stat>> | null = null;
+	if (options.includeLocal) {
+		try {
+			localStats = await stat(localCommandsPath);
+			if (!localStats.isDirectory()) {
+				return {
+					available: false,
+					reason: `Local command catalog path is not a directory: ${localCommandsPath}.`,
+				};
+			}
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code !== "ENOENT") {
+				throw error;
+			}
+		}
+	}
+
+	const hasShared = sharedStats ? await hasMarkdownFiles(commandsPath) : false;
+	const hasLocal = localStats ? await hasMarkdownFiles(localCommandsPath) : false;
+
+	if (!hasShared && !hasLocal) {
+		if (!sharedStats && !localStats) {
+			const pathLabel = options.includeLocal
+				? `${commandsPath} or ${localCommandsPath}`
+				: commandsPath;
+			return {
+				available: false,
+				reason: `Command catalog directory not found at ${pathLabel}.`,
+			};
+		}
+		const pathLabel = options.includeLocal
+			? `${commandsPath} or ${localCommandsPath}`
+			: commandsPath;
 		return {
 			available: false,
-			reason: `No slash command definitions found in ${commandsPath}.`,
+			reason: `No slash command definitions found in ${pathLabel}.`,
 		};
 	}
 
@@ -353,6 +616,7 @@ function buildCommandSummary(
 	targets: CommandTargetName[],
 	status: "skipped" | "failed",
 	message: string,
+	excludedLocal: boolean,
 ): CommandSyncSummary {
 	return {
 		sourcePath,
@@ -369,6 +633,11 @@ function buildCommandSummary(
 		}),
 		warnings: [],
 		hadFailures: status === "failed",
+		sourceCounts: {
+			shared: 0,
+			local: 0,
+			excludedLocal,
+		},
 	};
 }
 
@@ -378,6 +647,7 @@ function buildSkillsSummary(
 	targets: SkillTarget[],
 	status: "skipped" | "failed",
 	reason: string,
+	excludedLocal: boolean,
 ): SyncSummary {
 	const sourceDisplay = formatDisplayPath(repoRoot, sourcePath);
 	const results: SyncResult[] = targets.map((target) => {
@@ -390,7 +660,11 @@ function buildSkillsSummary(
 			error: reason,
 		};
 	});
-	return buildSummary(sourcePath, results);
+	return buildSummary(sourcePath, results, [], {
+		shared: 0,
+		local: 0,
+		excludedLocal,
+	});
 }
 
 function emptySubagentCounts(): SubagentSyncSummary["results"][number]["counts"] {
@@ -413,6 +687,7 @@ function buildSubagentSummary(
 	targets: SubagentTargetName[],
 	status: "skipped" | "failed",
 	message: string,
+	excludedLocal: boolean,
 ): SubagentSyncSummary {
 	return {
 		sourcePath,
@@ -430,6 +705,11 @@ function buildSubagentSummary(
 		}),
 		warnings: [],
 		hadFailures: status === "failed",
+		sourceCounts: {
+			shared: 0,
+			local: 0,
+			excludedLocal,
+		},
 	};
 }
 
@@ -440,12 +720,24 @@ type SubagentSyncOptions = {
 	overrideSkip?: SubagentTargetName[];
 	removeMissing: boolean;
 	validAgents: string[];
+	excludeLocal?: boolean;
+	includeLocalSkills?: boolean;
 };
 
 async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSyncSummary> {
 	const sourcePath = path.join(options.repoRoot, "agents", "agents");
 	if (options.targets.length === 0) {
-		return { sourcePath, results: [], warnings: [], hadFailures: false };
+		return {
+			sourcePath,
+			results: [],
+			warnings: [],
+			hadFailures: false,
+			sourceCounts: {
+				shared: 0,
+				local: 0,
+				excludedLocal: options.excludeLocal ?? false,
+			},
+		};
 	}
 
 	let planDetails: SubagentSyncPlanDetails;
@@ -457,11 +749,19 @@ async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSync
 			overrideSkip: options.overrideSkip,
 			removeMissing: options.removeMissing,
 			validAgents: options.validAgents,
+			excludeLocal: options.excludeLocal,
+			includeLocalSkills: options.includeLocalSkills,
 		});
 	} catch (error) {
 		rethrowIfInvalidTargets(error);
 		const message = error instanceof Error ? error.message : String(error);
-		return buildSubagentSummary(sourcePath, options.targets, "failed", message);
+		return buildSubagentSummary(
+			sourcePath,
+			options.targets,
+			"failed",
+			message,
+			options.excludeLocal ?? false,
+		);
 	}
 
 	try {
@@ -469,7 +769,13 @@ async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSync
 	} catch (error) {
 		rethrowIfInvalidTargets(error);
 		const message = error instanceof Error ? error.message : String(error);
-		return buildSubagentSummary(sourcePath, options.targets, "failed", message);
+		return buildSubagentSummary(
+			sourcePath,
+			options.targets,
+			"failed",
+			message,
+			options.excludeLocal ?? false,
+		);
 	}
 }
 
@@ -484,12 +790,23 @@ type CommandSyncOptions = {
 	conflicts?: string;
 	catalogStatus: CatalogStatus;
 	validAgents: string[];
+	excludeLocal?: boolean;
 };
 
 async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSyncSummary> {
 	const sourcePath = path.join(options.repoRoot, "agents", "commands");
 	if (options.targets.length === 0) {
-		return { sourcePath, results: [], hadFailures: false };
+		return {
+			sourcePath,
+			results: [],
+			warnings: [],
+			hadFailures: false,
+			sourceCounts: {
+				shared: 0,
+				local: 0,
+				excludedLocal: options.excludeLocal ?? false,
+			},
+		};
 	}
 	if (!options.catalogStatus.available) {
 		return buildCommandSummary(
@@ -497,6 +814,7 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 			options.targets,
 			"skipped",
 			options.catalogStatus.reason,
+			options.excludeLocal ?? false,
 		);
 	}
 
@@ -560,6 +878,7 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 		useDefaults: options.yes,
 		nonInteractive,
 		validAgents: options.validAgents,
+		excludeLocal: options.excludeLocal,
 	};
 
 	let planDetails: SyncPlanDetails;
@@ -568,7 +887,13 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 	} catch (error) {
 		rethrowIfInvalidTargets(error);
 		const message = error instanceof Error ? error.message : String(error);
-		return buildCommandSummary(sourcePath, options.targets, "failed", message);
+		return buildCommandSummary(
+			sourcePath,
+			options.targets,
+			"failed",
+			message,
+			options.excludeLocal ?? false,
+		);
 	}
 
 	if (!nonInteractive && !conflictResolution && planDetails.conflicts > 0) {
@@ -602,7 +927,13 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 		);
 		if (!shouldApply) {
 			logWithChannel("Aborted.", options.jsonOutput);
-			return buildCommandSummary(sourcePath, options.targets, "skipped", "Aborted by user.");
+			return buildCommandSummary(
+				sourcePath,
+				options.targets,
+				"skipped",
+				"Aborted by user.",
+				options.excludeLocal ?? false,
+			);
 		}
 	}
 
@@ -611,7 +942,13 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 	} catch (error) {
 		rethrowIfInvalidTargets(error);
 		const message = error instanceof Error ? error.message : String(error);
-		return buildCommandSummary(sourcePath, options.targets, "failed", message);
+		return buildCommandSummary(
+			sourcePath,
+			options.targets,
+			"failed",
+			message,
+			options.excludeLocal ?? false,
+		);
 	}
 }
 
@@ -628,6 +965,15 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			.option("only", {
 				type: "string",
 				describe: `Comma-separated targets to sync (${SUPPORTED_TARGETS})`,
+			})
+			.option("exclude-local", {
+				type: "string",
+				describe: "Exclude local sources entirely or by category (skills, commands, agents)",
+			})
+			.option("list-local", {
+				type: "boolean",
+				default: false,
+				describe: "List detected local items and exit",
 			})
 			.option("yes", {
 				type: "boolean",
@@ -653,6 +999,12 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			.example("omniagent sync", "Sync all targets")
 			.example("omniagent sync --skip codex", "Skip a target")
 			.example("omniagent sync --only claude", "Sync only one target")
+			.example("omniagent sync --exclude-local", "Sync shared sources only")
+			.example(
+				"omniagent sync --exclude-local=skills,commands",
+				"Exclude local skills and commands",
+			)
+			.example("omniagent sync --list-local", "List detected local items")
 			.example("omniagent sync --yes", "Accept defaults and apply changes")
 			.example("omniagent sync --json", "Output a JSON summary"),
 	handler: async (argv) => {
@@ -673,6 +1025,24 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				return;
 			}
 
+			const excludeLocalSelection = parseExcludeLocal(argv.excludeLocal);
+			if (excludeLocalSelection.invalid.length > 0) {
+				const invalidList = excludeLocalSelection.invalid.join(", ");
+				console.error(
+					`Error: Unknown local category(s): ${invalidList}. Supported categories: ${LOCAL_CATEGORIES.join(
+						", ",
+					)}.`,
+				);
+				process.exit(1);
+				return;
+			}
+			const excludeLocalCategories = excludeLocalSelection.excludeAll
+				? new Set(LOCAL_CATEGORIES)
+				: excludeLocalSelection.categories;
+			const excludeLocalSkills = excludeLocalCategories.has("skills");
+			const excludeLocalCommands = excludeLocalCategories.has("commands");
+			const excludeLocalAgents = excludeLocalCategories.has("agents");
+
 			const skipSet = new Set(skipList);
 			const onlySet = new Set(onlyList);
 			const selectedTargets = ALL_TARGETS.filter((name) => {
@@ -688,7 +1058,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const overrideSkip = skipList.length > 0 ? skipList : undefined;
 			const validAgents = [...SUPPORTED_AGENT_NAMES];
 
-			if (selectedTargets.length === 0) {
+			if (selectedTargets.length === 0 && !argv.listLocal) {
 				console.error("Error: No targets selected after applying filters.");
 				process.exit(1);
 				return;
@@ -705,6 +1075,20 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				return;
 			}
 
+			const localItems = argv.listLocal
+				? await collectLocalItems(repoRoot)
+				: { skills: [], commands: [], agents: [], total: 0 };
+			if (argv.listLocal) {
+				const output = formatLocalItemsOutput(localItems, repoRoot, argv.json);
+				if (output.length > 0) {
+					console.log(output);
+				}
+				return;
+			}
+
+			const nonInteractive = argv.yes || !process.stdin.isTTY;
+			const hasLocalItems = await hasLocalSources(repoRoot);
+
 			const selectedSkillTargets = TARGETS.filter((target) =>
 				selectedTargets.includes(target.name),
 			);
@@ -716,14 +1100,25 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				selectedTargets.includes(target.name),
 			).map((target) => target.name as SubagentTargetName);
 
-			const skillsSourcePath = path.join(repoRoot, "agents", "skills");
-			const commandsSourcePath = path.join(repoRoot, "agents", "commands");
+			const includeLocalSkills = !excludeLocalSkills;
+			const includeLocalCommands = !excludeLocalCommands;
+			const includeLocalAgents = !excludeLocalAgents;
 
+			const skillsSourcePath = path.join(repoRoot, "agents", "skills");
+
+			const localSkillsPath = path.join(repoRoot, "agents", ".local", "skills");
+			const sharedSkillsAvailable = await assertSourceDirectory(skillsSourcePath);
+			const localSkillsAvailable = includeLocalSkills
+				? await assertSourceDirectory(localSkillsPath)
+				: false;
 			const skillsAvailable =
-				selectedSkillTargets.length > 0 ? await assertSourceDirectory(skillsSourcePath) : false;
+				selectedSkillTargets.length > 0 ? sharedSkillsAvailable || localSkillsAvailable : false;
 			const commandsStatus =
 				selectedCommandTargets.length > 0
-					? await getCommandCatalogStatus(commandsSourcePath)
+					? await getCommandCatalogStatus({
+							repoRoot,
+							includeLocal: includeLocalCommands,
+						})
 					: ({ available: true } as CatalogStatus);
 
 			const hasSkillsToSync = selectedSkillTargets.length > 0 && skillsAvailable;
@@ -733,7 +1128,10 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			if (!hasSkillsToSync && !hasCommandsToSync && !hasSubagentsToSync) {
 				const missingMessages: string[] = [];
 				if (selectedSkillTargets.length > 0 && !skillsAvailable) {
-					missingMessages.push(`Canonical config source not found at ${skillsSourcePath}.`);
+					const skillsLabel = includeLocalSkills
+						? `${skillsSourcePath} or ${localSkillsPath}`
+						: skillsSourcePath;
+					missingMessages.push(`Canonical config source not found at ${skillsLabel}.`);
 				}
 				if (selectedCommandTargets.length > 0 && !commandsStatus.available) {
 					missingMessages.push(commandsStatus.reason);
@@ -751,12 +1149,42 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					validAgents,
 					commandsAvailable: hasCommandsToSync,
 					skillsAvailable: hasSkillsToSync,
+					includeLocalCommands: includeLocalCommands && hasCommandsToSync,
+					includeLocalSkills: includeLocalSkills && hasSkillsToSync,
+					includeLocalAgents: includeLocalAgents && hasSubagentsToSync,
 				});
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				console.error(message);
 				process.exit(1);
 				return;
+			}
+
+			let missingIgnoreRules = false;
+			if (hasLocalItems) {
+				const ignoreStatus = await getIgnoreRuleStatus(repoRoot);
+				if (ignoreStatus.missingRules.length > 0) {
+					missingIgnoreRules = true;
+					const preference = await readIgnorePreference(repoRoot);
+					const previouslyDeclined = preference?.ignorePromptDeclined ?? false;
+					if (!nonInteractive && !previouslyDeclined) {
+						const ignoreLabel = formatDisplayPath(repoRoot, ignoreStatus.ignoreFilePath);
+						logWithChannel(
+							`Local config detected. Missing ignore rules in ${ignoreLabel}.`,
+							argv.json,
+						);
+						const shouldApply = await withPrompter((ask) =>
+							promptConfirm(ask, `Add ignore rules (${DEFAULT_IGNORE_RULES.join(", ")})?`, false),
+						);
+						if (shouldApply) {
+							await appendIgnoreRules(repoRoot);
+							missingIgnoreRules = false;
+							logWithChannel(`Updated ${ignoreLabel}.`, argv.json);
+						} else {
+							await recordIgnorePromptDeclined(repoRoot);
+						}
+					}
+				}
 			}
 
 			const commandsSummary = await syncSlashCommands({
@@ -770,6 +1198,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				conflicts: argv.conflicts,
 				catalogStatus: commandsStatus,
 				validAgents,
+				excludeLocal: excludeLocalCommands,
 			});
 
 			const subagentSummary = await syncSubagents({
@@ -779,12 +1208,18 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				overrideSkip: overrideSkip as SubagentTargetName[] | undefined,
 				removeMissing: argv.removeMissing,
 				validAgents,
+				excludeLocal: excludeLocalAgents,
+				includeLocalSkills,
 			});
 
 			// Sync conversions before copying canonical skills.
 			let skillsSummary: SyncSummary;
 			if (selectedSkillTargets.length === 0) {
-				skillsSummary = buildSummary(skillsSourcePath, []);
+				skillsSummary = buildSummary(skillsSourcePath, [], [], {
+					shared: 0,
+					local: 0,
+					excludedLocal: excludeLocalSkills,
+				});
 			} else if (!skillsAvailable) {
 				const reason = `Canonical config source not found at ${skillsSourcePath}.`;
 				skillsSummary = buildSkillsSummary(
@@ -793,6 +1228,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					selectedSkillTargets,
 					"skipped",
 					reason,
+					excludeLocalSkills,
 				);
 			} else {
 				skillsSummary = await syncSkillTargets({
@@ -801,6 +1237,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					overrideOnly: overrideOnly as SkillTargetName[] | undefined,
 					overrideSkip: overrideSkip as SkillTargetName[] | undefined,
 					validAgents,
+					excludeLocal: excludeLocalSkills,
 				});
 			}
 
@@ -810,6 +1247,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				commands: commandsSummary,
 				hadFailures:
 					skillsSummary.hadFailures || subagentSummary.hadFailures || commandsSummary.hadFailures,
+				missingIgnoreRules,
 			};
 
 			if (argv.json) {
@@ -827,6 +1265,11 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				const commandOutput = formatCommandSummary(commandsSummary, false);
 				if (commandOutput.length > 0) {
 					outputs.push(commandOutput);
+				}
+				if (missingIgnoreRules) {
+					outputs.push(
+						`Warning: Missing ignore rules for local sources (${DEFAULT_IGNORE_RULES.join(", ")}).`,
+					);
 				}
 				if (outputs.length > 0) {
 					console.log(outputs.join("\n"));

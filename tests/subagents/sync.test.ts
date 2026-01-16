@@ -46,6 +46,14 @@ async function writeCanonicalSkill(root: string, name: string, body: string): Pr
 	return skillPath;
 }
 
+async function writeLocalSkill(root: string, name: string, body: string): Promise<string> {
+	const skillDir = path.join(root, "agents", ".local", "skills", name);
+	await mkdir(skillDir, { recursive: true });
+	const skillPath = path.join(skillDir, "SKILL.md");
+	await writeFile(skillPath, body, "utf8");
+	return skillPath;
+}
+
 describe.sequential("subagent sync", () => {
 	it("skips conversion when a canonical skill exists", async () => {
 		await withTempRepo(async (root) => {
@@ -66,6 +74,34 @@ describe.sequential("subagent sync", () => {
 
 			const summary = await applySubagentSync(plan);
 			expect(summary.warnings.some((warning) => warning.includes("canonical skill"))).toBe(true);
+
+			const destination = path.join(root, ".codex", "skills", "planner", "SKILL.md");
+			expect(await pathExists(destination)).toBe(false);
+		});
+	});
+
+	it("skips conversion when a local skill exists", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeLocalSkill(root, "planner", "local skill");
+			await writeSubagent(root, "planner", "subagent body");
+
+			const plan = await planSubagentSync({
+				repoRoot: root,
+				targets: ["codex"],
+				removeMissing: true,
+				includeLocalSkills: true,
+			});
+
+			expect(plan.plan.actions).toHaveLength(1);
+			const action = plan.plan.actions[0];
+			expect(action.action).toBe("skip");
+			expect(action.conflict).toBe(true);
+
+			const summary = await applySubagentSync(plan);
+			expect(summary.warnings.some((warning) => warning.includes("agents/.local/skills"))).toBe(
+				true,
+			);
 
 			const destination = path.join(root, ".codex", "skills", "planner", "SKILL.md");
 			expect(await pathExists(destination)).toBe(false);

@@ -23,7 +23,8 @@ CLAUDE.md
 /*/skills/
 /*/commands/
 /*/agents/
+!/tests/commands/
+!/tests/commands/**
 !/agents/skills/
 !/agents/commands/
 !/agents/agents/
-
