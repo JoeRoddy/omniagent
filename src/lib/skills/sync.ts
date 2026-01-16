@@ -1,8 +1,10 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { TextDecoder } from "node:util";
 import { applyAgentTemplating } from "../agent-templating.js";
+import { listSkillDirectories, type SkillDirectoryEntry } from "../catalog-utils.js";
 import { stripFrontmatterFields } from "../frontmatter-strip.js";
+import { stripLocalPathSuffix } from "../local-sources.js";
 import {
 	buildSummary,
 	type SyncResult,
@@ -24,6 +26,7 @@ export type SkillSyncRequest = {
 	overrideSkip?: TargetName[] | null;
 	validAgents: string[];
 	excludeLocal?: boolean;
+	removeMissing?: boolean;
 };
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
@@ -42,6 +45,109 @@ function formatDisplayPath(repoRoot: string, absolutePath: string): string {
 	const relative = path.relative(repoRoot, absolutePath);
 	const isWithinRepo = relative && !relative.startsWith("..") && !path.isAbsolute(relative);
 	return isWithinRepo ? relative : absolutePath;
+}
+
+function normalizeRelativePath(relativePath: string): string {
+	return path.normalize(relativePath).replace(/\\/g, "/").toLowerCase();
+}
+
+function resolveSkillRelativePathForDirectory(
+	skillsRoot: string,
+	directoryPath: string,
+): { relativePath: string; hadLocalSuffix: boolean } | null {
+	const relativePath = path.relative(skillsRoot, directoryPath);
+	if (!relativePath) {
+		return null;
+	}
+	const baseName = path.basename(relativePath);
+	const { baseName: strippedBase, hadLocalSuffix } = stripLocalPathSuffix(baseName);
+	if (!hadLocalSuffix) {
+		return { relativePath, hadLocalSuffix: false };
+	}
+	const parent = path.dirname(relativePath);
+	const normalized = parent === "." ? strippedBase : path.join(parent, strippedBase);
+	return { relativePath: normalized, hadLocalSuffix: true };
+}
+
+async function listSkillDirectoriesSafe(root: string): Promise<SkillDirectoryEntry[]> {
+	try {
+		return await listSkillDirectories(root);
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ENOENT" || code === "ENOTDIR") {
+			return [];
+		}
+		throw error;
+	}
+}
+
+async function resolveLocalOnlySkillPaths(repoRoot: string): Promise<string[]> {
+	const skillsRoot = path.join(repoRoot, "agents", "skills");
+	const localSkillsRoot = path.join(repoRoot, "agents", ".local", "skills");
+	const sharedEntries = await listSkillDirectoriesSafe(skillsRoot);
+	const localEntries = await listSkillDirectoriesSafe(localSkillsRoot);
+
+	const sharedRelativePaths = new Set<string>();
+	for (const entry of sharedEntries) {
+		if (!entry.sharedSkillFile) {
+			continue;
+		}
+		const resolved = resolveSkillRelativePathForDirectory(skillsRoot, entry.directoryPath);
+		if (!resolved || resolved.hadLocalSuffix) {
+			continue;
+		}
+		sharedRelativePaths.add(normalizeRelativePath(resolved.relativePath));
+	}
+
+	const localOnly = new Map<string, string>();
+	const considerLocal = (relativePath: string | null) => {
+		if (!relativePath) {
+			return;
+		}
+		const normalized = normalizeRelativePath(relativePath);
+		if (sharedRelativePaths.has(normalized) || localOnly.has(normalized)) {
+			return;
+		}
+		localOnly.set(normalized, relativePath);
+	};
+
+	for (const entry of localEntries) {
+		const resolved = resolveSkillRelativePathForDirectory(localSkillsRoot, entry.directoryPath);
+		if (!resolved) {
+			continue;
+		}
+		considerLocal(resolved.relativePath);
+	}
+
+	for (const entry of sharedEntries) {
+		const resolved = resolveSkillRelativePathForDirectory(skillsRoot, entry.directoryPath);
+		if (!resolved) {
+			continue;
+		}
+		if (resolved.hadLocalSuffix || entry.localSkillFile) {
+			considerLocal(resolved.relativePath);
+		}
+	}
+
+	return [...localOnly.values()];
+}
+
+function hasProtectedChildSkill(
+	localRelativePath: string,
+	selectedRelativePaths: string[],
+): boolean {
+	if (!localRelativePath || selectedRelativePaths.length === 0) {
+		return false;
+	}
+	const normalizedLocal = normalizeRelativePath(localRelativePath).replace(/\/+$/, "");
+	const prefix = `${normalizedLocal}/`;
+	for (const selected of selectedRelativePaths) {
+		const normalizedSelected = normalizeRelativePath(selected);
+		if (normalizedSelected.startsWith(prefix)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 async function copySkillDirectory(options: {
@@ -170,6 +276,9 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 
 	const results: SyncResult[] = [];
 	const sourceDisplay = formatDisplayPath(request.repoRoot, sourcePath);
+	const removeMissing = request.removeMissing ?? false;
+	const localOnlyPaths =
+		request.excludeLocal && removeMissing ? await resolveLocalOnlySkillPaths(request.repoRoot) : [];
 
 	for (const target of request.targets) {
 		const destPath = path.join(request.repoRoot, target.relativePath);
@@ -190,6 +299,16 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 					skillFileName: skill.skillFileName,
 					outputFileName: skill.outputFileName,
 				});
+			}
+			if (localOnlyPaths.length > 0) {
+				const protectedPaths = selectedSkills.map((skill) => skill.relativePath);
+				for (const localRelativePath of localOnlyPaths) {
+					if (hasProtectedChildSkill(localRelativePath, protectedPaths)) {
+						continue;
+					}
+					const removePath = path.join(destPath, localRelativePath);
+					await rm(removePath, { recursive: true, force: true });
+				}
 			}
 			results.push({
 				targetName: target.name,
