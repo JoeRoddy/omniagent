@@ -183,7 +183,7 @@ export async function loadSkillCatalog(
 		throw new Error(`Skills root is not a directory: ${skillsRoot}.`);
 	}
 
-	const localStats = await readDirectoryStats(localSkillsRoot);
+	const localStats = includeLocal ? await readDirectoryStats(localSkillsRoot) : null;
 	if (localStats && !localStats.isDirectory()) {
 		throw new Error(`Local skills root is not a directory: ${localSkillsRoot}.`);
 	}
@@ -201,6 +201,9 @@ export async function loadSkillCatalog(
 			entry.directoryPath,
 		);
 		if (hadLocalSuffix) {
+			if (!includeLocal) {
+				continue;
+			}
 			const skillFileName = entry.localSkillFile ?? entry.sharedSkillFile;
 			if (!skillFileName) {
 				continue;
@@ -228,7 +231,7 @@ export async function loadSkillCatalog(
 				}),
 			);
 		}
-		if (entry.localSkillFile) {
+		if (includeLocal && entry.localSkillFile) {
 			localSuffixSkills.push(
 				await buildSkillDefinition({
 					directoryPath: entry.directoryPath,
@@ -242,22 +245,24 @@ export async function loadSkillCatalog(
 		}
 	}
 
-	for (const entry of localEntries) {
-		const skillFileName = entry.sharedSkillFile ?? entry.localSkillFile;
-		if (!skillFileName) {
-			continue;
+	if (includeLocal) {
+		for (const entry of localEntries) {
+			const skillFileName = entry.sharedSkillFile ?? entry.localSkillFile;
+			if (!skillFileName) {
+				continue;
+			}
+			const { relativePath } = resolveSkillRelativePath(localSkillsRoot, entry.directoryPath);
+			localPathSkills.push(
+				await buildSkillDefinition({
+					directoryPath: entry.directoryPath,
+					skillsRoot: localSkillsRoot,
+					relativePath,
+					skillFileName,
+					sourceType: "local",
+					markerType: "path",
+				}),
+			);
 		}
-		const { relativePath } = resolveSkillRelativePath(localSkillsRoot, entry.directoryPath);
-		localPathSkills.push(
-			await buildSkillDefinition({
-				directoryPath: entry.directoryPath,
-				skillsRoot: localSkillsRoot,
-				relativePath,
-				skillFileName,
-				sourceType: "local",
-				markerType: "path",
-			}),
-		);
 	}
 
 	const localSkills = [...localPathSkills, ...localSuffixSkills];

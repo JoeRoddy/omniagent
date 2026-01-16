@@ -260,7 +260,7 @@ export async function loadSubagentCatalog(
 	if (sharedStats && !sharedStats.isDirectory()) {
 		throw new Error(`Subagent catalog path is not a directory: ${catalogPath}.`);
 	}
-	const localStats = await readDirectoryStats(localCatalogPath);
+	const localStats = includeLocal ? await readDirectoryStats(localCatalogPath) : null;
 	if (localStats && !localStats.isDirectory()) {
 		throw new Error(`Local subagent catalog path is not a directory: ${localCatalogPath}.`);
 	}
@@ -282,6 +282,9 @@ export async function loadSubagentCatalog(
 		const fileNameWithExt = path.basename(filePath);
 		const { baseName, hadLocalSuffix } = stripLocalSuffix(fileNameWithExt, ".md");
 		const fileName = baseName || path.basename(filePath, ".md");
+		if (hadLocalSuffix && !includeLocal) {
+			continue;
+		}
 		const definition = await buildSubagentDefinition({
 			filePath,
 			fileName,
@@ -289,6 +292,9 @@ export async function loadSubagentCatalog(
 			markerType: hadLocalSuffix ? "suffix" : undefined,
 		});
 		if (hadLocalSuffix) {
+			if (!includeLocal) {
+				continue;
+			}
 			registerUniqueName(seenLocalSuffix, definition.resolvedName, filePath);
 			localSuffixSubagents.push(definition);
 		} else {
@@ -297,21 +303,23 @@ export async function loadSubagentCatalog(
 		}
 	}
 
-	for (const filePath of localFiles) {
-		if (!filePath.toLowerCase().endsWith(".md")) {
-			throw new Error(`Non-Markdown file found in local subagent catalog: ${filePath}.`);
+	if (includeLocal) {
+		for (const filePath of localFiles) {
+			if (!filePath.toLowerCase().endsWith(".md")) {
+				throw new Error(`Non-Markdown file found in local subagent catalog: ${filePath}.`);
+			}
+			const fileNameWithExt = path.basename(filePath);
+			const { baseName } = stripLocalSuffix(fileNameWithExt, ".md");
+			const fileName = baseName || path.basename(filePath, ".md");
+			const definition = await buildSubagentDefinition({
+				filePath,
+				fileName,
+				sourceType: "local",
+				markerType: "path",
+			});
+			registerUniqueName(seenLocalPath, definition.resolvedName, filePath);
+			localPathSubagents.push(definition);
 		}
-		const fileNameWithExt = path.basename(filePath);
-		const { baseName } = stripLocalSuffix(fileNameWithExt, ".md");
-		const fileName = baseName || path.basename(filePath, ".md");
-		const definition = await buildSubagentDefinition({
-			filePath,
-			fileName,
-			sourceType: "local",
-			markerType: "path",
-		});
-		registerUniqueName(seenLocalPath, definition.resolvedName, filePath);
-		localPathSubagents.push(definition);
 	}
 
 	const localSubagents = [...localPathSubagents, ...localSuffixSubagents];

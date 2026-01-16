@@ -309,6 +309,42 @@ function hasLocalMarker(filePath: string): boolean {
 	return isLocalSuffixFile(baseName, extension);
 }
 
+async function hasLocalSources(repoRoot: string): Promise<boolean> {
+	const localRoots = [
+		path.join(repoRoot, "agents", ".local", "skills"),
+		path.join(repoRoot, "agents", ".local", "commands"),
+		path.join(repoRoot, "agents", ".local", "agents"),
+	];
+	for (const localRoot of localRoots) {
+		if (await assertSourceDirectory(localRoot)) {
+			if (await hasMarkdownFiles(localRoot)) {
+				return true;
+			}
+		}
+	}
+
+	const sharedChecks: Array<{
+		root: string;
+		listFiles: (root: string) => Promise<string[]>;
+	}> = [
+		{ root: path.join(repoRoot, "agents", "skills"), listFiles },
+		{ root: path.join(repoRoot, "agents", "commands"), listFiles: listMarkdownFiles },
+		{ root: path.join(repoRoot, "agents", "agents"), listFiles: listMarkdownFiles },
+	];
+
+	for (const check of sharedChecks) {
+		if (!(await assertSourceDirectory(check.root))) {
+			continue;
+		}
+		const files = await check.listFiles(check.root);
+		if (files.some((filePath) => hasLocalMarker(filePath))) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 async function validateTemplatingSources(options: {
 	repoRoot: string;
 	validAgents: string[];
@@ -685,6 +721,7 @@ type SubagentSyncOptions = {
 	removeMissing: boolean;
 	validAgents: string[];
 	excludeLocal?: boolean;
+	includeLocalSkills?: boolean;
 };
 
 async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSyncSummary> {
@@ -713,6 +750,7 @@ async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSync
 			removeMissing: options.removeMissing,
 			validAgents: options.validAgents,
 			excludeLocal: options.excludeLocal,
+			includeLocalSkills: options.includeLocalSkills,
 		});
 	} catch (error) {
 		rethrowIfInvalidTargets(error);
@@ -1037,7 +1075,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				return;
 			}
 
-			const localItems = await collectLocalItems(repoRoot);
+			const localItems = argv.listLocal
+				? await collectLocalItems(repoRoot)
+				: { skills: [], commands: [], agents: [], total: 0 };
 			if (argv.listLocal) {
 				const output = formatLocalItemsOutput(localItems, repoRoot, argv.json);
 				if (output.length > 0) {
@@ -1047,6 +1087,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			}
 
 			const nonInteractive = argv.yes || !process.stdin.isTTY;
+			const hasLocalItems = await hasLocalSources(repoRoot);
 
 			const selectedSkillTargets = TARGETS.filter((target) =>
 				selectedTargets.includes(target.name),
@@ -1120,7 +1161,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			}
 
 			let missingIgnoreRules = false;
-			if (localItems.total > 0) {
+			if (hasLocalItems) {
 				const ignoreStatus = await getIgnoreRuleStatus(repoRoot);
 				if (ignoreStatus.missingRules.length > 0) {
 					missingIgnoreRules = true;
@@ -1168,6 +1209,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				removeMissing: argv.removeMissing,
 				validAgents,
 				excludeLocal: excludeLocalAgents,
+				includeLocalSkills,
 			});
 
 			// Sync conversions before copying canonical skills.

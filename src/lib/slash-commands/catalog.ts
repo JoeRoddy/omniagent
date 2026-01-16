@@ -136,7 +136,7 @@ export async function loadCommandCatalog(
 	if (sharedStats && !sharedStats.isDirectory()) {
 		throw new Error(`Command catalog path is not a directory: ${commandsPath}.`);
 	}
-	const localStats = await readDirectoryStats(localCommandsPath);
+	const localStats = includeLocal ? await readDirectoryStats(localCommandsPath) : null;
 	if (localStats && !localStats.isDirectory()) {
 		throw new Error(`Local command catalog path is not a directory: ${localCommandsPath}.`);
 	}
@@ -158,6 +158,9 @@ export async function loadCommandCatalog(
 			continue;
 		}
 		if (hadLocalSuffix) {
+			if (!includeLocal) {
+				continue;
+			}
 			registerUniqueName(seenLocalSuffix, baseName, filePath);
 			localSuffixCommands.push(
 				await buildCommandDefinition({
@@ -179,21 +182,23 @@ export async function loadCommandCatalog(
 		}
 	}
 
-	for (const filePath of localFiles) {
-		const fileName = path.basename(filePath);
-		const { baseName } = stripLocalSuffix(fileName, ".md");
-		if (!baseName) {
-			continue;
+	if (includeLocal) {
+		for (const filePath of localFiles) {
+			const fileName = path.basename(filePath);
+			const { baseName } = stripLocalSuffix(fileName, ".md");
+			if (!baseName) {
+				continue;
+			}
+			registerUniqueName(seenLocalPath, baseName, filePath);
+			localPathCommands.push(
+				await buildCommandDefinition({
+					filePath,
+					commandName: baseName,
+					sourceType: "local",
+					markerType: "path",
+				}),
+			);
 		}
-		registerUniqueName(seenLocalPath, baseName, filePath);
-		localPathCommands.push(
-			await buildCommandDefinition({
-				filePath,
-				commandName: baseName,
-				sourceType: "local",
-				markerType: "path",
-			}),
-		);
 	}
 
 	const localCommands = [...localPathCommands, ...localSuffixCommands];
