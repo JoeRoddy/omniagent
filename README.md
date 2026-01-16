@@ -17,9 +17,9 @@ Right now, omniagent focuses on **skills**, **subagents**, and **slash commands*
   frontmatter; `name` overrides the filename when present)
 - Canonical slash commands: `agents/commands/` (Claude Code format: Markdown with optional YAML
   frontmatter; filename becomes the command name)
-- Local overrides: `agents/.local/` and `.local` filename suffixes (for example,
-  `deploy.local.md`, `SKILL.local.md`) override shared items with the same name and never appear in
-  output paths
+- Local overrides: `agents/.local/` plus `.local` suffixes for files or skill folders (for
+  example, `deploy.local.md`, `review-helper.local/SKILL.md`, `SKILL.local.md`) override shared
+  items with the same name and never appear in output paths
 - `omniagent sync` copies skills, syncs subagents to Claude Code (and converts to skills for other
   targets), and maps slash commands into each supported target's expected location
 
@@ -100,15 +100,17 @@ filename (without `.md`) is used. Non-Claude targets receive converted skills at
 
 ## Local overrides
 
-Keep personal config out of the repo by placing local items under `agents/.local/` or by using a
-`.local` filename suffix in shared directories (for example, `agents/commands/deploy.local.md` or
-`agents/skills/review-helper/SKILL.local.md`). Local items override shared items with the same
-name. If both a `.local/` directory entry and a `.local` filename exist, the `.local/` entry wins.
-Outputs are always normalized (no `.local` in output paths).
+Keep personal config out of the repo by placing local items under `agents/.local/` or by using
+`.local` suffixes in shared directories. For single-file items (commands, subagents), use filename
+suffixes like `agents/commands/deploy.local.md`. For skills with multiple files, prefer a local
+folder like `agents/skills/review-helper.local/SKILL.md` (with any extra assets alongside it).
+`SKILL.local.md` remains supported for single-file overrides. Local items override shared items
+with the same name. If both a `.local/` directory entry and a `.local` suffix (file or folder)
+exist, the `.local/` entry wins. Outputs are always normalized (no `.local` in output paths).
 
-When local items exist and `.gitignore` is missing rules for `agents/.local/` and `**/*.local.md`,
-interactive sync runs offer to add them once per project. Non-interactive runs never prompt and
-instead report missing ignore rules in the summary.
+When local items exist and `.gitignore` is missing rules for `agents/.local/`, `**/*.local/`, and
+`**/*.local.md`, interactive sync runs offer to add them once per project. Non-interactive runs
+never prompt and instead report missing ignore rules in the summary.
 
 ## Agent Scoped Templating
 

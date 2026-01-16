@@ -1,6 +1,7 @@
 import {
 	buildSourceMetadata,
 	isLocalSuffixFile,
+	stripLocalPathSuffix,
 	stripLocalSuffix,
 } from "../../src/lib/local-sources.js";
 
@@ -18,6 +19,17 @@ describe("local source helpers", () => {
 	it("detects local suffix files case-insensitively", () => {
 		expect(isLocalSuffixFile("deploy.LOCAL.md", ".md")).toBe(true);
 		expect(isLocalSuffixFile("deploy.md", ".md")).toBe(false);
+	});
+
+	it("strips .local suffix from path segments", () => {
+		expect(stripLocalPathSuffix("review-helper.local")).toEqual({
+			baseName: "review-helper",
+			hadLocalSuffix: true,
+		});
+		expect(stripLocalPathSuffix("review-helper")).toEqual({
+			baseName: "review-helper",
+			hadLocalSuffix: false,
+		});
 	});
 
 	it("builds metadata for shared and local sources", () => {

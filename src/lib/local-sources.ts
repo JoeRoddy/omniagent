@@ -79,6 +79,20 @@ export function stripLocalSuffix(
 	};
 }
 
+export function stripLocalPathSuffix(pathName: string): {
+	baseName: string;
+	hadLocalSuffix: boolean;
+} {
+	const nameLower = pathName.toLowerCase();
+	if (!nameLower.endsWith(LOCAL_SUFFIX)) {
+		return { baseName: pathName, hadLocalSuffix: false };
+	}
+	return {
+		baseName: pathName.slice(0, -LOCAL_SUFFIX.length),
+		hadLocalSuffix: true,
+	};
+}
+
 export function isLocalSuffixFile(fileName: string, extension: string): boolean {
 	return stripLocalSuffix(fileName, extension).hadLocalSuffix;
 }

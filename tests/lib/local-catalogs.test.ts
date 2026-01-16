@@ -74,6 +74,25 @@ describe("local catalog detection", () => {
 		});
 	});
 
+	it("treats .local skill directories as local suffix overrides", async () => {
+		await withTempRepo(async (root) => {
+			await writeSkill(root, path.join("agents", "skills"), "alpha", "SKILL.md");
+			await writeSkill(root, path.join("agents", "skills"), "alpha.local", "SKILL.md");
+
+			const catalog = await loadSkillCatalog(root);
+			const localDir = catalog.localSkills.find(
+				(skill) => skill.name === "alpha" && skill.markerType === "suffix",
+			);
+
+			expect(localDir?.sourceType).toBe("local");
+			expect(localDir?.relativePath).toBe("alpha");
+
+			const combinedAlpha = catalog.skills.filter((skill) => skill.name === "alpha");
+			expect(combinedAlpha).toHaveLength(1);
+			expect(combinedAlpha[0]?.sourceType).toBe("local");
+		});
+	});
+
 	it("classifies shared and local commands and prefers local path over suffix", async () => {
 		await withTempRepo(async (root) => {
 			await writeCommand(root, path.join("agents", "commands"), "deploy.md", "shared deploy");

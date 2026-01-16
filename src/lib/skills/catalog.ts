@@ -6,6 +6,7 @@ import {
 	resolveLocalCategoryRoot,
 	resolveSharedCategoryRoot,
 	type SourceType,
+	stripLocalPathSuffix,
 	stripLocalSuffix,
 } from "../local-sources.js";
 import { extractFrontmatter, type FrontmatterValue } from "../slash-commands/frontmatter.js";
@@ -118,9 +119,28 @@ function normalizeSkillKey(name: string): string {
 	return name.trim().toLowerCase();
 }
 
+function resolveSkillRelativePath(
+	skillsRoot: string,
+	directoryPath: string,
+): { relativePath: string; hadLocalSuffix: boolean } {
+	const relativePath = path.relative(skillsRoot, directoryPath);
+	if (!relativePath) {
+		return { relativePath, hadLocalSuffix: false };
+	}
+	const baseName = path.basename(relativePath);
+	const { baseName: strippedBase, hadLocalSuffix } = stripLocalPathSuffix(baseName);
+	if (!hadLocalSuffix) {
+		return { relativePath, hadLocalSuffix: false };
+	}
+	const parent = path.dirname(relativePath);
+	const normalized = parent === "." ? strippedBase : path.join(parent, strippedBase);
+	return { relativePath: normalized, hadLocalSuffix: true };
+}
+
 async function buildSkillDefinition(options: {
 	directoryPath: string;
 	skillsRoot: string;
+	relativePath?: string;
 	skillFileName: string;
 	sourceType: SourceType;
 	markerType?: LocalMarkerType;
@@ -129,7 +149,8 @@ async function buildSkillDefinition(options: {
 	const sourcePath = path.join(options.directoryPath, options.skillFileName);
 	const rawContents = await readFile(sourcePath, "utf8");
 	const { frontmatter, body } = extractFrontmatter(rawContents);
-	const relativePath = path.relative(options.skillsRoot, options.directoryPath);
+	const relativePath =
+		options.relativePath ?? path.relative(options.skillsRoot, options.directoryPath);
 	const name = resolveSkillName(frontmatter, relativePath || path.basename(options.directoryPath));
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
 	const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, isTargetName);
@@ -188,11 +209,33 @@ export async function loadSkillCatalog(
 	const localSuffixSkills: SkillDefinition[] = [];
 
 	for (const entry of sharedEntries) {
+		const { relativePath, hadLocalSuffix } = resolveSkillRelativePath(
+			skillsRoot,
+			entry.directoryPath,
+		);
+		if (hadLocalSuffix) {
+			const skillFileName = entry.localSkillFile ?? entry.sharedSkillFile;
+			if (!skillFileName) {
+				continue;
+			}
+			localSuffixSkills.push(
+				await buildSkillDefinition({
+					directoryPath: entry.directoryPath,
+					skillsRoot,
+					relativePath,
+					skillFileName,
+					sourceType: "local",
+					markerType: "suffix",
+				}),
+			);
+			continue;
+		}
 		if (entry.sharedSkillFile) {
 			sharedSkills.push(
 				await buildSkillDefinition({
 					directoryPath: entry.directoryPath,
 					skillsRoot,
+					relativePath,
 					skillFileName: entry.sharedSkillFile,
 					sourceType: "shared",
 				}),
@@ -203,6 +246,7 @@ export async function loadSkillCatalog(
 				await buildSkillDefinition({
 					directoryPath: entry.directoryPath,
 					skillsRoot,
+					relativePath,
 					skillFileName: entry.localSkillFile,
 					sourceType: "local",
 					markerType: "suffix",

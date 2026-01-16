@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-export const DEFAULT_IGNORE_RULES = ["agents/.local/", "**/*.local.md"] as const;
+export const DEFAULT_IGNORE_RULES = ["agents/.local/", "**/*.local/", "**/*.local.md"] as const;
 
 export type IgnoreRuleStatus = {
 	ignoreFilePath: string;

@@ -330,6 +330,7 @@ describe.sequential("sync command local config", () => {
 			expect(promptState.prompts.some((prompt) => prompt.includes("Add ignore rules"))).toBe(true);
 			const ignoreContents = await readFile(path.join(root, ".gitignore"), "utf8");
 			expect(ignoreContents).toContain("agents/.local/");
+			expect(ignoreContents).toContain("**/*.local/");
 			expect(ignoreContents).toContain("**/*.local.md");
 
 			const preferencePath = resolveIgnorePreferencePath(root, homeDir);

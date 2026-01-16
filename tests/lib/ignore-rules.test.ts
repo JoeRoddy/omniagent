@@ -38,7 +38,7 @@ describe("ignore rule helpers", () => {
 	it("does not duplicate existing ignore rules", async () => {
 		await withTempRepo(async (root) => {
 			const ignorePath = path.join(root, ".gitignore");
-			const initial = "# existing\nagents/.local\n**/*.local.md\n";
+			const initial = "# existing\nagents/.local\n**/*.local/\n**/*.local.md\n";
 			await writeFile(ignorePath, initial, "utf8");
 
 			const status = await getIgnoreRuleStatus(root);
