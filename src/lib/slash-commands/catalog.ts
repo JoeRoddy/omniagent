@@ -1,5 +1,6 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { normalizeName, readDirectoryStats } from "../catalog-utils.js";
 import {
 	buildSourceMetadata,
 	type LocalMarkerType,
@@ -60,24 +61,6 @@ async function listMarkdownFiles(root: string): Promise<string[]> {
 		}
 	}
 	return files;
-}
-
-async function readDirectoryStats(
-	directory: string,
-): Promise<Awaited<ReturnType<typeof stat>> | null> {
-	try {
-		return await stat(directory);
-	} catch (error) {
-		const code = (error as NodeJS.ErrnoException).code;
-		if (code === "ENOENT") {
-			return null;
-		}
-		throw error;
-	}
-}
-
-function normalizeName(name: string): string {
-	return name.toLowerCase();
 }
 
 async function buildCommandDefinition(options: {

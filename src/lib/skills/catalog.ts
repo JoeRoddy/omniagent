@@ -1,5 +1,6 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { readDirectoryStats } from "../catalog-utils.js";
 import {
 	buildSourceMetadata,
 	type LocalMarkerType,
@@ -99,20 +100,6 @@ function resolveSkillName(frontmatter: Record<string, FrontmatterValue>, fallbac
 		}
 	}
 	return fallback;
-}
-
-async function readDirectoryStats(
-	directory: string,
-): Promise<Awaited<ReturnType<typeof stat>> | null> {
-	try {
-		return await stat(directory);
-	} catch (error) {
-		const code = (error as NodeJS.ErrnoException).code;
-		if (code === "ENOENT") {
-			return null;
-		}
-		throw error;
-	}
 }
 
 function normalizeSkillKey(name: string): string {

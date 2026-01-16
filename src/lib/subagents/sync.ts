@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
+import { normalizeName } from "../catalog-utils.js";
 import { stripFrontmatterFields } from "../frontmatter-strip.js";
 import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
 import type { SyncSourceCounts } from "../sync-results.js";
@@ -120,10 +121,6 @@ function emptySummaryCounts(): SummaryCounts {
 
 function hashContent(content: string): string {
 	return createHash("sha256").update(content).digest("hex");
-}
-
-function normalizeName(name: string): string {
-	return name.toLowerCase();
 }
 
 function normalizeSkillKey(name: string): string {

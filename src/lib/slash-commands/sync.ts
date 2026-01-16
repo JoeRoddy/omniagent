@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/p
 import os from "node:os";
 import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
+import { normalizeName } from "../catalog-utils.js";
 import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
 import type { SyncSourceCounts } from "../sync-results.js";
 import { resolveEffectiveTargets } from "../sync-targets.js";
@@ -161,10 +162,6 @@ function hashContent(content: string): string {
 
 function hashIdentifier(value: string): string {
 	return createHash("sha256").update(value).digest("hex");
-}
-
-function normalizeName(name: string): string {
-	return name.toLowerCase();
 }
 
 function areManagedCommandsEqual(
