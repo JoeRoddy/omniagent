@@ -1238,6 +1238,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					overrideSkip: overrideSkip as SkillTargetName[] | undefined,
 					validAgents,
 					excludeLocal: excludeLocalSkills,
+					removeMissing: argv.removeMissing,
 				});
 			}
 

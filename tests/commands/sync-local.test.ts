@@ -218,6 +218,42 @@ describe.sequential("sync command local config", () => {
 		});
 	});
 
+	it("removes previously synced local-only skills when excluding local sources", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSharedSkill(root, "alpha", "shared alpha");
+			await writeLocalPathSkill(root, "beta", "local beta");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes", "--json"]);
+			});
+
+			expect(await pathExists(path.join(root, ".claude", "skills", "beta", "SKILL.md"))).toBe(true);
+
+			logSpy.mockClear();
+
+			await withCwd(root, async () => {
+				await runCli([
+					"node",
+					"omniagent",
+					"sync",
+					"--only",
+					"claude",
+					"--exclude-local",
+					"--yes",
+					"--json",
+				]);
+			});
+
+			expect(await pathExists(path.join(root, ".claude", "skills", "beta"))).toBe(false);
+			const alphaOutput = await readFile(
+				path.join(root, ".claude", "skills", "alpha", "SKILL.md"),
+				"utf8",
+			);
+			expect(alphaOutput).toBe("shared alpha");
+		});
+	});
+
 	it("skips .local templating validation when local sources are excluded", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
