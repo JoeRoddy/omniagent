@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
 	buildSourceMetadata,
+	detectLocalMarkerFromPath,
 	type LocalMarkerType,
 	type SourceType,
 	stripLocalSuffix,
@@ -36,16 +37,7 @@ function isTemplateFile(fileName: string): boolean {
 }
 
 function detectLocalMarker(filePath: string): LocalMarkerType | null {
-	const segments = filePath.split(path.sep);
-	for (const segment of segments) {
-		if (segment.toLowerCase().endsWith(".local")) {
-			return "path";
-		}
-	}
-	const fileName = path.basename(filePath);
-	const extension = path.extname(fileName);
-	const { hadLocalSuffix } = stripLocalSuffix(fileName, extension);
-	return hadLocalSuffix ? "suffix" : null;
+	return detectLocalMarkerFromPath(filePath);
 }
 
 async function listTemplateFiles(root: string): Promise<string[]> {

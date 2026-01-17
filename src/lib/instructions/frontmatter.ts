@@ -33,7 +33,7 @@ function normalizeOutputDir(rawPath: string, repoRoot: string): string {
 	const absolute = path.isAbsolute(rawPath) ? rawPath : path.resolve(repoRoot, rawPath);
 	const normalized = path.normalize(absolute);
 	const extension = path.extname(normalized);
-	if (extension) {
+	if (extension.toLowerCase() === ".md") {
 		return path.dirname(normalized);
 	}
 	return normalized;

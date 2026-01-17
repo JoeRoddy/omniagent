@@ -67,6 +67,7 @@ function hashContent(value: string | Buffer): string {
 }
 
 function normalizeKeyPath(value: string): string {
+	// Normalize for cross-platform dedupe on case-insensitive filesystems.
 	return path.normalize(value).replace(/\\/g, "/").toLowerCase();
 }
 
@@ -86,7 +87,7 @@ function sortCandidates(candidates: InstructionOutputCandidate[]): InstructionOu
 	);
 }
 
-function selectCandidate(
+function selectCandidateBySource(
 	candidates: InstructionOutputCandidate[],
 ): InstructionOutputCandidate | null {
 	if (candidates.length === 0) {
@@ -123,6 +124,19 @@ function selectCandidate(
 		return sharedEffective[0];
 	}
 	return null;
+}
+
+function selectCandidate(
+	candidates: InstructionOutputCandidate[],
+	preferredTargetName: InstructionTargetName | null,
+): InstructionOutputCandidate | null {
+	if (!preferredTargetName) {
+		return selectCandidateBySource(candidates);
+	}
+	const preferred = selectCandidateBySource(
+		candidates.filter((candidate) => candidate.targetName === preferredTargetName),
+	);
+	return preferred ?? selectCandidateBySource(candidates);
 }
 
 async function loadRepoSources(options: {
@@ -215,6 +229,11 @@ export async function syncInstructions(
 	const includeLocal = !(request.excludeLocal ?? false);
 	const summarySourcePath = request.repoRoot;
 	const warnings: string[] = [];
+	const primaryAgentsTarget: InstructionTargetName | null = selectedTargets.has("codex")
+		? "codex"
+		: selectedTargets.has("copilot")
+			? "copilot"
+			: null;
 
 	if (request.targets.length === 0) {
 		return {
@@ -296,15 +315,14 @@ export async function syncInstructions(
 			const outputPath = resolveRepoInstructionOutputPath(source.sourcePath, targetName);
 			const key = buildOutputKey(outputPath, outputGroup);
 			const isAgentsOutput = isAgentsTarget(targetName);
-			const isSourceOutput = outputPath === source.sourcePath;
 			repoCandidates.push({
 				key,
 				outputGroup,
 				outputPath,
 				targetName,
 				source,
-				content: isAgentsOutput && isSourceOutput ? null : source.body,
-				kind: isAgentsOutput && isSourceOutput ? "satisfied" : "generated",
+				content: isAgentsOutput ? null : source.body,
+				kind: isAgentsOutput ? "satisfied" : "generated",
 			});
 		}
 	}
@@ -324,14 +342,18 @@ export async function syncInstructions(
 
 	const templateWinners = new Map<string, InstructionOutputCandidate>();
 	for (const [key, candidates] of templateGroups) {
-		const selected = selectCandidate(candidates);
+		const outputGroup = candidates[0]?.outputGroup;
+		const preferred = outputGroup === "agents" ? primaryAgentsTarget : null;
+		const selected = selectCandidate(candidates, preferred);
 		if (selected) {
 			templateWinners.set(key, selected);
 		}
 	}
 	const repoWinners = new Map<string, InstructionOutputCandidate>();
 	for (const [key, candidates] of repoGroups) {
-		const selected = selectCandidate(candidates);
+		const outputGroup = candidates[0]?.outputGroup;
+		const preferred = outputGroup === "agents" ? primaryAgentsTarget : null;
+		const selected = selectCandidate(candidates, preferred);
 		if (selected) {
 			repoWinners.set(key, selected);
 		}
@@ -361,11 +383,6 @@ export async function syncInstructions(
 	};
 
 	const now = new Date().toISOString();
-	const primaryAgentsTarget: InstructionTargetName | null = selectedTargets.has("codex")
-		? "codex"
-		: selectedTargets.has("copilot")
-			? "copilot"
-			: null;
 	const activeGroups = new Set<InstructionTargetGroup>(
 		Array.from(selectedTargets).map((target) => resolveInstructionTargetGroup(target)),
 	);

@@ -102,3 +102,15 @@ export function stripLocalPathSuffix(pathName: string): {
 export function isLocalSuffixFile(fileName: string, extension: string): boolean {
 	return stripLocalSuffix(fileName, extension).hadLocalSuffix;
 }
+
+export function detectLocalMarkerFromPath(filePath: string): LocalMarkerType | null {
+	const segments = filePath.split(path.sep);
+	for (const segment of segments) {
+		if (stripLocalPathSuffix(segment).hadLocalSuffix) {
+			return "path";
+		}
+	}
+	const fileName = path.basename(filePath);
+	const extension = path.extname(fileName);
+	return isLocalSuffixFile(fileName, extension) ? "suffix" : null;
+}

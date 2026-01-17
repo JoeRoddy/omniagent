@@ -61,6 +61,26 @@ describe("instruction sync", () => {
 		});
 	});
 
+	it("does not overwrite repo AGENTS outputs when a local override exists", async () => {
+		await withTempRepo(async (root) => {
+			await writeInstruction(root, path.join("docs", "AGENTS.md"), "Shared instructions");
+			await writeInstruction(root, path.join("docs", "AGENTS.local.md"), "Local instructions");
+
+			await syncInstructions({
+				repoRoot: root,
+				targets: ["claude", "codex"],
+				validAgents: VALID_AGENTS,
+				nonInteractive: true,
+			});
+
+			const claude = await readFile(path.join(root, "docs", "CLAUDE.md"), "utf8");
+			const agents = await readFile(path.join(root, "docs", "AGENTS.md"), "utf8");
+
+			expect(claude).toBe("Local instructions");
+			expect(agents).toBe("Shared instructions");
+		});
+	});
+
 	it("does not write AGENTS outputs without codex/copilot targets", async () => {
 		await withTempRepo(async (root) => {
 			await writeInstruction(root, path.join("agents", "AGENTS.md"), "Template instructions");
@@ -277,6 +297,28 @@ describe("instruction sync", () => {
 			expect(codexResult?.counts.total).toBe(1);
 			expect(copilotResult?.counts.total).toBe(0);
 			expect(copilotResult?.message).toContain("Shared AGENTS.md output with codex");
+		});
+	});
+
+	it("renders shared AGENTS output using the primary target content", async () => {
+		await withTempRepo(async (root) => {
+			const template = [
+				"---",
+				"---",
+				"Hello <agents codex>Codex</agents><agents copilot>Copilot</agents>",
+			].join("\n");
+			await writeInstruction(root, path.join("agents", "AGENTS.md"), template);
+
+			await syncInstructions({
+				repoRoot: root,
+				targets: ["codex", "copilot"],
+				validAgents: VALID_AGENTS,
+				nonInteractive: true,
+			});
+
+			const output = await readFile(path.join(root, "AGENTS.md"), "utf8");
+			expect(output).toContain("Hello Codex");
+			expect(output).not.toContain("Copilot");
 		});
 	});
 });

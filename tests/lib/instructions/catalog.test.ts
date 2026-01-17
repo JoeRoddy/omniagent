@@ -40,16 +40,25 @@ describe("instruction template catalog", () => {
 				path.join("agents", "team", "AGENTS.md"),
 				["---", "outPutPath: team/", "---", "Team"].join("\n"),
 			);
+			const dottedPath = await writeTemplate(
+				root,
+				path.join("agents", "dot", "dot.AGENTS.md"),
+				["---", "outPutPath: docs.v2/", "---", "Dot"].join("\n"),
+			);
 
 			const catalog = await loadInstructionTemplateCatalog({ repoRoot: root });
 			const rootTemplate = catalog.templates.find((template) => template.sourcePath === rootPath);
 			const fooTemplate = catalog.templates.find((template) => template.sourcePath === fooPath);
 			const teamTemplate = catalog.templates.find((template) => template.sourcePath === teamPath);
+			const dottedTemplate = catalog.templates.find(
+				(template) => template.sourcePath === dottedPath,
+			);
 
 			expect(rootTemplate?.resolvedOutputDir).toBe(root);
 			expect(fooTemplate?.resolvedOutputDir).toBe(path.join(root, "docs"));
 			expect(fooTemplate?.outPutPath).toBe("docs/AGENTS.md");
 			expect(teamTemplate).toBeTruthy();
+			expect(dottedTemplate?.resolvedOutputDir).toBe(path.join(root, "docs.v2"));
 		});
 	});
 

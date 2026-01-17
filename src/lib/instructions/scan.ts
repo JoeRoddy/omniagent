@@ -2,10 +2,9 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
 	buildSourceMetadata,
-	isLocalSuffixFile,
 	type LocalMarkerType,
 	type SourceType,
-	stripLocalPathSuffix,
+	detectLocalMarkerFromPath,
 	stripLocalSuffix,
 } from "../local-sources.js";
 
@@ -140,15 +139,7 @@ function hasSkippedSegment(relPath: string): boolean {
 }
 
 function detectLocalMarker(filePath: string): LocalMarkerType | null {
-	const segments = filePath.split(path.sep);
-	for (const segment of segments) {
-		if (stripLocalPathSuffix(segment).hadLocalSuffix) {
-			return "path";
-		}
-	}
-	const baseName = path.basename(filePath);
-	const extension = path.extname(baseName);
-	return isLocalSuffixFile(baseName, extension) ? "suffix" : null;
+	return detectLocalMarkerFromPath(filePath);
 }
 
 function isRepoAgentsFile(fileName: string): boolean {

@@ -52,6 +52,23 @@ describe("instruction repo scanning", () => {
 		});
 	});
 
+	it("supports negated gitignore patterns", async () => {
+		await withTempRepo(async (root) => {
+			await writeAgents(root, path.join("important", "AGENTS.md"));
+			await writeAgents(root, path.join("ignored", "AGENTS.md"));
+			await writeFile(
+				path.join(root, ".gitignore"),
+				["*", "!important/", "!important/AGENTS.md"].join("\n"),
+				"utf8",
+			);
+
+			const sources = await scanRepoInstructionSources({ repoRoot: root, includeLocal: true });
+			const relative = sources.map((source) => path.relative(root, source.sourcePath)).sort();
+
+			expect(relative).toEqual([path.join("important", "AGENTS.md")]);
+		});
+	});
+
 	it("excludes local sources when includeLocal is false", async () => {
 		await withTempRepo(async (root) => {
 			await writeAgents(root, "AGENTS.md");

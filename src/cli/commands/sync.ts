@@ -1047,7 +1047,7 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 
 export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 	command: "sync",
-	describe: "Sync canonical skills, subagents, and slash commands to supported targets",
+	describe: "Sync skills, subagents, slash commands, and instruction files to targets",
 	builder: (yargs) =>
 		yargs
 			.usage("omniagent sync [options]")
@@ -1077,7 +1077,8 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			.option("remove-missing", {
 				type: "boolean",
 				default: true,
-				describe: "Remove previously synced commands/subagents missing from the catalog",
+				describe:
+					"Remove previously synced commands, subagents, and instruction outputs missing from sources",
 			})
 			.option("conflicts", {
 				type: "string",
