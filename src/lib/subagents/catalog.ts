@@ -324,15 +324,13 @@ export async function loadSubagentCatalog(
 	}
 
 	const localSubagents = [...localPathSubagents, ...localSuffixSubagents];
-	const {
-		localEffective: localEffectiveSubagents,
-		sharedEffective: sharedEffectiveSubagents,
-	} = resolveLocalPrecedence({
-		shared: sharedSubagents,
-		localPath: localPathSubagents,
-		localSuffix: localSuffixSubagents,
-		key: (subagent) => normalizeName(subagent.resolvedName),
-	});
+	const { localEffective: localEffectiveSubagents, sharedEffective: sharedEffectiveSubagents } =
+		resolveLocalPrecedence({
+			shared: sharedSubagents,
+			localPath: localPathSubagents,
+			localSuffix: localSuffixSubagents,
+			key: (subagent) => normalizeName(subagent.resolvedName),
+		});
 	const subagents = includeLocal
 		? [...localEffectiveSubagents, ...sharedEffectiveSubagents]
 		: sharedSubagents;

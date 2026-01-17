@@ -20,10 +20,7 @@ function hashIdentifier(value: string): string {
 	return createHash("sha256").update(value).digest("hex");
 }
 
-export function resolveManifestPath(
-	repoRoot: string,
-	homeDir: string = os.homedir(),
-): string {
+export function resolveManifestPath(repoRoot: string, homeDir: string = os.homedir()): string {
 	const repoHash = hashIdentifier(repoRoot);
 	const baseDir = path.join(homeDir, ".omniagent", "state", "instructions", "projects", repoHash);
 	return path.join(baseDir, "instruction-outputs.json");
@@ -64,9 +61,5 @@ export async function writeManifest(
 		return left.sourcePath.localeCompare(right.sourcePath);
 	});
 	await mkdir(path.dirname(manifestPath), { recursive: true });
-	await writeFile(
-		manifestPath,
-		`${JSON.stringify({ entries: sorted }, null, 2)}\n`,
-		"utf8",
-	);
+	await writeFile(manifestPath, `${JSON.stringify({ entries: sorted }, null, 2)}\n`, "utf8");
 }

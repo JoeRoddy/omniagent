@@ -13,11 +13,11 @@ import {
 import { scanInstructionTemplateSources } from "../../lib/instructions/catalog.js";
 import { scanRepoInstructionSources } from "../../lib/instructions/scan.js";
 import {
-\tbuildInstructionResultMessage,
-\temptyOutputCounts,
-\tformatInstructionSummary,
+	buildInstructionResultMessage,
+	emptyOutputCounts,
+	formatInstructionSummary,
 } from "../../lib/instructions/summary.js";
-import { syncInstructions, type InstructionSyncSummary } from "../../lib/instructions/sync.js";
+import { type InstructionSyncSummary, syncInstructions } from "../../lib/instructions/sync.js";
 import type { InstructionTargetName } from "../../lib/instructions/targets.js";
 import { isLocalSuffixFile, stripLocalPathSuffix } from "../../lib/local-sources.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
@@ -1331,7 +1331,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 							outputPath: string;
 							sourcePath: string;
 							targetName: InstructionTargetName;
-					  }) =>
+						}) =>
 							withPrompter((ask) =>
 								promptConfirm(
 									ask,

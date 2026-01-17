@@ -102,9 +102,7 @@ function isRootTemplate(filePath: string, repoRoot: string): boolean {
 	const localRoot = path.join(sharedRoot, ".local");
 	const relativeToLocal = path.relative(localRoot, filePath);
 	const isInLocalRoot =
-		relativeToLocal &&
-		!relativeToLocal.startsWith("..") &&
-		!path.isAbsolute(relativeToLocal);
+		relativeToLocal && !relativeToLocal.startsWith("..") && !path.isAbsolute(relativeToLocal);
 	const relative = isInLocalRoot ? relativeToLocal : path.relative(sharedRoot, filePath);
 	if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
 		return false;
@@ -136,8 +134,7 @@ export async function loadInstructionTemplateCatalog(options: {
 		});
 
 		const rootTemplate = isRootTemplate(entry.sourcePath, options.repoRoot);
-		const resolvedOutputDir =
-			parsed.resolvedOutputDir ?? (rootTemplate ? options.repoRoot : null);
+		const resolvedOutputDir = parsed.resolvedOutputDir ?? (rootTemplate ? options.repoRoot : null);
 
 		templates.push({
 			kind: "template",

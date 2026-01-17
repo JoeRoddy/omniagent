@@ -6,7 +6,7 @@ import { resolveLocalPrecedence } from "../local-precedence.js";
 import type { SyncSourceCounts } from "../sync-results.js";
 import { resolveEffectiveTargets, TARGETS } from "../sync-targets.js";
 import { loadInstructionTemplateCatalog } from "./catalog.js";
-import { readManifest, writeManifest, type InstructionManifestEntry } from "./manifest.js";
+import { type InstructionManifestEntry, readManifest, writeManifest } from "./manifest.js";
 import { resolveInstructionOutputPath, resolveRepoInstructionOutputPath } from "./paths.js";
 import { scanRepoInstructionSources } from "./scan.js";
 import {
@@ -17,9 +17,9 @@ import {
 	type InstructionSyncSummary,
 } from "./summary.js";
 import {
-	isAgentsTarget,
 	type InstructionTargetGroup,
 	type InstructionTargetName,
+	isAgentsTarget,
 	resolveInstructionTargetGroup,
 } from "./targets.js";
 import type {
@@ -185,7 +185,7 @@ async function writeOutputFile(
 	const buffer = Buffer.from(content, "utf8");
 	const hash = hashContent(buffer);
 	const existing = await readExistingBuffer(outputPath);
-	if (existing && existing.equals(buffer)) {
+	if (existing?.equals(buffer)) {
 		return { status: "skipped", hash };
 	}
 	await mkdir(path.dirname(outputPath), { recursive: true });
@@ -260,10 +260,7 @@ export async function syncInstructions(
 		}
 		for (const targetName of effectiveTargets) {
 			const outputGroup = resolveInstructionTargetGroup(targetName);
-			const outputPath = resolveInstructionOutputPath(
-				template.resolvedOutputDir,
-				targetName,
-			);
+			const outputPath = resolveInstructionOutputPath(template.resolvedOutputDir, targetName);
 			const key = buildOutputKey(outputPath, outputGroup);
 			const content = applyAgentTemplating({
 				content: template.body,
@@ -558,7 +555,7 @@ export async function syncInstructions(
 					targetName,
 					status,
 					counts,
-			  })
+				})
 			: `Shared AGENTS.md output with ${primaryAgentsTarget}.`;
 		if (groupResult.hadFailure) {
 			hadFailures = true;

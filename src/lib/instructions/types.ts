@@ -1,5 +1,5 @@
-import type { FrontmatterValue } from "../slash-commands/frontmatter.js";
 import type { LocalMarkerType, SourceType } from "../local-sources.js";
+import type { FrontmatterValue } from "../slash-commands/frontmatter.js";
 import type { InstructionTargetName } from "./targets.js";
 
 export type InstructionSourceKind = "template" | "repo";

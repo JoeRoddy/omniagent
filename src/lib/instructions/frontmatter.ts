@@ -60,9 +60,7 @@ export function parseInstructionFrontmatter(options: {
 	}
 
 	const outPutPath = resolveOutPutPathValue(frontmatter);
-	const resolvedOutputDir = outPutPath
-		? normalizeOutputDir(outPutPath, options.repoRoot)
-		: null;
+	const resolvedOutputDir = outPutPath ? normalizeOutputDir(outPutPath, options.repoRoot) : null;
 
 	return {
 		frontmatter,

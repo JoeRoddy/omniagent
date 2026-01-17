@@ -2,9 +2,9 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
 	buildSourceMetadata,
+	isLocalSuffixFile,
 	type LocalMarkerType,
 	type SourceType,
-	isLocalSuffixFile,
 	stripLocalPathSuffix,
 	stripLocalSuffix,
 } from "../local-sources.js";
@@ -98,11 +98,7 @@ function parseGitignore(contents: string): IgnoreRule[] {
 		const anchored = normalized.startsWith("/");
 		const rawPattern = anchored ? normalized.slice(1) : normalized;
 		const basenameOnly = !rawPattern.includes("/");
-		const glob = basenameOnly
-			? rawPattern
-			: anchored
-				? rawPattern
-				: `**/${rawPattern}`;
+		const glob = basenameOnly ? rawPattern : anchored ? rawPattern : `**/${rawPattern}`;
 		const regex = globToRegExp(glob);
 		rules.push({
 			negated,
@@ -126,9 +122,7 @@ function matchIgnoreRule(rule: IgnoreRule, relPath: string, isDir: boolean): boo
 	return rule.regex.test(normalized);
 }
 
-function buildIgnoreMatcher(
-	rules: IgnoreRule[],
-): (relPath: string, isDir: boolean) => boolean {
+function buildIgnoreMatcher(rules: IgnoreRule[]): (relPath: string, isDir: boolean) => boolean {
 	return (relPath, isDir) => {
 		let ignored = false;
 		for (const rule of rules) {
