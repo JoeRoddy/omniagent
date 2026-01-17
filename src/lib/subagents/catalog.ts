@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { normalizeName, readDirectoryStats } from "../catalog-utils.js";
+import { resolveLocalPrecedence } from "../local-precedence.js";
 import {
 	buildSourceMetadata,
 	type LocalMarkerType,
@@ -323,21 +324,15 @@ export async function loadSubagentCatalog(
 	}
 
 	const localSubagents = [...localPathSubagents, ...localSuffixSubagents];
-	const localPathNames = new Set(
-		localPathSubagents.map((subagent) => normalizeName(subagent.resolvedName)),
-	);
-	const localEffectiveSubagents = [
-		...localPathSubagents,
-		...localSuffixSubagents.filter(
-			(subagent) => !localPathNames.has(normalizeName(subagent.resolvedName)),
-		),
-	];
-	const localEffectiveNames = new Set(
-		localEffectiveSubagents.map((subagent) => normalizeName(subagent.resolvedName)),
-	);
-	const sharedEffectiveSubagents = sharedSubagents.filter(
-		(subagent) => !localEffectiveNames.has(normalizeName(subagent.resolvedName)),
-	);
+	const {
+		localEffective: localEffectiveSubagents,
+		sharedEffective: sharedEffectiveSubagents,
+	} = resolveLocalPrecedence({
+		shared: sharedSubagents,
+		localPath: localPathSubagents,
+		localSuffix: localSuffixSubagents,
+		key: (subagent) => normalizeName(subagent.resolvedName),
+	});
 	const subagents = includeLocal
 		? [...localEffectiveSubagents, ...sharedEffectiveSubagents]
 		: sharedSubagents;

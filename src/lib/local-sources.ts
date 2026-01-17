@@ -1,6 +1,6 @@
 import path from "node:path";
 
-export type LocalCategory = "skills" | "commands" | "agents";
+export type LocalCategory = "skills" | "commands" | "agents" | "instructions";
 export type SourceType = "shared" | "local";
 export type LocalMarkerType = "path" | "suffix";
 
@@ -14,10 +14,16 @@ const LOCAL_DIRNAME = ".local";
 const LOCAL_SUFFIX = ".local";
 
 export function resolveSharedCategoryRoot(repoRoot: string, category: LocalCategory): string {
+	if (category === "instructions") {
+		return path.join(repoRoot, "agents");
+	}
 	return path.join(repoRoot, "agents", category);
 }
 
 export function resolveLocalCategoryRoot(repoRoot: string, category: LocalCategory): string {
+	if (category === "instructions") {
+		return path.join(repoRoot, "agents", LOCAL_DIRNAME);
+	}
 	return path.join(repoRoot, "agents", LOCAL_DIRNAME, category);
 }
 

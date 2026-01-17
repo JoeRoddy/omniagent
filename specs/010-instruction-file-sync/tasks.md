@@ -22,9 +22,9 @@ description: "Task list for Instruction File Sync"
 
 **Purpose**: Establish instruction sync module structure and shared types
 
-- [ ] T001 Create instruction source/output types in `src/lib/instructions/types.ts`
-- [ ] T002 [P] Add target filename mapping helpers in `src/lib/instructions/targets.ts`
-- [ ] T003 [P] Export instruction modules from `src/lib/instructions/index.ts`
+- [X] T001 Create instruction source/output types in `src/lib/instructions/types.ts`
+- [X] T002 [P] Add target filename mapping helpers in `src/lib/instructions/targets.ts`
+- [X] T003 [P] Export instruction modules from `src/lib/instructions/index.ts`
 
 ---
 
@@ -32,12 +32,12 @@ description: "Task list for Instruction File Sync"
 
 **Purpose**: Cross-feature prerequisites required before any user story work
 
-- [ ] T004 Create shared local precedence helper in `src/lib/local-precedence.ts`
-- [ ] T005 [P] Refactor slash command local precedence to helper in `src/lib/slash-commands/catalog.ts`
-- [ ] T006 [P] Refactor subagent local precedence to helper in `src/lib/subagents/catalog.ts`
-- [ ] T007 [P] Refactor skills local precedence to helper in `src/lib/skills/sync.ts`
-- [ ] T008 Add instruction category handling in `src/lib/local-sources.ts`
-- [ ] T009 Update exclude-local, list-local, and local detection for instructions in `src/cli/commands/sync.ts`
+- [X] T004 Create shared local precedence helper in `src/lib/local-precedence.ts`
+- [X] T005 [P] Refactor slash command local precedence to helper in `src/lib/slash-commands/catalog.ts`
+- [X] T006 [P] Refactor subagent local precedence to helper in `src/lib/subagents/catalog.ts`
+- [X] T007 [P] Refactor skills local precedence to helper in `src/lib/skills/sync.ts`
+- [X] T008 Add instruction category handling in `src/lib/local-sources.ts`
+- [X] T009 Update exclude-local, list-local, and local detection for instructions in `src/cli/commands/sync.ts`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -54,10 +54,10 @@ unchanged (Codex/Copilot selected should still leave the source file untouched).
 
 ### Implementation for User Story 1
 
-- [ ] T010 [P] [US1] Implement repo `AGENTS.md` walker with `.gitignore` + skip list in `src/lib/instructions/scan.ts`
-- [ ] T011 [P] [US1] Implement repo output path resolver per target in `src/lib/instructions/paths.ts`
-- [ ] T012 [US1] Integrate repo source discovery + output generation in `src/lib/instructions/sync.ts`
-- [ ] T013 [US1] Ensure repo `AGENTS.md` satisfies Codex/Copilot output without overwrite in `src/lib/instructions/sync.ts`
+- [X] T010 [P] [US1] Implement repo `AGENTS.md` walker with `.gitignore` + skip list in `src/lib/instructions/scan.ts`
+- [X] T011 [P] [US1] Implement repo output path resolver per target in `src/lib/instructions/paths.ts`
+- [X] T012 [US1] Integrate repo source discovery + output generation in `src/lib/instructions/sync.ts`
+- [X] T013 [US1] Ensure repo `AGENTS.md` satisfies Codex/Copilot output without overwrite in `src/lib/instructions/sync.ts`
 
 **Checkpoint**: User Story 1 delivers repo-based instruction outputs end-to-end
 
@@ -74,10 +74,10 @@ unchanged (Codex/Copilot selected should still leave the source file untouched).
 
 ### Implementation for User Story 2
 
-- [ ] T014 [P] [US2] Implement frontmatter parsing + `outPutPath` normalization in `src/lib/instructions/frontmatter.ts`
-- [ ] T015 [P] [US2] Implement `/agents/**` template discovery (including non-prefixed `AGENTS.md`) in `src/lib/instructions/catalog.ts`
-- [ ] T016 [US2] Apply templating + strip metadata for template outputs in `src/lib/instructions/sync.ts`
-- [ ] T017 [US2] Resolve template-over-repo precedence and overwrite behavior in `src/lib/instructions/sync.ts`
+- [X] T014 [P] [US2] Implement frontmatter parsing + `outPutPath` normalization in `src/lib/instructions/frontmatter.ts`
+- [X] T015 [P] [US2] Implement `/agents/**` template discovery (including non-prefixed `AGENTS.md`) in `src/lib/instructions/catalog.ts`
+- [X] T016 [US2] Apply templating + strip metadata for template outputs in `src/lib/instructions/sync.ts`
+- [X] T017 [US2] Resolve template-over-repo precedence and overwrite behavior in `src/lib/instructions/sync.ts`
 
 **Checkpoint**: User Story 2 delivers templated outputs with deterministic precedence
 
@@ -93,10 +93,10 @@ mode and confirm the edited file is retained with a warning while summaries show
 
 ### Implementation for User Story 3
 
-- [ ] T018 [P] [US3] Define instruction summary/aggregation types in `src/lib/instructions/summary.ts`
-- [ ] T019 [P] [US3] Add instruction output manifest read/write in `src/lib/instructions/manifest.ts`
-- [ ] T020 [US3] Track output hashes and enforce safe deletion rules in `src/lib/instructions/sync.ts`
-- [ ] T021 [US3] Wire instruction sync + summary counts into CLI output in `src/cli/commands/sync.ts`
+- [X] T018 [P] [US3] Define instruction summary/aggregation types in `src/lib/instructions/summary.ts`
+- [X] T019 [P] [US3] Add instruction output manifest read/write in `src/lib/instructions/manifest.ts`
+- [X] T020 [US3] Track output hashes and enforce safe deletion rules in `src/lib/instructions/sync.ts`
+- [X] T021 [US3] Wire instruction sync + summary counts into CLI output in `src/cli/commands/sync.ts`
 
 **Checkpoint**: User Story 3 delivers safe cleanup and reporting
 
@@ -106,7 +106,7 @@ mode and confirm the edited file is retained with a warning while summaries show
 
 **Purpose**: Documentation and cross-feature consistency
 
-- [ ] T022 [P] Update instruction sync docs (template naming, `outPutPath`, target mapping, `--exclude-local`) in `README.md`
+- [X] T022 [P] Update instruction sync docs (template naming, `outPutPath`, target mapping, `--exclude-local`) in `README.md`
 
 ---
 
