@@ -1,0 +1,141 @@
+openapi: 3.1.0
+info:
+  title: Instruction Sync API
+  version: 1.0.0
+  description: Contract for syncing instruction files from repo and /agents sources.
+paths:
+  /sync/instructions:
+    post:
+      summary: Sync instruction sources into target outputs
+      description: Generates target instruction files and returns a summary of results.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstructionSyncRequest"
+      responses:
+        "200":
+          description: Sync completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstructionSyncSummary"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  schemas:
+    InstructionSyncRequest:
+      type: object
+      properties:
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/TargetType"
+          description: Selected targets to generate outputs for.
+        only:
+          type: array
+          items:
+            $ref: "#/components/schemas/TargetType"
+          description: Optional allowlist of targets to include.
+        skip:
+          type: array
+          items:
+            $ref: "#/components/schemas/TargetType"
+          description: Optional blocklist of targets to skip.
+        excludeLocal:
+          type: boolean
+          description: When true, ignore local instruction sources.
+        nonInteractive:
+          type: boolean
+          description: When true, avoid destructive actions that require confirmation.
+        removeMissing:
+          type: boolean
+          description: When true, remove tracked outputs whose sources are missing.
+      required:
+        - targets
+    InstructionSyncSummary:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/TargetSyncResult"
+        warnings:
+          type: array
+          items:
+            type: string
+        sourceCounts:
+          $ref: "#/components/schemas/SourceCounts"
+        outputCounts:
+          $ref: "#/components/schemas/OutputCounts"
+      required:
+        - results
+        - warnings
+    TargetSyncResult:
+      type: object
+      properties:
+        targetType:
+          $ref: "#/components/schemas/TargetType"
+        status:
+          type: string
+          enum: [synced, skipped, failed, partial]
+        counts:
+          $ref: "#/components/schemas/OutputCounts"
+      required:
+        - targetType
+        - status
+        - counts
+    OutputCounts:
+      type: object
+      properties:
+        created:
+          type: integer
+          minimum: 0
+        updated:
+          type: integer
+          minimum: 0
+        removed:
+          type: integer
+          minimum: 0
+        skipped:
+          type: integer
+          minimum: 0
+        total:
+          type: integer
+          minimum: 0
+      required:
+        - created
+        - updated
+        - removed
+        - skipped
+        - total
+    SourceCounts:
+      type: object
+      properties:
+        shared:
+          type: integer
+          minimum: 0
+        local:
+          type: integer
+          minimum: 0
+        excludedLocal:
+          type: boolean
+      required:
+        - shared
+        - local
+        - excludedLocal
+    TargetType:
+      type: string
+      enum: [claude, gemini, codex, copilot]
+    ErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message

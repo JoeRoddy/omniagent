@@ -102,6 +102,17 @@ async function writeSubagentWithFrontmatter(
 	return filePath;
 }
 
+async function writeRepoInstruction(
+	root: string,
+	relPath: string,
+	contents: string,
+): Promise<string> {
+	const filePath = path.join(root, relPath);
+	await mkdir(path.dirname(filePath), { recursive: true });
+	await writeFile(filePath, contents, "utf8");
+	return filePath;
+}
+
 describe.sequential("sync command", () => {
 	let logSpy: ReturnType<typeof vi.spyOn>;
 	let errorSpy: ReturnType<typeof vi.spyOn>;
@@ -164,6 +175,7 @@ describe.sequential("sync command", () => {
 			await createRepoRoot(root);
 			await createCanonicalSkills(root);
 			await createCanonicalCommands(root);
+			await writeRepoInstruction(root, path.join("docs", "AGENTS.md"), "Repo instructions");
 
 			await withCwd(root, async () => {
 				await runCli(["node", "agentctrl", "sync", "--only", "claude"]);
@@ -177,6 +189,8 @@ describe.sequential("sync command", () => {
 			expect(await pathExists(path.join(root, ".github", "skills"))).toBe(false);
 			expect(await pathExists(path.join(root, ".gemini", "skills"))).toBe(false);
 			expect(await pathExists(path.join(root, ".gemini", "commands"))).toBe(false);
+			expect(await pathExists(path.join(root, "docs", "CLAUDE.md"))).toBe(true);
+			expect(await pathExists(path.join(root, "docs", "GEMINI.md"))).toBe(false);
 		});
 	});
 
@@ -319,6 +333,7 @@ describe.sequential("sync command", () => {
 			await createRepoRoot(root);
 			const skillsPath = await createCanonicalSkills(root);
 			const commandsPath = await createCanonicalCommands(root);
+			await writeRepoInstruction(root, path.join("docs", "AGENTS.md"), "Instruction content");
 
 			await withCwd(root, async () => {
 				await runCli(["node", "agentctrl", "sync", "--json"]);
@@ -329,8 +344,15 @@ describe.sequential("sync command", () => {
 			const parsed = JSON.parse(output);
 			expect(await realpath(parsed.skills.sourcePath)).toBe(skillsPath);
 			expect(await realpath(parsed.commands.sourcePath)).toBe(commandsPath);
+			expect(await realpath(parsed.instructions.sourcePath)).toBe(await realpath(root));
 			expect(parsed.skills.results).toHaveLength(4);
 			expect(parsed.commands.results).toHaveLength(4);
+			expect(parsed.instructions.results).toHaveLength(4);
+			expect(parsed.instructions.sourceCounts).toEqual({
+				shared: 1,
+				local: 0,
+				excludedLocal: false,
+			});
 			expect(parsed.hadFailures).toBe(false);
 		});
 	});

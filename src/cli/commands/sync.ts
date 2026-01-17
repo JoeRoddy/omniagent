@@ -10,6 +10,15 @@ import {
 	DEFAULT_IGNORE_RULES,
 	getIgnoreRuleStatus,
 } from "../../lib/ignore-rules.js";
+import { scanInstructionTemplateSources } from "../../lib/instructions/catalog.js";
+import { scanRepoInstructionSources } from "../../lib/instructions/scan.js";
+import {
+	buildInstructionResultMessage,
+	emptyOutputCounts,
+	formatInstructionSummary,
+} from "../../lib/instructions/summary.js";
+import { type InstructionSyncSummary, syncInstructions } from "../../lib/instructions/sync.js";
+import type { InstructionTargetName } from "../../lib/instructions/targets.js";
 import { isLocalSuffixFile, stripLocalPathSuffix } from "../../lib/local-sources.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
 import { loadSkillCatalog } from "../../lib/skills/catalog.js";
@@ -75,7 +84,7 @@ type SkillTarget = (typeof TARGETS)[number];
 
 const ALL_TARGETS = [...SUPPORTED_AGENT_NAMES];
 const SUPPORTED_TARGETS = ALL_TARGETS.join(", ");
-const LOCAL_CATEGORIES = ["skills", "commands", "agents"] as const;
+const LOCAL_CATEGORIES = ["skills", "commands", "agents", "instructions"] as const;
 type LocalCategory = (typeof LOCAL_CATEGORIES)[number];
 const LOCAL_CATEGORY_SET = new Set(LOCAL_CATEGORIES);
 
@@ -138,6 +147,7 @@ type LocalItemsByCategory = {
 	skills: LocalItem[];
 	commands: LocalItem[];
 	agents: LocalItem[];
+	instructions: LocalItem[];
 	total: number;
 };
 
@@ -152,11 +162,14 @@ function sortLocalItems(items: LocalItem[]): LocalItem[] {
 }
 
 async function collectLocalItems(repoRoot: string): Promise<LocalItemsByCategory> {
-	const [skillCatalog, commandCatalog, subagentCatalog] = await Promise.all([
-		loadSkillCatalog(repoRoot),
-		loadCommandCatalog(repoRoot),
-		loadSubagentCatalog(repoRoot),
-	]);
+	const [skillCatalog, commandCatalog, subagentCatalog, templateEntries, repoEntries] =
+		await Promise.all([
+			loadSkillCatalog(repoRoot),
+			loadCommandCatalog(repoRoot),
+			loadSubagentCatalog(repoRoot),
+			scanInstructionTemplateSources({ repoRoot, includeLocal: true }),
+			scanRepoInstructionSources({ repoRoot, includeLocal: true }),
+		]);
 
 	const skills = sortLocalItems(
 		skillCatalog.localSkills.map((skill) => ({
@@ -179,12 +192,22 @@ async function collectLocalItems(repoRoot: string): Promise<LocalItemsByCategory
 			markerType: subagent.markerType ?? "path",
 		})),
 	);
+	const instructionItems = sortLocalItems(
+		[...templateEntries, ...repoEntries]
+			.filter((entry) => entry.sourceType === "local")
+			.map((entry) => ({
+				name: formatDisplayPath(repoRoot, entry.sourcePath),
+				sourcePath: entry.sourcePath,
+				markerType: entry.markerType ?? "path",
+			})),
+	);
 
 	return {
 		skills,
 		commands,
 		agents,
-		total: skills.length + commands.length + agents.length,
+		instructions: instructionItems,
+		total: skills.length + commands.length + agents.length + instructionItems.length,
 	};
 }
 
@@ -213,6 +236,7 @@ function formatLocalItemsOutput(
 				skills: items.skills,
 				commands: items.commands,
 				agents: items.agents,
+				instructions: items.instructions,
 			},
 			null,
 			2,
@@ -224,6 +248,7 @@ function formatLocalItemsOutput(
 		["skills", items.skills],
 		["commands", items.commands],
 		["agents", items.agents],
+		["instructions", items.instructions],
 	];
 	for (const [label, list] of sections) {
 		lines.push(`Local ${label} (${list.length}):`);
@@ -342,6 +367,17 @@ async function hasLocalSources(repoRoot: string): Promise<boolean> {
 		}
 	}
 
+	const [templateEntries, repoEntries] = await Promise.all([
+		scanInstructionTemplateSources({ repoRoot, includeLocal: true }),
+		scanRepoInstructionSources({ repoRoot, includeLocal: true }),
+	]);
+	if (
+		templateEntries.some((entry) => entry.sourceType === "local") ||
+		repoEntries.some((entry) => entry.sourceType === "local")
+	) {
+		return true;
+	}
+
 	return false;
 }
 
@@ -353,6 +389,8 @@ async function validateTemplatingSources(options: {
 	includeLocalCommands: boolean;
 	includeLocalSkills: boolean;
 	includeLocalAgents: boolean;
+	includeLocalInstructions: boolean;
+	instructionsAvailable: boolean;
 }): Promise<void> {
 	const directories: string[] = [];
 	if (options.commandsAvailable) {
@@ -413,6 +451,25 @@ async function validateTemplatingSources(options: {
 				content: contents,
 				validAgents: options.validAgents,
 				sourcePath: filePath,
+			});
+		}
+	}
+
+	if (options.instructionsAvailable) {
+		const entries = await scanInstructionTemplateSources({
+			repoRoot: options.repoRoot,
+			includeLocal: options.includeLocalInstructions,
+		});
+		for (const entry of entries) {
+			const buffer = await readFile(entry.sourcePath);
+			const contents = decodeUtf8(buffer);
+			if (contents === null) {
+				continue;
+			}
+			validateAgentTemplating({
+				content: contents,
+				validAgents: options.validAgents,
+				sourcePath: entry.sourcePath,
 			});
 		}
 	}
@@ -665,6 +722,42 @@ function buildSkillsSummary(
 		local: 0,
 		excludedLocal,
 	});
+}
+
+function buildInstructionsSummary(
+	repoRoot: string,
+	targets: InstructionTargetName[],
+	status: "skipped" | "failed",
+	message: string,
+	excludedLocal: boolean,
+): InstructionSyncSummary {
+	const results = targets.map((targetName) => {
+		const counts = emptyOutputCounts();
+		return {
+			targetName,
+			status,
+			message: buildInstructionResultMessage({
+				targetName,
+				status,
+				counts,
+				error: message,
+			}),
+			counts,
+			warnings: [],
+			error: message,
+		};
+	});
+	return {
+		sourcePath: repoRoot,
+		results,
+		warnings: [],
+		hadFailures: status === "failed",
+		sourceCounts: {
+			shared: 0,
+			local: 0,
+			excludedLocal,
+		},
+	};
 }
 
 function emptySubagentCounts(): SubagentSyncSummary["results"][number]["counts"] {
@@ -954,7 +1047,7 @@ async function syncSlashCommands(options: CommandSyncOptions): Promise<CommandSy
 
 export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 	command: "sync",
-	describe: "Sync canonical skills, subagents, and slash commands to supported targets",
+	describe: "Sync skills, subagents, slash commands, and instruction files to targets",
 	builder: (yargs) =>
 		yargs
 			.usage("omniagent sync [options]")
@@ -968,7 +1061,8 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			})
 			.option("exclude-local", {
 				type: "string",
-				describe: "Exclude local sources entirely or by category (skills, commands, agents)",
+				describe:
+					"Exclude local sources entirely or by category (skills, commands, agents, instructions)",
 			})
 			.option("list-local", {
 				type: "boolean",
@@ -983,7 +1077,8 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			.option("remove-missing", {
 				type: "boolean",
 				default: true,
-				describe: "Remove previously synced commands/subagents missing from the catalog",
+				describe:
+					"Remove previously synced commands, subagents, and instruction outputs missing from sources",
 			})
 			.option("conflicts", {
 				type: "string",
@@ -1029,9 +1124,8 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			if (excludeLocalSelection.invalid.length > 0) {
 				const invalidList = excludeLocalSelection.invalid.join(", ");
 				console.error(
-					`Error: Unknown local category(s): ${invalidList}. Supported categories: ${LOCAL_CATEGORIES.join(
-						", ",
-					)}.`,
+					`Error: Unknown local category(s): ${invalidList}. Supported categories: ` +
+						`${LOCAL_CATEGORIES.join(", ")}.`,
 				);
 				process.exit(1);
 				return;
@@ -1042,6 +1136,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const excludeLocalSkills = excludeLocalCategories.has("skills");
 			const excludeLocalCommands = excludeLocalCategories.has("commands");
 			const excludeLocalAgents = excludeLocalCategories.has("agents");
+			const excludeLocalInstructions = excludeLocalCategories.has("instructions");
 
 			const skipSet = new Set(skipList);
 			const onlySet = new Set(onlyList);
@@ -1077,7 +1172,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 
 			const localItems = argv.listLocal
 				? await collectLocalItems(repoRoot)
-				: { skills: [], commands: [], agents: [], total: 0 };
+				: { skills: [], commands: [], agents: [], instructions: [], total: 0 };
 			if (argv.listLocal) {
 				const output = formatLocalItemsOutput(localItems, repoRoot, argv.json);
 				if (output.length > 0) {
@@ -1099,10 +1194,12 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const selectedSubagentTargets = SUBAGENT_TARGETS.filter((target) =>
 				selectedTargets.includes(target.name),
 			).map((target) => target.name as SubagentTargetName);
+			const selectedInstructionTargets = selectedTargets as InstructionTargetName[];
 
 			const includeLocalSkills = !excludeLocalSkills;
 			const includeLocalCommands = !excludeLocalCommands;
 			const includeLocalAgents = !excludeLocalAgents;
+			const includeLocalInstructions = !excludeLocalInstructions;
 
 			const skillsSourcePath = path.join(repoRoot, "agents", "skills");
 
@@ -1124,8 +1221,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const hasSkillsToSync = selectedSkillTargets.length > 0 && skillsAvailable;
 			const hasCommandsToSync = selectedCommandTargets.length > 0 && commandsStatus.available;
 			const hasSubagentsToSync = selectedSubagentTargets.length > 0;
+			const hasInstructionsToSync = selectedInstructionTargets.length > 0;
 
-			if (!hasSkillsToSync && !hasCommandsToSync && !hasSubagentsToSync) {
+			if (!hasSkillsToSync && !hasCommandsToSync && !hasSubagentsToSync && !hasInstructionsToSync) {
 				const missingMessages: string[] = [];
 				if (selectedSkillTargets.length > 0 && !skillsAvailable) {
 					const skillsLabel = includeLocalSkills
@@ -1152,6 +1250,8 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					includeLocalCommands: includeLocalCommands && hasCommandsToSync,
 					includeLocalSkills: includeLocalSkills && hasSkillsToSync,
 					includeLocalAgents: includeLocalAgents && hasSubagentsToSync,
+					includeLocalInstructions: includeLocalInstructions && hasInstructionsToSync,
+					instructionsAvailable: hasInstructionsToSync,
 				});
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
@@ -1212,6 +1312,62 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				includeLocalSkills,
 			});
 
+			let instructionsSummary: InstructionSyncSummary;
+			if (selectedInstructionTargets.length === 0) {
+				instructionsSummary = {
+					sourcePath: repoRoot,
+					results: [],
+					warnings: [],
+					hadFailures: false,
+					sourceCounts: {
+						shared: 0,
+						local: 0,
+						excludedLocal: excludeLocalInstructions,
+					},
+				};
+			} else {
+				const confirmRemoval = nonInteractive
+					? undefined
+					: async (info: {
+							outputPath: string;
+							sourcePath: string;
+							targetName: InstructionTargetName;
+						}) =>
+							withPrompter((ask) =>
+								promptConfirm(
+									ask,
+									`Output ${formatDisplayPath(
+										repoRoot,
+										info.outputPath,
+									)} (from ${formatDisplayPath(repoRoot, info.sourcePath)}) was modified. Remove?`,
+									false,
+								),
+							);
+				try {
+					instructionsSummary = await syncInstructions({
+						repoRoot,
+						targets: selectedInstructionTargets,
+						overrideOnly: overrideOnly as InstructionTargetName[] | undefined,
+						overrideSkip: overrideSkip as InstructionTargetName[] | undefined,
+						excludeLocal: excludeLocalInstructions,
+						removeMissing: argv.removeMissing,
+						nonInteractive,
+						validAgents,
+						confirmRemoval,
+					});
+				} catch (error) {
+					rethrowIfInvalidTargets(error);
+					const message = error instanceof Error ? error.message : String(error);
+					instructionsSummary = buildInstructionsSummary(
+						repoRoot,
+						selectedInstructionTargets,
+						"failed",
+						message,
+						excludeLocalInstructions,
+					);
+				}
+			}
+
 			// Sync conversions before copying canonical skills.
 			let skillsSummary: SyncSummary;
 			if (selectedSkillTargets.length === 0) {
@@ -1243,11 +1399,15 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			}
 
 			const combined = {
+				instructions: instructionsSummary,
 				skills: skillsSummary,
 				subagents: subagentSummary,
 				commands: commandsSummary,
 				hadFailures:
-					skillsSummary.hadFailures || subagentSummary.hadFailures || commandsSummary.hadFailures,
+					instructionsSummary.hadFailures ||
+					skillsSummary.hadFailures ||
+					subagentSummary.hadFailures ||
+					commandsSummary.hadFailures,
 				missingIgnoreRules,
 			};
 
@@ -1255,6 +1415,10 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				console.log(JSON.stringify(combined, null, 2));
 			} else {
 				const outputs: string[] = [];
+				const instructionOutput = formatInstructionSummary(instructionsSummary, false);
+				if (instructionOutput.length > 0) {
+					outputs.push(instructionOutput);
+				}
 				const skillsOutput = formatSummary(skillsSummary, false);
 				if (skillsOutput.length > 0) {
 					outputs.push(skillsOutput);

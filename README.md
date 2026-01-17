@@ -10,13 +10,15 @@ unifies that into a single source of truth and compiles it to each runtime.
 
 ## What it does today
 
-Right now, omniagent focuses on **skills**, **subagents**, and **slash commands**:
+Right now, omniagent focuses on **skills**, **subagents**, **slash commands**, and **instruction files**:
 
 - Canonical skills: `agents/skills/`
 - Canonical subagents: `agents/agents/` (Claude Code subagent format: Markdown with YAML
   frontmatter; `name` overrides the filename when present)
 - Canonical slash commands: `agents/commands/` (Claude Code format: Markdown with optional YAML
   frontmatter; filename becomes the command name)
+- Instruction files: repo `AGENTS.md` sources outside `/agents` plus `/agents/**` templates for
+  advanced control and per-target outputs
 - Local overrides: `agents/.local/` plus `.local` suffixes for files or skill folders (for
   example, `deploy.local.md`, `review-helper.local/SKILL.md`, `SKILL.local.md`) override shared
   items with the same name and never appear in output paths
@@ -66,6 +68,8 @@ metadata and targeting. Common keys:
 - `targets` or `targetAgents`: single value or list; case-insensitive. Values: `claude`, `gemini`,
   `codex`, `copilot`. These defaults can be overridden per run with `--only` or filtered with
   `--skip`.
+- `outPutPath`: instruction templates only; required outside `agents/AGENTS.md`. Treated as a
+  directory (filename portion is ignored if supplied).
 - `name`: overrides the filename (when supported).
 - `description`: optional metadata (when supported).
 
@@ -98,6 +102,45 @@ frontmatter + prompt body). The `name` frontmatter field overrides the filename;
 filename (without `.md`) is used. Non-Claude targets receive converted skills at
 `.target/skills/<name>/SKILL.md`.
 
+## Instruction files
+
+Instruction files let you sync repo-wide `AGENTS.md` sources into target-specific instruction
+outputs (Claude, Gemini, Codex, Copilot).
+
+### Repo `AGENTS.md` (default)
+
+Any `AGENTS.md` outside `/agents` is treated as a plain-text source. Outputs are generated next to
+the source file:
+
+- Claude → `CLAUDE.md`
+- Gemini → `GEMINI.md`
+- Codex/Copilot → `AGENTS.md` (the source file itself is treated as already satisfied)
+
+### `/agents` templates (advanced)
+
+Templates live under `/agents/**` and support YAML frontmatter plus `<agents …>` blocks. The
+recommended filename pattern is `*.AGENTS.md` for searchability.
+
+- `agents/AGENTS.md` defaults its output directory to the repo root.
+- Templates outside `agents/AGENTS.md` must include `outPutPath`.
+- `outPutPath` is treated as a directory; if a filename is supplied, the filename portion is
+  ignored.
+- If both Codex and Copilot are selected, a single `AGENTS.md` is written and counted once.
+
+Example template:
+
+```text
+/agents/guide.AGENTS.md
+---
+outPutPath: docs/
+---
+<agents include="claude,gemini">
+# Team Instructions
+</agents>
+```
+
+Templates override repo sources when they target the same output path + target.
+
 ## Local overrides
 
 Keep personal config out of the repo by placing local items under `agents/.local/` or by using
@@ -107,6 +150,7 @@ folder like `agents/skills/review-helper.local/SKILL.md` (with any extra assets 
 `SKILL.local.md` remains supported for single-file overrides. Local items override shared items
 with the same name. If both a `.local/` directory entry and a `.local` suffix (file or folder)
 exist, the `.local/` entry wins. Outputs are always normalized (no `.local` in output paths).
+Local overrides apply to instruction sources as well.
 
 When local items exist and `.gitignore` is missing rules for `agents/.local/`, `**/*.local/`, and
 `**/*.local.md`, interactive sync runs offer to add them once per project. Non-interactive runs
@@ -117,8 +161,7 @@ never prompt and instead report missing ignore rules in the summary.
 Agent scoped templating lets you keep a single canonical file while including or excluding blocks
 for specific agents.
 
-It works in every syncable file type (skills, subagents, slash commands, and future
-syncable features).
+It works in every syncable file type (skills, subagents, slash commands, and instruction files).
 
 ```text
 Shared content.

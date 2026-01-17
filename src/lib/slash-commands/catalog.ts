@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { normalizeName, readDirectoryStats } from "../catalog-utils.js";
+import { resolveLocalPrecedence } from "../local-precedence.js";
 import {
 	buildSourceMetadata,
 	type LocalMarkerType,
@@ -201,18 +202,16 @@ export async function loadCommandCatalog(
 		}
 	}
 
-	const localCommands = [...localPathCommands, ...localSuffixCommands];
-	const localPathNames = new Set(localPathCommands.map((command) => normalizeName(command.name)));
-	const localEffectiveCommands = [
-		...localPathCommands,
-		...localSuffixCommands.filter((command) => !localPathNames.has(normalizeName(command.name))),
-	];
-	const localEffectiveNames = new Set(
-		localEffectiveCommands.map((command) => normalizeName(command.name)),
-	);
-	const sharedEffectiveCommands = sharedCommands.filter(
-		(command) => !localEffectiveNames.has(normalizeName(command.name)),
-	);
+	const {
+		local: localCommands,
+		localEffective: localEffectiveCommands,
+		sharedEffective: sharedEffectiveCommands,
+	} = resolveLocalPrecedence({
+		shared: sharedCommands,
+		localPath: localPathCommands,
+		localSuffix: localSuffixCommands,
+		key: (command) => normalizeName(command.name),
+	});
 	const commands = includeLocal
 		? [...localEffectiveCommands, ...sharedEffectiveCommands]
 		: sharedCommands;

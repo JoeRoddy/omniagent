@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { listSkillDirectories, readDirectoryStats } from "../catalog-utils.js";
+import { resolveLocalPrecedence } from "../local-precedence.js";
 import {
 	buildSourceMetadata,
 	type LocalMarkerType,
@@ -224,18 +225,16 @@ export async function loadSkillCatalog(
 		}
 	}
 
-	const localSkills = [...localPathSkills, ...localSuffixSkills];
-	const localPathNames = new Set(localPathSkills.map((skill) => normalizeSkillKey(skill.name)));
-	const localEffectiveSkills = [
-		...localPathSkills,
-		...localSuffixSkills.filter((skill) => !localPathNames.has(normalizeSkillKey(skill.name))),
-	];
-	const localEffectiveNames = new Set(
-		localEffectiveSkills.map((skill) => normalizeSkillKey(skill.name)),
-	);
-	const sharedEffectiveSkills = sharedSkills.filter(
-		(skill) => !localEffectiveNames.has(normalizeSkillKey(skill.name)),
-	);
+	const {
+		local: localSkills,
+		localEffective: localEffectiveSkills,
+		sharedEffective: sharedEffectiveSkills,
+	} = resolveLocalPrecedence({
+		shared: sharedSkills,
+		localPath: localPathSkills,
+		localSuffix: localSuffixSkills,
+		key: (skill) => normalizeSkillKey(skill.name),
+	});
 
 	const skills = includeLocal ? [...sharedEffectiveSkills, ...localEffectiveSkills] : sharedSkills;
 
