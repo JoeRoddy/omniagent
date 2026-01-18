@@ -68,9 +68,7 @@ describe("local source helpers", () => {
 		expect(resolveSharedCategoryRoot(repoRoot, "skills")).toBe(
 			path.join(repoRoot, "agents", "skills"),
 		);
-		expect(resolveSharedCategoryRoot(repoRoot, "instructions")).toBe(
-			path.join(repoRoot, "agents"),
-		);
+		expect(resolveSharedCategoryRoot(repoRoot, "instructions")).toBe(path.join(repoRoot, "agents"));
 	});
 
 	it("resolves shared and local roots using an override directory", () => {

@@ -2,10 +2,10 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-	LOCAL_OVERRIDE_IGNORE_RULES,
 	appendIgnoreRules,
 	buildAgentsIgnoreRules,
 	getIgnoreRuleStatus,
+	LOCAL_OVERRIDE_IGNORE_RULES,
 } from "../../src/lib/ignore-rules.js";
 
 async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> {

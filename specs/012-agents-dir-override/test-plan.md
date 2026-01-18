@@ -93,10 +93,16 @@ clear and actionable, and help/docs expose the option and default value.
 - [x] CLI-007 Override path is not accessible
 - [x] CLI-008 Override equals default
 - [x] DOC-001 README documents `--agentsDir`
-- [ ] DOC-002 CLI help output in docs (manual)
-- [ ] DOC-003 Discoverability usability check (manual)
-- [ ] UX-001 Custom directory workflow (manual)
+- [x] DOC-002 CLI help output in docs (manual)
+- [x] DOC-003 Discoverability usability check (manual)
+- [x] UX-001 Custom directory workflow (manual)
 - [x] REG-001 Default behavior parity
+
+## Manual Execution Notes
+
+- 2026-01-18: Verified `omniagent sync --help` lists `--agentsDir` with default `agents`.
+- 2026-01-18: Found `--agentsDir` in README and CLI help within 2 minutes (single-participant spot check).
+- 2026-01-18: Created a temporary repo with `custom-agents/`, ran `sync --agentsDir ./custom-agents --only claude --yes`, updated a skill, re-synced, and confirmed output updated.
 
 ## Test Cases
 

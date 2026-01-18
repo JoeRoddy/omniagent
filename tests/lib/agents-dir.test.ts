@@ -13,8 +13,7 @@ async function withTempDir(fn: (root: string) => Promise<void>): Promise<void> {
 }
 
 const skipPermissions =
-	process.platform === "win32" ||
-	(typeof process.getuid === "function" && process.getuid() === 0);
+	process.platform === "win32" || (typeof process.getuid === "function" && process.getuid() === 0);
 const permissionTest = skipPermissions ? it.skip : it;
 
 describe("agents dir helpers", () => {
@@ -117,21 +116,24 @@ describe("agents dir helpers", () => {
 		});
 	});
 
-	permissionTest("reports permission denied when directory is not readable or writable", async () => {
-		await withTempDir(async (root) => {
-			const agentsDir = path.join(root, "custom", "agents");
-			await mkdir(agentsDir, { recursive: true });
-			await chmod(agentsDir, 0o500);
+	permissionTest(
+		"reports permission denied when directory is not readable or writable",
+		async () => {
+			await withTempDir(async (root) => {
+				const agentsDir = path.join(root, "custom", "agents");
+				await mkdir(agentsDir, { recursive: true });
+				await chmod(agentsDir, 0o500);
 
-			try {
-				const result = await validateAgentsDir(root, "custom/agents");
+				try {
+					const result = await validateAgentsDir(root, "custom/agents");
 
-				expect(result.validationStatus).toBe("permissionDenied");
-				expect(result.errorMessage).toContain("not readable or writable");
-				expect(result.errorMessage).toContain(agentsDir);
-			} finally {
-				await chmod(agentsDir, 0o700);
-			}
-		});
-	});
+					expect(result.validationStatus).toBe("permissionDenied");
+					expect(result.errorMessage).toContain("not readable or writable");
+					expect(result.errorMessage).toContain(agentsDir);
+				} finally {
+					await chmod(agentsDir, 0o700);
+				}
+			});
+		},
+	);
 });

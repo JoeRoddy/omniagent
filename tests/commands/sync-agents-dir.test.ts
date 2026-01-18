@@ -48,7 +48,11 @@ async function writeLocalSubagent(root: string, baseDir: string, fileName: strin
 	await writeFile(path.join(dir, `${fileName}.md`), contents, "utf8");
 }
 
-async function writeLocalInstruction(root: string, baseDir: string, fileName: string): Promise<void> {
+async function writeLocalInstruction(
+	root: string,
+	baseDir: string,
+	fileName: string,
+): Promise<void> {
 	const filePath = path.join(root, baseDir, fileName);
 	await mkdir(path.dirname(filePath), { recursive: true });
 	await writeFile(filePath, "Instruction", "utf8");
@@ -74,8 +78,7 @@ function parseListLocalOutput(logSpy: ReturnType<typeof vi.spyOn>): LocalListOut
 }
 
 const skipPermissions =
-	process.platform === "win32" ||
-	(typeof process.getuid === "function" && process.getuid() === 0);
+	process.platform === "win32" || (typeof process.getuid === "function" && process.getuid() === 0);
 const permissionTest = skipPermissions ? it.skip : it;
 
 describe.sequential("sync command agentsDir override", () => {
@@ -193,9 +196,7 @@ describe.sequential("sync command agentsDir override", () => {
 				await runCli(["node", "omniagent", "sync", "--agentsDir", "missing-agents"]);
 			});
 
-			expect(errorSpy).toHaveBeenCalledWith(
-				expect.stringContaining("Agents directory not found"),
-			);
+			expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Agents directory not found"));
 			expect(exitSpy).toHaveBeenCalledWith(1);
 		});
 	});
@@ -226,13 +227,7 @@ describe.sequential("sync command agentsDir override", () => {
 
 			try {
 				await withCwd(root, async () => {
-					await runCli([
-						"node",
-						"omniagent",
-						"sync",
-						"--agentsDir",
-						"restricted-agents",
-					]);
+					await runCli(["node", "omniagent", "sync", "--agentsDir", "restricted-agents"]);
 				});
 			} finally {
 				await chmod(agentsDir, 0o700);
