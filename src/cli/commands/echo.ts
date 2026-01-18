@@ -2,8 +2,8 @@ import type { CommandModule } from "yargs";
 
 type EchoArgs = {
 	message?: string;
-	times: number;
-	prefix: string;
+	times?: number;
+	prefix?: string;
 };
 
 export const echoCommand: CommandModule<Record<string, never>, EchoArgs> = {
@@ -29,7 +29,7 @@ export const echoCommand: CommandModule<Record<string, never>, EchoArgs> = {
 				describe: "Prefix for each line",
 			}),
 	handler: (argv) => {
-		const times = Number(argv.times);
+		const times = Number(argv.times ?? 1);
 		if (!Number.isInteger(times) || times <= 0) {
 			console.error("Error: Invalid value for --times: must be positive integer");
 			process.exit(1);

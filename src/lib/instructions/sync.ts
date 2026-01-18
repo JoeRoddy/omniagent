@@ -23,11 +23,9 @@ import {
 	isAgentsTarget,
 	resolveInstructionTargetGroup,
 } from "./targets.js";
-import type {
-	InstructionRepoSource,
-	InstructionSource,
-	InstructionTemplateSource,
-} from "./types.js";
+import type { InstructionRepoSource, InstructionSource } from "./types.js";
+
+export type { InstructionSyncSummary } from "./summary.js";
 
 export type InstructionSyncRequest = {
 	repoRoot: string;
@@ -269,20 +267,16 @@ export async function syncInstructions(
 		}),
 	]);
 
-	const validTemplates: InstructionTemplateSource[] = [];
+	const templateCandidates: InstructionOutputCandidate[] = [];
 	for (const template of templateCatalog.templates) {
-		if (!template.resolvedOutputDir) {
+		const resolvedOutputDir = template.resolvedOutputDir;
+		if (!resolvedOutputDir) {
 			const display = formatDisplayPath(request.repoRoot, template.sourcePath);
 			warnings.push(
 				`Instruction template missing outPutPath (required outside ${rootTemplateDisplay}): ${display}.`,
 			);
 			continue;
 		}
-		validTemplates.push(template);
-	}
-
-	const templateCandidates: InstructionOutputCandidate[] = [];
-	for (const template of validTemplates) {
 		const effectiveTargets = resolveEffectiveTargetsForSource(
 			template,
 			selectedTargets,
@@ -294,7 +288,7 @@ export async function syncInstructions(
 		}
 		for (const targetName of effectiveTargets) {
 			const outputGroup = resolveInstructionTargetGroup(targetName);
-			const outputPath = resolveInstructionOutputPath(template.resolvedOutputDir, targetName);
+			const outputPath = resolveInstructionOutputPath(resolvedOutputDir, targetName);
 			const key = buildOutputKey(outputPath, outputGroup);
 			const content = applyAgentTemplating({
 				content: template.body,

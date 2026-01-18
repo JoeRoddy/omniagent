@@ -93,7 +93,16 @@ async function buildSkillDefinition(options: {
 	sourceType: SourceType;
 	markerType?: LocalMarkerType;
 }): Promise<SkillDefinition> {
-	const metadata = buildSourceMetadata(options.sourceType, options.markerType);
+	let metadata: ReturnType<typeof buildSourceMetadata>;
+	if (options.sourceType === "local") {
+		const markerType = options.markerType;
+		if (!markerType) {
+			throw new Error("Local sources must include a marker type.");
+		}
+		metadata = buildSourceMetadata("local", markerType);
+	} else {
+		metadata = buildSourceMetadata("shared");
+	}
 	const sourcePath = path.join(options.directoryPath, options.skillFileName);
 	const rawContents = await readFile(sourcePath, "utf8");
 	const { frontmatter, body } = extractFrontmatter(rawContents);

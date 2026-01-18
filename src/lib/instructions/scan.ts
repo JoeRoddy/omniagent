@@ -218,7 +218,20 @@ export async function scanRepoInstructionSources(options: {
 			if (!includeLocal && sourceType === "local") {
 				continue;
 			}
-			const metadata = buildSourceMetadata(sourceType, markerType ?? undefined);
+			if (sourceType === "local") {
+				if (!markerType) {
+					continue;
+				}
+				const metadata = buildSourceMetadata("local", markerType);
+				sources.push({
+					sourcePath: entryPath,
+					sourceType: metadata.sourceType,
+					markerType: metadata.markerType,
+					isLocalFallback: metadata.isLocalFallback,
+				});
+				continue;
+			}
+			const metadata = buildSourceMetadata("shared");
 			sources.push({
 				sourcePath: entryPath,
 				sourceType: metadata.sourceType,
