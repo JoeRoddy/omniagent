@@ -1,0 +1,111 @@
+openapi: 3.0.3
+info:
+  title: Agents Directory Override Contract
+  version: 1.0.0
+  description: |
+    Conceptual API contract representing CLI behavior for resolving and validating
+    a custom agents directory. This does not imply a server implementation.
+paths:
+  /agents-dir/resolve:
+    post:
+      summary: Resolve and validate the agents directory for a command invocation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentsDirResolveRequest"
+      responses:
+        "200":
+          description: Resolved agents directory
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentsDirResolveResponse"
+        "400":
+          description: Invalid or inaccessible directory
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentsDirError"
+  /cli/help:
+    get:
+      summary: Retrieve CLI options and default values
+      responses:
+        "200":
+          description: CLI help metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliHelpResponse"
+components:
+  schemas:
+    AgentsDirResolveRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        agentsDir:
+          type: string
+          description: Optional override path; relative paths resolve from project root.
+        command:
+          type: string
+          description: Optional command name for context (e.g., "sync", "list").
+      required: []
+    AgentsDirResolveResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        resolvedPath:
+          type: string
+        isDefault:
+          type: boolean
+        source:
+          type: string
+          enum:
+            - default
+            - override
+      required:
+        - resolvedPath
+        - isDefault
+        - source
+    AgentsDirError:
+      type: object
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+        errorCode:
+          type: string
+          enum:
+            - missing
+            - notDirectory
+            - permissionDenied
+        remediation:
+          type: string
+      required:
+        - error
+        - errorCode
+    CliHelpResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/CliOption"
+      required:
+        - options
+    CliOption:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        defaultValue:
+          type: string
+      required:
+        - name
+        - description
+        - defaultValue
