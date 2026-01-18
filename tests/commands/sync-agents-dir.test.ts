@@ -234,7 +234,7 @@ describe.sequential("sync command agentsDir override", () => {
 			}
 
 			expect(errorSpy).toHaveBeenCalledWith(
-				expect.stringContaining("Agents directory is not readable or writable"),
+				expect.stringContaining("Agents directory is not readable, writable, or searchable"),
 			);
 			expect(exitSpy).toHaveBeenCalledWith(1);
 		});

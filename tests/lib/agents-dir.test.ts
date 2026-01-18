@@ -97,6 +97,20 @@ describe("agents dir helpers", () => {
 		});
 	});
 
+	it("reports when a parent segment is a file", async () => {
+		await withTempDir(async (root) => {
+			const parentFile = path.join(root, "custom");
+			const expectedPath = path.join(root, "custom", "agents");
+			await writeFile(parentFile, "not a directory", "utf8");
+
+			const result = await validateAgentsDir(root, "custom/agents");
+
+			expect(result.validationStatus).toBe("notDirectory");
+			expect(result.errorMessage).toContain("not a directory");
+			expect(result.errorMessage).toContain(expectedPath);
+		});
+	});
+
 	permissionTest("reports permission denied when stat cannot access the directory", async () => {
 		await withTempDir(async (root) => {
 			const restrictedRoot = path.join(root, "restricted");
@@ -117,7 +131,7 @@ describe("agents dir helpers", () => {
 	});
 
 	permissionTest(
-		"reports permission denied when directory is not readable or writable",
+		"reports permission denied when directory is not readable, writable, or searchable",
 		async () => {
 			await withTempDir(async (root) => {
 				const agentsDir = path.join(root, "custom", "agents");
@@ -128,7 +142,7 @@ describe("agents dir helpers", () => {
 					const result = await validateAgentsDir(root, "custom/agents");
 
 					expect(result.validationStatus).toBe("permissionDenied");
-					expect(result.errorMessage).toContain("not readable or writable");
+					expect(result.errorMessage).toContain("not readable, writable, or searchable");
 					expect(result.errorMessage).toContain(agentsDir);
 				} finally {
 					await chmod(agentsDir, 0o700);
@@ -136,4 +150,22 @@ describe("agents dir helpers", () => {
 			});
 		},
 	);
+
+	permissionTest("reports permission denied when directory is not searchable", async () => {
+		await withTempDir(async (root) => {
+			const agentsDir = path.join(root, "custom", "agents");
+			await mkdir(agentsDir, { recursive: true });
+			await chmod(agentsDir, 0o600);
+
+			try {
+				const result = await validateAgentsDir(root, "custom/agents");
+
+				expect(result.validationStatus).toBe("permissionDenied");
+				expect(result.errorMessage).toContain("not readable, writable, or searchable");
+				expect(result.errorMessage).toContain(agentsDir);
+			} finally {
+				await chmod(agentsDir, 0o700);
+			}
+		});
+	});
 });

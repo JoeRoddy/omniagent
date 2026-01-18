@@ -1321,8 +1321,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			}
 
 			let missingIgnoreRules = false;
+			let ignoreRules: string[] | null = null;
 			if (hasLocalItems) {
-				const ignoreRules = buildAgentsIgnoreRules(repoRoot, agentsDir);
+				ignoreRules = buildAgentsIgnoreRules(repoRoot, agentsDir);
 				const ignoreStatus = await getIgnoreRuleStatus(repoRoot, {
 					agentsDir,
 					rules: ignoreRules,
@@ -1500,9 +1501,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					outputs.push(commandOutput);
 				}
 				if (missingIgnoreRules) {
-					const ignoreRules = buildAgentsIgnoreRules(repoRoot, agentsDir);
+					const warningRules = ignoreRules ?? buildAgentsIgnoreRules(repoRoot, agentsDir);
 					outputs.push(
-						`Warning: Missing ignore rules for local sources (${ignoreRules.join(", ")}).`,
+						`Warning: Missing ignore rules for local sources (${warningRules.join(", ")}).`,
 					);
 				}
 				if (outputs.length > 0) {

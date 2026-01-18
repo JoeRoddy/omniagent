@@ -80,6 +80,13 @@ export async function validateAgentsDir(
 	agentsDir?: string | null,
 ): Promise<AgentsDirValidationResult> {
 	const resolution = resolveAgentsDir(repoRoot, agentsDir);
+	const buildNotDirectoryError = (): AgentsDirValidationResult =>
+		buildValidationError(
+			resolution,
+			"notDirectory",
+			`Agents directory is not a directory: ${resolution.resolvedPath}. ` +
+				"Provide a directory path or adjust --agentsDir.",
+		);
 
 	let stats: Awaited<ReturnType<typeof stat>>;
 	try {
@@ -102,27 +109,25 @@ export async function validateAgentsDir(
 					"Check permissions or choose another directory.",
 			);
 		}
+		if (code === "ENOTDIR") {
+			return buildNotDirectoryError();
+		}
 		throw error;
 	}
 
 	if (!stats.isDirectory()) {
-		return buildValidationError(
-			resolution,
-			"notDirectory",
-			`Agents directory is not a directory: ${resolution.resolvedPath}. ` +
-				"Provide a directory path or adjust --agentsDir.",
-		);
+		return buildNotDirectoryError();
 	}
 
 	try {
-		await access(resolution.resolvedPath, constants.R_OK | constants.W_OK);
+		await access(resolution.resolvedPath, constants.R_OK | constants.W_OK | constants.X_OK);
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code === "EACCES" || code === "EPERM") {
 			return buildValidationError(
 				resolution,
 				"permissionDenied",
-				`Agents directory is not readable or writable: ${resolution.resolvedPath}. ` +
+				`Agents directory is not readable, writable, or searchable: ${resolution.resolvedPath}. ` +
 					"Check permissions or choose another directory.",
 			);
 		}
