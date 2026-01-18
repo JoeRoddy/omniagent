@@ -217,7 +217,16 @@ async function buildSubagentDefinition(options: {
 		);
 	}
 
-	const metadata = buildSourceMetadata(options.sourceType, options.markerType);
+	let metadata: ReturnType<typeof buildSourceMetadata>;
+	if (options.sourceType === "local") {
+		const markerType = options.markerType;
+		if (!markerType) {
+			throw new Error("Local sources must include a marker type.");
+		}
+		metadata = buildSourceMetadata("local", markerType);
+	} else {
+		metadata = buildSourceMetadata("shared");
+	}
 
 	return {
 		resolvedName,

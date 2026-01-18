@@ -121,6 +121,16 @@ root, or an absolute path).
 
 - Node.js 18+
 
+## Local validation
+
+Run the same steps as CI:
+
+1. `npm ci`
+2. `npm run check`
+3. `npm run typecheck`
+4. `npm test`
+5. `npm run build`
+
 ## Advanced
 
 ### Targeting via frontmatter

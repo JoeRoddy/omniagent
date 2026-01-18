@@ -79,9 +79,9 @@ type SyncArgs = {
 	skip?: string | string[];
 	only?: string | string[];
 	agentsDir?: string;
-	json: boolean;
-	yes: boolean;
-	removeMissing: boolean;
+	json?: boolean;
+	yes?: boolean;
+	removeMissing?: boolean;
 	conflicts?: string;
 	excludeLocal?: string | string[] | boolean;
 	listLocal?: boolean;
@@ -798,21 +798,19 @@ function emptySubagentCounts(): SubagentSyncSummary["results"][number]["counts"]
 function formatSubagentFailureMessage(
 	displayName: string,
 	outputKind: "subagent" | "skill",
-	status: "skipped" | "failed",
 	message: string,
 ): string {
-	const verb = status === "failed" ? "Failed" : "Skipped";
 	const modeLabel = outputKind === "skill" ? " [skills]" : "";
-	return `${verb} ${displayName} subagents${modeLabel}: ${message}`;
+	return `Failed ${displayName} subagents${modeLabel}: ${message}`;
 }
 
 function buildSubagentSummary(
 	sourcePath: string,
 	targets: SubagentTargetName[],
-	status: "skipped" | "failed",
 	message: string,
 	excludedLocal: boolean,
 ): SubagentSyncSummary {
+	const status = "failed" as const;
 	return {
 		sourcePath,
 		results: targets.map((targetName) => {
@@ -821,14 +819,14 @@ function buildSubagentSummary(
 			return {
 				targetName,
 				status,
-				message: formatSubagentFailureMessage(profile.displayName, outputKind, status, message),
+				message: formatSubagentFailureMessage(profile.displayName, outputKind, message),
 				error: message,
 				counts: emptySubagentCounts(),
 				warnings: [],
 			};
 		}),
 		warnings: [],
-		hadFailures: status === "failed",
+		hadFailures: true,
 		sourceCounts: {
 			shared: 0,
 			local: 0,
@@ -884,7 +882,6 @@ async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSync
 		return buildSubagentSummary(
 			sourcePath,
 			options.targets,
-			"failed",
 			message,
 			options.excludeLocal ?? false,
 		);
@@ -898,7 +895,6 @@ async function syncSubagents(options: SubagentSyncOptions): Promise<SubagentSync
 		return buildSubagentSummary(
 			sourcePath,
 			options.targets,
-			"failed",
 			message,
 			options.excludeLocal ?? false,
 		);
@@ -1200,8 +1196,12 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const overrideOnly = onlyList.length > 0 ? onlyList : undefined;
 			const overrideSkip = skipList.length > 0 ? skipList : undefined;
 			const validAgents = [...SUPPORTED_AGENT_NAMES];
+			const jsonOutput = argv.json ?? false;
+			const yes = argv.yes ?? false;
+			const removeMissing = argv.removeMissing ?? true;
+			const listLocal = argv.listLocal ?? false;
 
-			if (selectedTargets.length === 0 && !argv.listLocal) {
+			if (selectedTargets.length === 0 && !listLocal) {
 				console.error("Error: No targets selected after applying filters.");
 				process.exit(1);
 				return;
@@ -1229,18 +1229,18 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			}
 			const agentsDir = agentsDirResolution.resolvedPath;
 
-			const localItems = argv.listLocal
+			const localItems = listLocal
 				? await collectLocalItems(repoRoot, agentsDir)
 				: { skills: [], commands: [], agents: [], instructions: [], total: 0 };
-			if (argv.listLocal) {
-				const output = formatLocalItemsOutput(localItems, repoRoot, argv.json);
+			if (listLocal) {
+				const output = formatLocalItemsOutput(localItems, repoRoot, jsonOutput);
 				if (output.length > 0) {
 					console.log(output);
 				}
 				return;
 			}
 
-			const nonInteractive = argv.yes || !process.stdin.isTTY;
+			const nonInteractive = yes || !process.stdin.isTTY;
 			const hasLocalItems = await hasLocalSources(repoRoot, agentsDir);
 
 			const selectedSkillTargets = TARGETS.filter((target) =>
@@ -1336,15 +1336,16 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 						const ignoreLabel = formatDisplayPath(repoRoot, ignoreStatus.ignoreFilePath);
 						logWithChannel(
 							`Local config detected. Missing ignore rules in ${ignoreLabel}.`,
-							argv.json,
+							jsonOutput,
 						);
+						const rules = ignoreRules ?? buildAgentsIgnoreRules(repoRoot, agentsDir);
 						const shouldApply = await withPrompter((ask) =>
-							promptConfirm(ask, `Add ignore rules (${ignoreRules.join(", ")})?`, false),
+							promptConfirm(ask, `Add ignore rules (${rules.join(", ")})?`, false),
 						);
 						if (shouldApply) {
 							await appendIgnoreRules(repoRoot, { agentsDir, rules: ignoreRules });
 							missingIgnoreRules = false;
-							logWithChannel(`Updated ${ignoreLabel}.`, argv.json);
+							logWithChannel(`Updated ${ignoreLabel}.`, jsonOutput);
 						} else {
 							await recordIgnorePromptDeclined(repoRoot);
 						}
@@ -1358,9 +1359,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				targets: selectedCommandTargets,
 				overrideOnly: overrideOnly as CommandTargetName[] | undefined,
 				overrideSkip: overrideSkip as CommandTargetName[] | undefined,
-				jsonOutput: argv.json,
-				yes: argv.yes,
-				removeMissing: argv.removeMissing,
+				jsonOutput,
+				yes,
+				removeMissing,
 				conflicts: argv.conflicts,
 				catalogStatus: commandsStatus,
 				validAgents,
@@ -1373,7 +1374,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				targets: selectedSubagentTargets,
 				overrideOnly: overrideOnly as SubagentTargetName[] | undefined,
 				overrideSkip: overrideSkip as SubagentTargetName[] | undefined,
-				removeMissing: argv.removeMissing,
+				removeMissing,
 				validAgents,
 				excludeLocal: excludeLocalAgents,
 				includeLocalSkills,
@@ -1418,7 +1419,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 						overrideOnly: overrideOnly as InstructionTargetName[] | undefined,
 						overrideSkip: overrideSkip as InstructionTargetName[] | undefined,
 						excludeLocal: excludeLocalInstructions,
-						removeMissing: argv.removeMissing,
+						removeMissing,
 						nonInteractive,
 						validAgents,
 						confirmRemoval,
@@ -1463,7 +1464,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					overrideSkip: overrideSkip as SkillTargetName[] | undefined,
 					validAgents,
 					excludeLocal: excludeLocalSkills,
-					removeMissing: argv.removeMissing,
+					removeMissing,
 				});
 			}
 
@@ -1480,7 +1481,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				missingIgnoreRules,
 			};
 
-			if (argv.json) {
+			if (jsonOutput) {
 				console.log(JSON.stringify(combined, null, 2));
 			} else {
 				const outputs: string[] = [];

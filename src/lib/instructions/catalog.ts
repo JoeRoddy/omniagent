@@ -79,7 +79,20 @@ export async function scanInstructionTemplateSources(options: {
 		if (!includeLocal && sourceType === "local") {
 			continue;
 		}
-		const metadata = buildSourceMetadata(sourceType, markerType ?? undefined);
+		if (sourceType === "local") {
+			if (!markerType) {
+				continue;
+			}
+			const metadata = buildSourceMetadata("local", markerType);
+			entries.push({
+				sourcePath: filePath,
+				sourceType: metadata.sourceType,
+				markerType: metadata.markerType,
+				isLocalFallback: metadata.isLocalFallback,
+			});
+			continue;
+		}
+		const metadata = buildSourceMetadata("shared");
 		entries.push({
 			sourcePath: filePath,
 			sourceType: metadata.sourceType,

@@ -14,7 +14,9 @@ export function resolveInstructionFileName(targetName: InstructionTargetName): s
 	return TARGET_FILE_NAMES[targetName];
 }
 
-export function isAgentsTarget(targetName: InstructionTargetName): boolean {
+export function isAgentsTarget(
+	targetName: InstructionTargetName,
+): targetName is Extract<InstructionTargetName, "codex" | "copilot"> {
 	return targetName === "codex" || targetName === "copilot";
 }
 
