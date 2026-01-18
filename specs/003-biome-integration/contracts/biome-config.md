@@ -348,7 +348,7 @@ This contract defines the structure and behavior of `biome.json`, the configurat
 
 ### Adding New Rules
 1. Update `biome.json` with new rule configuration
-2. Run `npm run check:write` to auto-fix existing violations
+2. Run `npm run fix` to auto-fix existing violations
 3. Review changes before committing
 4. Update this contract document if behavior changes
 

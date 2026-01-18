@@ -97,7 +97,7 @@ npm run check
 Fix both formatting and linting issues:
 
 ```bash
-npm run check:write
+npm run fix
 ```
 
 **Use when**: Quick cleanup before committing
@@ -126,7 +126,7 @@ npm run build
 1. **Write code** in your editor
 2. **Format periodically**: `npm run format`
 3. **Before committing**: `npm run check`
-4. **Fix any issues**: `npm run check:write` (if needed)
+4. **Fix any issues**: `npm run fix` (if needed)
 5. **Commit** your changes
 
 ### Pre-commit Checklist
@@ -136,7 +136,7 @@ npm run build
 npm run check
 
 # If issues found, fix them
-npm run check:write
+npm run fix
 
 # Verify fixes
 npm run check
@@ -263,7 +263,7 @@ Biome is in `node_modules/.bin/biome` and accessed via npm scripts.
 
 **Fix**:
 ```bash
-npm run check:write   # Auto-fix issues
+npm run fix   # Auto-fix issues
 npm run check         # Verify fixes
 npm run build         # Try build again
 ```
@@ -333,7 +333,7 @@ A: Biome replaces both. Running multiple tools may cause conflicts. Stick with B
 │ Lint and fix:             npm run lint              │
 │ Check linting:            npm run lint:check        │
 │ Combined check:           npm run check             │
-│ Combined fix:             npm run check:write       │
+│ Combined fix:             npm run fix       │
 │ Build with checks:        npm run build             │
 ├─────────────────────────────────────────────────────┤
 │ Config file:              biome.json                │

@@ -174,7 +174,7 @@ npm run check
 
 ---
 
-## npm run check:write
+## npm run fix
 
 **Purpose**: Combined format + lint with auto-fix
 
@@ -201,7 +201,7 @@ P unfixable issues remain
 
 **Example Usage**:
 ```bash
-npm run check:write
+npm run fix
 ```
 
 ---

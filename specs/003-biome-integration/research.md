@@ -88,7 +88,7 @@ This is configured via the `files.ignore` field in biome.json.
     "lint": "biome lint --write .",
     "lint:check": "biome lint .",
     "check": "biome check .",
-    "check:write": "biome check --write .",
+    "fix": "biome check --write .",
     "build": "biome check && vite build"
   }
 }
@@ -100,7 +100,7 @@ This is configured via the `files.ignore` field in biome.json.
 3. **lint**: Applies safe linting fixes (--write flag)
 4. **lint:check**: Checks linting without modifying files
 5. **check**: Combines format + lint checking (recommended for CI)
-6. **check:write**: Combines format + lint with auto-fix
+6. **fix**: Combines format + lint with auto-fix
 7. **build**: Runs checks before building to catch issues early
 
 **Decision**: Use `biome check` in the build script as it combines both formatting and linting checks in a single fast pass.
