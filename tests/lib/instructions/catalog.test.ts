@@ -113,4 +113,24 @@ describe("instruction template catalog", () => {
 			expect(excluded.some((entry) => entry.sourcePath === sharedPath)).toBe(true);
 		});
 	});
+
+	it("uses the override directory when scanning templates", async () => {
+		await withTempRepo(async (root) => {
+			const defaultPath = await writeTemplate(root, path.join("agents", "AGENTS.md"), "Default");
+			const customPath = await writeTemplate(
+				root,
+				path.join("custom-agents", "AGENTS.md"),
+				"Custom",
+			);
+
+			const entries = await scanInstructionTemplateSources({
+				repoRoot: root,
+				agentsDir: "custom-agents",
+			});
+			const sources = entries.map((entry) => entry.sourcePath);
+
+			expect(sources).toContain(customPath);
+			expect(sources).not.toContain(defaultPath);
+		});
+	});
 });

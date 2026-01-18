@@ -1,6 +1,10 @@
+import os from "node:os";
+import path from "node:path";
 import {
 	buildSourceMetadata,
 	isLocalSuffixFile,
+	resolveLocalCategoryRoot,
+	resolveSharedCategoryRoot,
 	stripLocalPathSuffix,
 	stripLocalSuffix,
 } from "../../src/lib/local-sources.js";
@@ -56,5 +60,27 @@ describe("local source helpers", () => {
 			markerType?: "path" | "suffix",
 		) => ReturnType<typeof buildSourceMetadata>;
 		expect(() => unsafeBuild("local")).toThrow("Local sources must include a marker type.");
+	});
+
+	it("resolves shared roots using the default agents directory", () => {
+		const repoRoot = path.join(os.tmpdir(), "omniagent-local-sources");
+
+		expect(resolveSharedCategoryRoot(repoRoot, "skills")).toBe(
+			path.join(repoRoot, "agents", "skills"),
+		);
+		expect(resolveSharedCategoryRoot(repoRoot, "instructions")).toBe(
+			path.join(repoRoot, "agents"),
+		);
+	});
+
+	it("resolves shared and local roots using an override directory", () => {
+		const repoRoot = path.join(os.tmpdir(), "omniagent-local-sources-override");
+
+		expect(resolveSharedCategoryRoot(repoRoot, "commands", "custom/agents")).toBe(
+			path.join(repoRoot, "custom", "agents", "commands"),
+		);
+		expect(resolveLocalCategoryRoot(repoRoot, "commands", "custom/agents")).toBe(
+			path.join(repoRoot, "custom", "agents", ".local", "commands"),
+		);
 	});
 });

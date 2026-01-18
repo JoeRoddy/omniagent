@@ -106,4 +106,20 @@ describe("instruction repo scanning", () => {
 			expect(relative).toEqual(["AGENTS.md"]);
 		});
 	});
+
+	it("skips the override agents directory when scanning repo instructions", async () => {
+		await withTempRepo(async (root) => {
+			await writeAgents(root, path.join("custom-agents", "AGENTS.md"));
+			await writeAgents(root, path.join("docs", "AGENTS.md"));
+
+			const sources = await scanRepoInstructionSources({
+				repoRoot: root,
+				includeLocal: true,
+				agentsDir: "custom-agents",
+			});
+			const relative = sources.map((source) => path.relative(root, source.sourcePath)).sort();
+
+			expect(relative).toEqual([path.join("docs", "AGENTS.md")]);
+		});
+	});
 });
