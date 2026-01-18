@@ -30,7 +30,7 @@ description: "Task list for Biome integration implementation"
 
 - [X] T001 Install @biomejs/biome as devDependency in package.json
 - [X] T002 Create biome.json configuration file at repository root with formatting and linting rules
-- [X] T003 Update package.json with Biome npm scripts (format, format:check, lint, lint:check, check, check:write)
+- [X] T003 Update package.json with Biome npm scripts (format, format:check, lint, lint:check, check, fix)
 
 ---
 
@@ -62,7 +62,7 @@ description: "Task list for Biome integration implementation"
 - [X] T008 [US1] Update package.json build script to run `npm run check &&` before existing build command
 - [X] T009 [US1] Verify Biome check command executes correctly and returns appropriate exit codes (0=pass, 1=fail)
 - [X] T010 [US1] Test build integration by running `npm run build` on existing codebase
-- [X] T011 [US1] Run `npm run check:write` to format and fix existing code to establish clean baseline
+- [X] T011 [US1] Run `npm run fix` to format and fix existing code to establish clean baseline
 - [X] T012 [US1] Verify all integration tests pass for User Story 1
 
 **Checkpoint**: At this point, builds automatically include code quality checks. Users can run `npm run build` and see Biome enforce standards.

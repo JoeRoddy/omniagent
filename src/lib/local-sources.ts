@@ -1,6 +1,6 @@
 import path from "node:path";
 
-export type LocalCategory = "skills" | "commands" | "agents";
+export type LocalCategory = "skills" | "commands" | "agents" | "instructions";
 export type SourceType = "shared" | "local";
 export type LocalMarkerType = "path" | "suffix";
 
@@ -14,10 +14,16 @@ const LOCAL_DIRNAME = ".local";
 const LOCAL_SUFFIX = ".local";
 
 export function resolveSharedCategoryRoot(repoRoot: string, category: LocalCategory): string {
+	if (category === "instructions") {
+		return path.join(repoRoot, "agents");
+	}
 	return path.join(repoRoot, "agents", category);
 }
 
 export function resolveLocalCategoryRoot(repoRoot: string, category: LocalCategory): string {
+	if (category === "instructions") {
+		return path.join(repoRoot, "agents", LOCAL_DIRNAME);
+	}
 	return path.join(repoRoot, "agents", LOCAL_DIRNAME, category);
 }
 
@@ -95,4 +101,16 @@ export function stripLocalPathSuffix(pathName: string): {
 
 export function isLocalSuffixFile(fileName: string, extension: string): boolean {
 	return stripLocalSuffix(fileName, extension).hadLocalSuffix;
+}
+
+export function detectLocalMarkerFromPath(filePath: string): LocalMarkerType | null {
+	const segments = filePath.split(path.sep);
+	for (const segment of segments) {
+		if (stripLocalPathSuffix(segment).hadLocalSuffix) {
+			return "path";
+		}
+	}
+	const fileName = path.basename(filePath);
+	const extension = path.extname(fileName);
+	return isLocalSuffixFile(fileName, extension) ? "suffix" : null;
 }

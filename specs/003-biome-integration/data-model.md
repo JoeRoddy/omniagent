@@ -64,7 +64,7 @@ interface PackageScripts {
   lint: string            // "biome lint --write ."
   "lint:check": string    // "biome lint ."
   check: string           // "biome check ."
-  "check:write": string   // "biome check --write ."
+  "fix": string   // "biome check --write ."
   build: string           // "npm run check && vite build"
   // ... existing scripts
 }
@@ -136,7 +136,7 @@ Code Written (unformatted)
   ├──> npm run format ──> Code Formatted (auto-fixed)
   │                          └──> npm run build ──> Build Success
   └──> npm run build ──> Build Failure (quality issues)
-                            └──> npm run check:write ──> Build Success
+                            └──> npm run fix ──> Build Success
 ```
 
 ## File System Structure
