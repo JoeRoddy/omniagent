@@ -200,6 +200,10 @@ function emptySummaryCounts(): SummaryCounts {
 	return { create: 0, update: 0, remove: 0, convert: 0, skip: 0 };
 }
 
+function emptyResultCounts(): SyncResult["counts"] {
+	return { created: 0, updated: 0, removed: 0, converted: 0, skipped: 0 };
+}
+
 function hashContent(content: string): string {
 	return createHash("sha256").update(content).digest("hex");
 }
@@ -1303,9 +1307,9 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 	const managedManifest = (await readManagedOutputs(request.repoRoot, homeDir)) ?? { entries: [] };
 	const nextManaged = new Map<string, ManagedOutputRecord>();
 	const activeOutputPaths = new Set<string>();
-	const countsByTarget = new Map<string, SummaryCounts>();
-	const getCounts = (targetId: string): SummaryCounts => {
-		const existing = countsByTarget.get(targetId) ?? emptySummaryCounts();
+	const countsByTarget = new Map<string, SyncResult["counts"]>();
+	const getCounts = (targetId: string): SyncResult["counts"] => {
+		const existing = countsByTarget.get(targetId) ?? emptyResultCounts();
 		countsByTarget.set(targetId, existing);
 		return existing;
 	};

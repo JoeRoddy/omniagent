@@ -148,8 +148,7 @@ export async function loadInstructionTemplateCatalog(options: {
 		});
 
 		const rootTemplate = isRootTemplate(entry.sourcePath, options.repoRoot, options.agentsDir);
-		const defaultOutputDir = rootTemplate ? options.repoRoot : path.dirname(entry.sourcePath);
-		const resolvedOutputDir = parsed.resolvedOutputDir ?? defaultOutputDir;
+		const resolvedOutputDir = parsed.resolvedOutputDir ?? (rootTemplate ? options.repoRoot : null);
 
 		templates.push({
 			kind: "template",

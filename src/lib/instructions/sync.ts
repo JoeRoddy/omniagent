@@ -7,6 +7,7 @@ import { resolveAgentsDirPath } from "../agents-dir.js";
 import { resolveLocalPrecedence } from "../local-precedence.js";
 import type { SyncSourceCounts } from "../sync-results.js";
 import { resolveEffectiveTargets } from "../sync-targets.js";
+import { BUILTIN_TARGETS } from "../targets/builtins.js";
 import type {
 	ConverterRule,
 	OutputWriter,
@@ -57,7 +58,7 @@ export type { InstructionSyncSummary } from "./summary.js";
 export type InstructionSyncRequest = {
 	repoRoot: string;
 	agentsDir?: string | null;
-	targets: ResolvedTarget[];
+	targets: Array<ResolvedTarget | InstructionTargetName>;
 	overrideOnly?: InstructionTargetName[] | null;
 	overrideSkip?: InstructionTargetName[] | null;
 	excludeLocal?: boolean;
@@ -128,6 +129,12 @@ function selectCandidateBySource(
 ): InstructionOutputCandidate | null {
 	if (candidates.length === 0) {
 		return null;
+	}
+	const satisfied = sortCandidates(
+		candidates.filter((candidate) => candidate.kind === "satisfied"),
+	);
+	if (satisfied.length > 0) {
+		return satisfied[0];
 	}
 	const shared = sortCandidates(
 		candidates.filter((candidate) => candidate.source.sourceType === "shared"),
@@ -234,9 +241,42 @@ function recordCount(counts: InstructionOutputCounts, field: keyof InstructionOu
 	counts.total += 1;
 }
 
+function normalizeInstructionTargets(
+	targets: Array<ResolvedTarget | InstructionTargetName>,
+): ResolvedTarget[] {
+	const resolved: ResolvedTarget[] = [];
+	for (const target of targets) {
+		if (typeof target !== "string") {
+			resolved.push(target);
+			continue;
+		}
+		const normalized = target.trim().toLowerCase();
+		if (!normalized) {
+			continue;
+		}
+		const builtin = BUILTIN_TARGETS.find(
+			(entry) => entry.id === normalized || entry.aliases?.includes(normalized),
+		);
+		if (!builtin) {
+			continue;
+		}
+		resolved.push({
+			id: builtin.id,
+			displayName: builtin.displayName ?? builtin.id,
+			aliases: builtin.aliases ?? [],
+			outputs: builtin.outputs ?? {},
+			hooks: builtin.hooks,
+			isBuiltIn: true,
+			isCustomized: false,
+		});
+	}
+	return resolved;
+}
+
 export async function syncInstructions(
 	request: InstructionSyncRequest,
 ): Promise<InstructionSyncSummary> {
+	const targets = normalizeInstructionTargets(request.targets);
 	const includeLocal = !(request.excludeLocal ?? false);
 	const summarySourcePath = request.repoRoot;
 	const warnings: string[] = [];
@@ -249,7 +289,7 @@ export async function syncInstructions(
 	const removeMissing = request.removeMissing ?? false;
 
 	const selections: InstructionTargetSelection[] = [];
-	for (const target of request.targets) {
+	for (const target of targets) {
 		const normalized = normalizeInstructionOutputDefinition(target.outputs.instructions);
 		if (!normalized) {
 			continue;
@@ -282,7 +322,7 @@ export async function syncInstructions(
 	}
 
 	const primaryByGroup = new Map<InstructionTargetGroup, string>();
-	for (const target of request.targets) {
+	for (const target of targets) {
 		const selection = selectionById.get(target.id);
 		if (!selection) {
 			continue;
@@ -296,7 +336,7 @@ export async function syncInstructions(
 	}
 
 	const selectedTargetIds = new Set(selections.map((selection) => selection.target.id));
-	const allTargetIds = request.targets.map((target) => target.id);
+	const allTargetIds = targets.map((target) => target.id);
 
 	const [templateCatalog, repoSources] = await Promise.all([
 		loadInstructionTemplateCatalog({
@@ -322,7 +362,7 @@ export async function syncInstructions(
 		const resolvedOutputDir = template.resolvedOutputDir;
 		if (!resolvedOutputDir) {
 			const display = formatDisplayPath(request.repoRoot, template.sourcePath);
-			warnings.push(`Instruction template missing output directory: ${display}.`);
+			warnings.push(`Instruction template missing outPutPath: ${display}.`);
 			continue;
 		}
 		const effectiveTargets = resolveEffectiveTargetsForSource(
@@ -833,13 +873,17 @@ export async function syncInstructions(
 				? "partial"
 				: "failed"
 			: "synced";
+		const sharedLabel =
+			typeof selection.definition.filename === "string"
+				? selection.definition.filename
+				: "instruction";
 		const message = isPrimary
 			? buildInstructionResultMessage({
 					targetName,
 					status,
 					counts,
 				})
-			: `Shared instruction output with ${primaryTarget}.`;
+			: `Shared ${sharedLabel} output with ${primaryTarget}.`;
 		if (groupResult.hadFailure) {
 			hadFailures = true;
 		}

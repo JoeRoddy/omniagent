@@ -35,11 +35,13 @@ import {
 	type ConflictResolution,
 	formatSyncSummary as formatCommandSummary,
 	syncSlashCommands as syncSlashCommandsV2,
+	type UnsupportedFallback,
 } from "../../lib/slash-commands/sync.js";
 import {
 	type TargetName as CommandTargetName,
 	getDefaultScope,
 	getTargetProfile,
+	isSlashCommandTargetName,
 	type Scope,
 } from "../../lib/slash-commands/targets.js";
 import { loadSubagentCatalog } from "../../lib/subagents/catalog.js";
@@ -1386,20 +1388,69 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				}
 			}
 
-			const commandsSummary = await syncSlashCommandsV2({
-				repoRoot,
-				agentsDir,
-				targets: selectedCommandTargets,
-				overrideOnly,
-				overrideSkip,
-				conflictResolution: argv.conflicts as ConflictResolution | undefined,
-				removeMissing,
-				nonInteractive,
-				validAgents,
-				excludeLocal: excludeLocalCommands,
-				resolveTargetName,
-				hooks: globalHooks,
-			} satisfies CommandSyncRequestV2);
+			const commandsSourcePath = resolveSharedCategoryRoot(repoRoot, "commands", agentsDir);
+			let commandsSummary: CommandSyncSummary;
+			if (selectedCommandTargets.length === 0) {
+				commandsSummary = {
+					sourcePath: commandsSourcePath,
+					results: [],
+					warnings: [],
+					hadFailures: false,
+					sourceCounts: {
+						shared: 0,
+						local: 0,
+						excludedLocal: excludeLocalCommands,
+					},
+				};
+			} else if (!commandsStatus.available) {
+				commandsSummary = buildCommandSummary(
+					commandsSourcePath,
+					selectedCommandTargets,
+					"skipped",
+					commandsStatus.reason,
+					excludeLocalCommands,
+				);
+			} else {
+				const commandTargetNames = selectedCommandTargets
+					.map((target) => target.id)
+					.filter(isSlashCommandTargetName);
+				if (commandTargetNames.length > 0) {
+					const scopeByTarget: Partial<Record<CommandTargetName, Scope>> = {};
+					let unsupportedFallback: UnsupportedFallback | undefined;
+					for (const targetName of commandTargetNames) {
+						const profile = getTargetProfile(targetName);
+						if (profile.supportedScopes.includes("project")) {
+							scopeByTarget[targetName] = "project";
+						}
+						if (targetName === "copilot") {
+							unsupportedFallback = "convert_to_skills";
+						}
+					}
+					if (nonInteractive) {
+						logNonInteractiveNotices({
+							targets: commandTargetNames,
+							jsonOutput,
+							scopeByTarget,
+							unsupportedFallback,
+						});
+						logWithChannel("Planned actions:", jsonOutput);
+					}
+				}
+				commandsSummary = await syncSlashCommandsV2({
+					repoRoot,
+					agentsDir,
+					targets: selectedCommandTargets,
+					overrideOnly,
+					overrideSkip,
+					conflictResolution: argv.conflicts as ConflictResolution | undefined,
+					removeMissing,
+					nonInteractive,
+					validAgents,
+					excludeLocal: excludeLocalCommands,
+					resolveTargetName,
+					hooks: globalHooks,
+				} satisfies CommandSyncRequestV2);
+			}
 
 			const subagentSummary = await syncSubagentsV2({
 				repoRoot,
