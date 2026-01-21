@@ -15,8 +15,9 @@ import { extractFrontmatter, type FrontmatterValue } from "../slash-commands/fro
 import {
 	hasRawTargetValues,
 	InvalidFrontmatterTargetsError,
-	isKnownTargetName,
+	isTargetName,
 	resolveFrontmatterTargets,
+	type TargetName,
 } from "../sync-targets.js";
 
 export type SkillDefinition = {
@@ -32,7 +33,7 @@ export type SkillDefinition = {
 	rawContents: string;
 	frontmatter: Record<string, FrontmatterValue>;
 	body: string;
-	targetAgents: string[] | null;
+	targetAgents: TargetName[] | null;
 	invalidTargets: string[];
 };
 
@@ -109,7 +110,7 @@ async function buildSkillDefinition(options: {
 		options.relativePath ?? path.relative(options.skillsRoot, options.directoryPath);
 	const name = resolveSkillName(frontmatter, relativePath || path.basename(options.directoryPath));
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
-	const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, isKnownTargetName);
+	const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, isTargetName);
 	if (invalidTargets.length > 0) {
 		const invalidList = invalidTargets.join(", ");
 		throw new InvalidFrontmatterTargetsError(

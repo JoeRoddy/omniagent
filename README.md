@@ -96,39 +96,6 @@ Global team instructions for all agents.
 - Gemini CLI (skills require `experimental.skills`; slash commands project/global;
   subagents converted to skills)
 
-## Custom targets (omniagent.config.ts)
-
-Define additional targets or override built-ins from a repo-root `omniagent.config.ts`:
-
-```ts
-import { defineConfig } from "omniagent";
-
-export default defineConfig({
-	targets: [
-		{
-			id: "cursor",
-			outputs: {
-				skills: "{repo}/.cursor/skills",
-				commands: "{repo}/.cursor/commands",
-				subagents: "{repo}/.cursor/agents",
-				// instructions omitted -> defaults to AGENTS.md per output directory
-			},
-		},
-	],
-});
-```
-
-Notes:
-- Config is optional; when absent, built-in behavior is unchanged.
-- `instructions: false` disables instruction output for a target that does not support it.
-- Override a built-in target by reusing its id (unspecified fields inherit).
-- Path templates support `{repo}`, `{home}`, `{target}`, and `{item}` placeholders.
-
-Advanced knobs (per output):
-- `convert` supports custom output routing and multi-file results.
-- Commands support `format`, `scopes`, `globalPath`, and `fallback`.
-- Hooks `beforeSync`/`afterSync` and `beforeConvert`/`afterConvert` run per target.
-
 ## Repo layout (canonical sources)
 
 ```text

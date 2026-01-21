@@ -157,7 +157,6 @@ export async function loadInstructionTemplateCatalog(options: {
 			invalidTargets: parsed.invalidTargets,
 			outPutPath: parsed.outPutPath,
 			resolvedOutputDir,
-			group: parsed.group,
 		});
 	}
 

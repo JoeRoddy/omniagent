@@ -1,4 +1,4 @@
-import type { TargetId } from "./sync-targets.js";
+import type { TargetName } from "./sync-targets.js";
 
 export type SyncStatus = "synced" | "skipped" | "failed";
 
@@ -9,7 +9,7 @@ export type SyncSourceCounts = {
 };
 
 export type SyncResult = {
-	targetName: TargetId;
+	targetName: TargetName;
 	status: SyncStatus;
 	message: string;
 	error?: string | null;

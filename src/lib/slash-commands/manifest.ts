@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Scope } from "./targets.js";
+import type { Scope, TargetName } from "./targets.js";
 
 export type ManagedCommand = {
 	name: string;
@@ -9,7 +9,7 @@ export type ManagedCommand = {
 };
 
 export type SyncStateManifest = {
-	targetName: string;
+	targetName: TargetName;
 	scope: Scope;
 	managedCommands: ManagedCommand[];
 };
@@ -34,7 +34,7 @@ function parseTomlValue(rawValue: string): string {
 
 function parseManifest(contents: string): SyncStateManifest | null {
 	const lines = contents.split(/\r?\n/);
-	let targetName: string | null = null;
+	let targetName: TargetName | null = null;
 	let scope: Scope | null = null;
 	const managedCommands: ManagedCommand[] = [];
 	let current: Partial<ManagedCommand> | null = null;
@@ -80,7 +80,7 @@ function parseManifest(contents: string): SyncStateManifest | null {
 		}
 
 		if (key === "targetName") {
-			targetName = value;
+			targetName = value as TargetName;
 			continue;
 		}
 		if (key === "scope") {

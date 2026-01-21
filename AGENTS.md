@@ -15,8 +15,6 @@ Auto-generated from all feature plans. Last updated: 2026-01-10
 - Filesystem (repo-local `agents/` directory or user-supplied agents directory) (012-agents-dir-override)
 - TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, @typescript/native-preview (tsgo), Vitest, Vite, Biome (013-fix-typecheck-ci)
 - Filesystem (repo-local config and user home state) (013-fix-typecheck-ci)
-- TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, @typescript/native-preview (tsgo), Vite, Vitest, Biome (014-add-custom-targets)
-- Filesystem (repo-local and user home directories) (014-add-custom-targets)
 
 - TypeScript 5.x, ES2022 target + yargs (CLI parsing), Vitest (testing), Vite (build), Biome (formatting/linting) (003-biome-integration)
 
@@ -45,9 +43,9 @@ TypeScript 5.x, Node.js 18+: Enforced by Biome (formatting and linting)
 - Run `npm run format` before committing
 
 ## Recent Changes
-- 014-add-custom-targets: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, @typescript/native-preview (tsgo), Vite, Vitest, Biome
 - 013-fix-typecheck-ci: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, @typescript/native-preview (tsgo), Vitest, Vite, Biome
 - 012-agents-dir-override: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js `fs/promises`, `path`, Vitest, Vite, Biome
+- 010-instruction-file-sync: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js `fs/promises`, `path`, Vitest, Vite, Biome
 
 
 

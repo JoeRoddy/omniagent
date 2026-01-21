@@ -5,14 +5,6 @@ import { TextDecoder } from "node:util";
 import type { CommandModule } from "yargs";
 import { validateAgentTemplating } from "../../lib/agent-templating.js";
 import { DEFAULT_AGENTS_DIR, resolveAgentsDir, validateAgentsDir } from "../../lib/agents-dir.js";
-import { loadConfig } from "../../lib/custom-targets/load-config.js";
-import { resolveTargets } from "../../lib/custom-targets/resolve-targets.js";
-import {
-	formatCustomTargetSummary,
-	syncCustomTargets,
-	type CustomTargetSyncSummary,
-} from "../../lib/custom-targets/sync.js";
-import { validateConfig } from "../../lib/custom-targets/validate-config.js";
 import { readIgnorePreference, recordIgnorePromptDeclined } from "../../lib/ignore-preferences.js";
 import {
 	appendIgnoreRules,
@@ -70,7 +62,7 @@ import {
 	SUBAGENT_TARGETS,
 	type SubagentTargetName,
 } from "../../lib/subagents/targets.js";
-import { SUPPORTED_AGENT_NAMES, resolveSupportedAgentNames } from "../../lib/supported-targets.js";
+import { SUPPORTED_AGENT_NAMES } from "../../lib/supported-targets.js";
 import {
 	buildSummary,
 	formatSummary,
@@ -81,7 +73,6 @@ import {
 	InvalidFrontmatterTargetsError,
 	type TargetName as SkillTargetName,
 	TARGETS,
-	setCustomTargetNames,
 } from "../../lib/sync-targets.js";
 
 type SyncArgs = {
@@ -98,8 +89,8 @@ type SyncArgs = {
 
 type SkillTarget = (typeof TARGETS)[number];
 
-const BUILT_IN_TARGETS = [...SUPPORTED_AGENT_NAMES];
-const BUILT_IN_TARGETS_LABEL = BUILT_IN_TARGETS.join(", ");
+const ALL_TARGETS = [...SUPPORTED_AGENT_NAMES];
+const SUPPORTED_TARGETS = ALL_TARGETS.join(", ");
 const LOCAL_CATEGORIES = ["skills", "commands", "agents", "instructions"] as const;
 type LocalCategory = (typeof LOCAL_CATEGORIES)[number];
 const LOCAL_CATEGORY_SET = new Set(LOCAL_CATEGORIES);
@@ -1093,11 +1084,11 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			.usage("omniagent sync [options]")
 			.option("skip", {
 				type: "string",
-				describe: `Comma-separated targets to skip (${BUILT_IN_TARGETS_LABEL}, plus custom targets from config)`,
+				describe: `Comma-separated targets to skip (${SUPPORTED_TARGETS})`,
 			})
 			.option("only", {
 				type: "string",
-				describe: `Comma-separated targets to sync (${BUILT_IN_TARGETS_LABEL}, plus custom targets from config)`,
+				describe: `Comma-separated targets to sync (${SUPPORTED_TARGETS})`,
 			})
 			.option("agentsDir", {
 				type: "string",
@@ -1142,7 +1133,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				default: false,
 				describe: "Output JSON summary",
 			})
-			.epilog(`Supported built-in targets: ${BUILT_IN_TARGETS_LABEL}`)
+			.epilog(`Supported targets: ${SUPPORTED_TARGETS}`)
 			.example("omniagent sync", "Sync all targets")
 			.example("omniagent sync --skip codex", "Skip a target")
 			.example("omniagent sync --only claude", "Sync only one target")
@@ -1159,6 +1150,19 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 		try {
 			const skipList = parseList(argv.skip);
 			const onlyList = parseList(argv.only);
+
+			const supportedTargetSet = new Set(ALL_TARGETS);
+			const unknownTargets = [...skipList, ...onlyList].filter(
+				(name) => !supportedTargetSet.has(name),
+			);
+			if (unknownTargets.length > 0) {
+				const unknownList = unknownTargets.join(", ");
+				console.error(
+					`Error: Unknown target name(s): ${unknownList}. Supported targets: ${SUPPORTED_TARGETS}.`,
+				);
+				process.exit(1);
+				return;
+			}
 
 			const excludeLocalSelection = parseExcludeLocal(argv.excludeLocal);
 			if (excludeLocalSelection.invalid.length > 0) {
@@ -1178,10 +1182,30 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const excludeLocalAgents = excludeLocalCategories.has("agents");
 			const excludeLocalInstructions = excludeLocalCategories.has("instructions");
 
+			const skipSet = new Set(skipList);
+			const onlySet = new Set(onlyList);
+			const selectedTargets = ALL_TARGETS.filter((name) => {
+				if (onlySet.size > 0 && !onlySet.has(name)) {
+					return false;
+				}
+				if (skipSet.size > 0 && skipSet.has(name)) {
+					return false;
+				}
+				return true;
+			});
+			const overrideOnly = onlyList.length > 0 ? onlyList : undefined;
+			const overrideSkip = skipList.length > 0 ? skipList : undefined;
+			const validAgents = [...SUPPORTED_AGENT_NAMES];
 			const jsonOutput = argv.json ?? false;
 			const yes = argv.yes ?? false;
 			const removeMissing = argv.removeMissing ?? true;
 			const listLocal = argv.listLocal ?? false;
+
+			if (selectedTargets.length === 0 && !listLocal) {
+				console.error("Error: No targets selected after applying filters.");
+				process.exit(1);
+				return;
+			}
 
 			const startDir = process.cwd();
 			const repoRoot = await findRepoRoot(startDir);
@@ -1205,93 +1229,6 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			}
 			const agentsDir = agentsDirResolution.resolvedPath;
 
-			let configData: Awaited<ReturnType<typeof loadConfig>> | null = null;
-			try {
-				configData = await loadConfig({ repoRoot });
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				console.error(`Error: Failed to load omniagent.config.ts: ${message}`);
-				process.exit(1);
-				return;
-			}
-
-			if (configData?.config) {
-				const validation = validateConfig(configData.config, {
-					builtInTargetIds: BUILT_IN_TARGETS,
-				});
-				if (!validation.valid) {
-					console.error("Error: Invalid omniagent.config.ts.");
-					for (const entry of validation.errors) {
-						const location = entry.path ? `${entry.path}: ` : "";
-						console.error(`- ${location}${entry.message}`);
-					}
-					process.exit(1);
-					return;
-				}
-			}
-
-			const registry = resolveTargets(configData?.config ?? null);
-			const resolvedTargets = registry.resolved;
-			const aliasMap = new Map<string, string>();
-			const registerName = (value: string, id: string) => {
-				const normalized = value.trim().toLowerCase();
-				if (!normalized) {
-					return;
-				}
-				aliasMap.set(normalized, id);
-			};
-			for (const target of resolvedTargets) {
-				registerName(target.id, target.id);
-				for (const alias of target.aliases) {
-					registerName(alias, target.id);
-				}
-			}
-
-			const unknownTargets = [...skipList, ...onlyList].filter(
-				(name) => !aliasMap.has(name),
-			);
-			if (unknownTargets.length > 0) {
-				const unknownList = unknownTargets.join(", ");
-				const supportedList = resolvedTargets.map((target) => target.id).join(", ");
-				console.error(
-					`Error: Unknown target name(s): ${unknownList}. Supported targets: ${supportedList}.`,
-				);
-				process.exit(1);
-				return;
-			}
-
-			const resolveTargetId = (value: string): string =>
-				aliasMap.get(value) ?? value;
-			const resolvedSkip = skipList.map(resolveTargetId);
-			const resolvedOnly = onlyList.map(resolveTargetId);
-			const skipSet = new Set(resolvedSkip.map((value) => value.toLowerCase()));
-			const onlySet = new Set(resolvedOnly.map((value) => value.toLowerCase()));
-			const selectedTargetIds = resolvedTargets
-				.map((target) => target.id)
-				.filter((id) => {
-					const normalized = id.toLowerCase();
-					if (onlySet.size > 0 && !onlySet.has(normalized)) {
-						return false;
-					}
-					if (skipSet.size > 0 && skipSet.has(normalized)) {
-						return false;
-					}
-					return true;
-				});
-
-			const overrideOnly = resolvedOnly.length > 0 ? resolvedOnly : undefined;
-			const overrideSkip = resolvedSkip.length > 0 ? resolvedSkip : undefined;
-			const validAgents = resolveSupportedAgentNames(
-				resolvedTargets.map((target) => target.id),
-			);
-			setCustomTargetNames(resolvedTargets.map((target) => target.id));
-
-			if (selectedTargetIds.length === 0 && !listLocal) {
-				console.error("Error: No targets selected after applying filters.");
-				process.exit(1);
-				return;
-			}
-
 			const localItems = listLocal
 				? await collectLocalItems(repoRoot, agentsDir)
 				: { skills: [], commands: [], agents: [], instructions: [], total: 0 };
@@ -1306,44 +1243,17 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const nonInteractive = yes || !process.stdin.isTTY;
 			const hasLocalItems = await hasLocalSources(repoRoot, agentsDir);
 
-			const selectedTargetSet = new Set(selectedTargetIds.map((id) => id.toLowerCase()));
-			const builtInTargetSet = new Set(
-				registry.builtIns.map((target) => target.id.toLowerCase()),
-			);
-			const overriddenSet = registry.overriddenIds;
-			const builtInSelectedIds = selectedTargetIds.filter((id) => {
-				const normalized = id.toLowerCase();
-				return builtInTargetSet.has(normalized) && !overriddenSet.has(normalized);
-			});
-			const builtInSelectedSet = new Set(builtInSelectedIds.map((id) => id.toLowerCase()));
 			const selectedSkillTargets = TARGETS.filter((target) =>
-				builtInSelectedSet.has(target.name),
+				selectedTargets.includes(target.name),
 			);
 			const selectedCommandTargets = SLASH_COMMAND_TARGETS.filter((target) =>
-				builtInSelectedSet.has(target.name),
+				selectedTargets.includes(target.name),
 			).map((target) => target.name as CommandTargetName);
 
 			const selectedSubagentTargets = SUBAGENT_TARGETS.filter((target) =>
-				builtInSelectedSet.has(target.name),
+				selectedTargets.includes(target.name),
 			).map((target) => target.name as SubagentTargetName);
-			const selectedInstructionTargets = builtInSelectedIds as InstructionTargetName[];
-			const customTargetsToSync = resolvedTargets.filter(
-				(target) => target.source !== "built-in" && selectedTargetSet.has(target.id.toLowerCase()),
-			);
-			const customNeedsSkills = customTargetsToSync.some((target) => Boolean(target.outputs.skills));
-			const customNeedsCommands = customTargetsToSync.some((target) => Boolean(target.outputs.commands));
-			const customNeedsSubagents = customTargetsToSync.some((target) => {
-				if (target.outputs.subagents) {
-					return true;
-				}
-				if (!target.supports.subagents && target.source !== "custom" && target.outputs.skills) {
-					return true;
-				}
-				return false;
-			});
-			const customNeedsInstructions = customTargetsToSync.some(
-				(target) => target.outputs.instructions !== false,
-			);
+			const selectedInstructionTargets = selectedTargets as InstructionTargetName[];
 
 			const includeLocalSkills = !excludeLocalSkills;
 			const includeLocalCommands = !excludeLocalCommands;
@@ -1356,12 +1266,10 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const localSkillsAvailable = includeLocalSkills
 				? await assertSourceDirectory(localSkillsPath)
 				: false;
-			const skillsRequested = selectedSkillTargets.length > 0 || customNeedsSkills;
-			const skillsAvailable = skillsRequested
-				? sharedSkillsAvailable || localSkillsAvailable
-				: false;
+			const skillsAvailable =
+				selectedSkillTargets.length > 0 ? sharedSkillsAvailable || localSkillsAvailable : false;
 			const commandsStatus =
-				selectedCommandTargets.length > 0 || customNeedsCommands
+				selectedCommandTargets.length > 0
 					? await getCommandCatalogStatus({
 							repoRoot,
 							includeLocal: includeLocalCommands,
@@ -1369,27 +1277,20 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 						})
 					: ({ available: true } as CatalogStatus);
 
-			const hasSkillsToSync = skillsRequested && skillsAvailable;
-			const hasCommandsToSync =
-				(selectedCommandTargets.length > 0 || customNeedsCommands) && commandsStatus.available;
-			const hasSubagentsToSync = selectedSubagentTargets.length > 0 || customNeedsSubagents;
-			const hasInstructionsToSync =
-				selectedInstructionTargets.length > 0 || customNeedsInstructions;
+			const hasSkillsToSync = selectedSkillTargets.length > 0 && skillsAvailable;
+			const hasCommandsToSync = selectedCommandTargets.length > 0 && commandsStatus.available;
+			const hasSubagentsToSync = selectedSubagentTargets.length > 0;
+			const hasInstructionsToSync = selectedInstructionTargets.length > 0;
 
-			if (
-				!hasSkillsToSync &&
-				!hasCommandsToSync &&
-				!hasSubagentsToSync &&
-				!hasInstructionsToSync
-			) {
+			if (!hasSkillsToSync && !hasCommandsToSync && !hasSubagentsToSync && !hasInstructionsToSync) {
 				const missingMessages: string[] = [];
-				if (skillsRequested && !skillsAvailable) {
+				if (selectedSkillTargets.length > 0 && !skillsAvailable) {
 					const skillsLabel = includeLocalSkills
 						? `${skillsSourcePath} or ${localSkillsPath}`
 						: skillsSourcePath;
 					missingMessages.push(`Canonical config source not found at ${skillsLabel}.`);
 				}
-				if ((selectedCommandTargets.length > 0 || customNeedsCommands) && !commandsStatus.available) {
+				if (selectedCommandTargets.length > 0 && !commandsStatus.available) {
 					missingMessages.push(commandsStatus.reason);
 				}
 				const message =
@@ -1567,39 +1468,16 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				});
 			}
 
-			let customSummary: CustomTargetSyncSummary = {
-				results: [],
-				warnings: [],
-				hadFailures: false,
-			};
-			if (customTargetsToSync.length > 0) {
-				customSummary = await syncCustomTargets({
-					repoRoot,
-					agentsDir,
-					targets: customTargetsToSync,
-					validAgents,
-					flags: argv as Record<string, unknown>,
-					excludeLocal: {
-						skills: excludeLocalSkills,
-						commands: excludeLocalCommands,
-						subagents: excludeLocalAgents,
-						instructions: excludeLocalInstructions,
-					},
-				});
-			}
-
 			const combined = {
 				instructions: instructionsSummary,
 				skills: skillsSummary,
 				subagents: subagentSummary,
 				commands: commandsSummary,
-				customTargets: customSummary,
 				hadFailures:
 					instructionsSummary.hadFailures ||
 					skillsSummary.hadFailures ||
 					subagentSummary.hadFailures ||
-					commandsSummary.hadFailures ||
-					customSummary.hadFailures,
+					commandsSummary.hadFailures,
 				missingIgnoreRules,
 			};
 
@@ -1622,10 +1500,6 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				const commandOutput = formatCommandSummary(commandsSummary, false);
 				if (commandOutput.length > 0) {
 					outputs.push(commandOutput);
-				}
-				const customOutput = formatCustomTargetSummary(customSummary, false);
-				if (customOutput.length > 0) {
-					outputs.push(customOutput);
 				}
 				if (missingIgnoreRules) {
 					const warningRules = ignoreRules ?? buildAgentsIgnoreRules(repoRoot, agentsDir);

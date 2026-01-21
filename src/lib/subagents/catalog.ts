@@ -13,9 +13,9 @@ import {
 import {
 	hasRawTargetValues,
 	InvalidFrontmatterTargetsError,
-	isKnownTargetName,
 	resolveFrontmatterTargets,
 } from "../sync-targets.js";
+import { isSubagentTargetName, type SubagentTargetName } from "./targets.js";
 
 export type FrontmatterValue = string | string[];
 
@@ -29,7 +29,7 @@ export type SubagentDefinition = {
 	rawContents: string;
 	frontmatter: Record<string, FrontmatterValue>;
 	body: string;
-	targetAgents: string[] | null;
+	targetAgents: SubagentTargetName[] | null;
 	invalidTargets: string[];
 };
 
@@ -204,7 +204,7 @@ async function buildSubagentDefinition(options: {
 	}
 
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
-	const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, isKnownTargetName);
+	const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, isSubagentTargetName);
 	if (invalidTargets.length > 0) {
 		const invalidList = invalidTargets.join(", ");
 		throw new InvalidFrontmatterTargetsError(

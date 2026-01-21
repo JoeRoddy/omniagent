@@ -19,15 +19,3 @@ function buildSupportedAgents(): string[] {
 }
 
 export const SUPPORTED_AGENT_NAMES = Object.freeze(buildSupportedAgents());
-
-export function resolveSupportedAgentNames(customTargets?: string[]): string[] {
-	const names = new Set<string>(SUPPORTED_AGENT_NAMES);
-	for (const target of customTargets ?? []) {
-		const trimmed = target.trim();
-		if (!trimmed) {
-			continue;
-		}
-		names.add(trimmed);
-	}
-	return Array.from(names);
-}

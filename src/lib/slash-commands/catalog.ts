@@ -13,10 +13,10 @@ import {
 import {
 	hasRawTargetValues,
 	InvalidFrontmatterTargetsError,
-	isKnownTargetName,
 	resolveFrontmatterTargets,
 } from "../sync-targets.js";
 import { extractFrontmatter, type FrontmatterValue } from "./frontmatter.js";
+import { isSlashCommandTargetName, type TargetName } from "./targets.js";
 
 export type { FrontmatterValue } from "./frontmatter.js";
 
@@ -28,7 +28,7 @@ export type SlashCommandDefinition = {
 	markerType?: LocalMarkerType;
 	isLocalFallback: boolean;
 	rawContents: string;
-	targetAgents: string[] | null;
+	targetAgents: TargetName[] | null;
 	invalidTargets: string[];
 	frontmatter: Record<string, FrontmatterValue>;
 };
@@ -81,7 +81,7 @@ async function buildCommandDefinition(options: {
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
 	const { targets, invalidTargets } = resolveFrontmatterTargets(
 		rawTargets,
-		isKnownTargetName,
+		isSlashCommandTargetName,
 	);
 	if (invalidTargets.length > 0) {
 		const invalidList = invalidTargets.join(", ");
