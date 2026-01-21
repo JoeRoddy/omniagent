@@ -1,9 +1,9 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { OmniagentConfig } from "../../../src/lib/targets/config-types.js";
 import { BUILTIN_TARGETS } from "../../../src/lib/targets/builtins.js";
 import { findTargetConfigPath, loadTargetConfig } from "../../../src/lib/targets/config-loader.js";
+import type { OmniagentConfig } from "../../../src/lib/targets/config-types.js";
 import { validateTargetConfig } from "../../../src/lib/targets/config-validate.js";
 import { resolveTargets } from "../../../src/lib/targets/resolve-targets.js";
 import {
@@ -82,7 +82,7 @@ describe("target config validation", () => {
 
 		expect(validation.valid).toBe(false);
 		expect(validation.errors).toContain(
-			"targets[0] collides with built-in target \"claude\" without override or inherits.",
+			'targets[0] collides with built-in target "claude" without override or inherits.',
 		);
 	});
 

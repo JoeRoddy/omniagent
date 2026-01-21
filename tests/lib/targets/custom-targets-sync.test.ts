@@ -2,22 +2,20 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import os from "node:os";
 import path from "node:path";
 import { syncInstructions } from "../../../src/lib/instructions/sync.js";
-import { syncSlashCommands } from "../../../src/lib/slash-commands/sync.js";
 import { syncSkills } from "../../../src/lib/skills/sync.js";
+import { syncSlashCommands } from "../../../src/lib/slash-commands/sync.js";
 import { syncSubagents } from "../../../src/lib/subagents/sync.js";
 import { createTargetNameResolver } from "../../../src/lib/sync-targets.js";
-import { readManagedOutputs } from "../../../src/lib/targets/managed-outputs.js";
 import type {
 	OutputWriter,
 	ResolvedTarget,
 	TargetOutputs,
 } from "../../../src/lib/targets/config-types.js";
+import { readManagedOutputs } from "../../../src/lib/targets/managed-outputs.js";
 
 const VALID_AGENTS = ["acme", "beta", "gamma"];
 
-async function withTempRepo(
-	fn: (root: string, homeDir: string) => Promise<void>,
-): Promise<void> {
+async function withTempRepo(fn: (root: string, homeDir: string) => Promise<void>): Promise<void> {
 	const root = await mkdtemp(path.join(os.tmpdir(), "omniagent-custom-targets-"));
 	const homeDir = path.join(root, "home");
 	await mkdir(homeDir, { recursive: true });
@@ -91,11 +89,7 @@ describe("custom target sync", () => {
 			await writeSkill(root, "alpha", "Alpha skill");
 			await writeCommand(root, "hello", "Say hello.");
 			await writeSubagent(root, "helper", "Helper body");
-			await writeInstructionTemplate(
-				root,
-				path.join("agents", "AGENTS.md"),
-				"Root instructions",
-			);
+			await writeInstructionTemplate(root, path.join("agents", "AGENTS.md"), "Root instructions");
 			await writeInstructionTemplate(
 				root,
 				path.join("agents", "docs.AGENTS.md"),
@@ -393,11 +387,7 @@ describe("custom target sync", () => {
 
 	it("groups instruction outputs across targets", async () => {
 		await withTempRepo(async (root) => {
-			await writeInstructionTemplate(
-				root,
-				path.join("agents", "AGENTS.md"),
-				"Shared instructions",
-			);
+			await writeInstructionTemplate(root, path.join("agents", "AGENTS.md"), "Shared instructions");
 
 			const targetA = createTarget("alpha", {
 				instructions: {
@@ -435,26 +425,12 @@ describe("custom target sync", () => {
 			await writeInstructionTemplate(
 				root,
 				path.join("agents", "team.AGENTS.md"),
-				[
-					"---",
-					"targets:",
-					"  - acme",
-					"outPutPath: docs/team",
-					"---",
-					"Team",
-				].join("\n"),
+				["---", "targets:", "  - acme", "outPutPath: docs/team", "---", "Team"].join("\n"),
 			);
 			await writeInstructionTemplate(
 				root,
 				path.join("agents", "ops.AGENTS.md"),
-				[
-					"---",
-					"targets:",
-					"  - beta",
-					"outPutPath: docs/ops",
-					"---",
-					"Ops",
-				].join("\n"),
+				["---", "targets:", "  - beta", "outPutPath: docs/ops", "---", "Ops"].join("\n"),
 			);
 
 			const targetA = createTarget("acme", {
@@ -473,12 +449,8 @@ describe("custom target sync", () => {
 				nonInteractive: true,
 			});
 
-			expect(await readFile(path.join(root, "docs", "team", "acme.md"), "utf8")).toBe(
-				"Team",
-			);
-			expect(await readFile(path.join(root, "docs", "ops", "beta.md"), "utf8")).toBe(
-				"Ops",
-			);
+			expect(await readFile(path.join(root, "docs", "team", "acme.md"), "utf8")).toBe("Team");
+			expect(await readFile(path.join(root, "docs", "ops", "beta.md"), "utf8")).toBe("Ops");
 			expect(await pathExists(path.join(root, "docs", "team", "beta.md"))).toBe(false);
 		});
 	});
@@ -498,9 +470,7 @@ describe("custom target sync", () => {
 				nonInteractive: true,
 			});
 
-			expect(await readFile(path.join(root, "docs", "ACME.md"), "utf8")).toBe(
-				"Repo instructions",
-			);
+			expect(await readFile(path.join(root, "docs", "ACME.md"), "utf8")).toBe("Repo instructions");
 		});
 	});
 
