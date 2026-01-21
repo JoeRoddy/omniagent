@@ -1,21 +1,22 @@
-import { SLASH_COMMAND_TARGETS } from "./slash-commands/targets.js";
-import { SUBAGENT_TARGETS } from "./subagents/targets.js";
-import { TARGETS } from "./sync-targets.js";
+import type { ResolvedTarget } from "./targets/config-types.js";
 
-function buildSupportedAgents(): string[] {
+export function buildSupportedAgentNames(targets: ResolvedTarget[]): string[] {
 	const names = new Set<string>();
-
-	for (const target of TARGETS) {
-		names.add(target.name);
+	for (const target of targets) {
+		names.add(target.id);
+		for (const alias of target.aliases ?? []) {
+			names.add(alias);
+		}
 	}
-	for (const target of SLASH_COMMAND_TARGETS) {
-		names.add(target.name);
-	}
-	for (const target of SUBAGENT_TARGETS) {
-		names.add(target.name);
-	}
-
 	return Array.from(names);
 }
 
-export const SUPPORTED_AGENT_NAMES = Object.freeze(buildSupportedAgents());
+export function buildSupportedTargetLabel(targets: ResolvedTarget[]): string {
+	return targets
+		.map((target) =>
+			target.displayName && target.displayName !== target.id
+				? `${target.id} (${target.displayName})`
+				: target.id,
+		)
+		.join(", ");
+}

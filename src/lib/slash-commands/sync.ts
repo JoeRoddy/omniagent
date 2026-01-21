@@ -3,10 +3,38 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/p
 import os from "node:os";
 import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
+import { resolveAgentsDirPath } from "../agents-dir.js";
 import { normalizeName } from "../catalog-utils.js";
-import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
+import { buildSupportedAgentNames } from "../supported-targets.js";
 import type { SyncSourceCounts } from "../sync-results.js";
 import { resolveEffectiveTargets } from "../sync-targets.js";
+import type {
+	ConverterRule,
+	OutputWriter,
+	ResolvedTarget,
+	SyncHooks,
+} from "../targets/config-types.js";
+import {
+	type ConverterRegistry,
+	normalizeConverterDecision,
+	resolveConverter,
+} from "../targets/converters.js";
+import { runConvertHook, runSyncHook } from "../targets/hooks.js";
+import {
+	buildManagedOutputKey,
+	hashOutputPath,
+	type ManagedOutputRecord,
+	normalizeManagedOutputPath,
+	readManagedOutputs,
+	writeManagedOutputs,
+} from "../targets/managed-outputs.js";
+import {
+	normalizeCommandOutputDefinition,
+	normalizeOutputDefinition,
+	resolveCommandOutputPath,
+	resolveOutputPath as resolveTargetOutputPath,
+} from "../targets/output-resolver.js";
+import { resolveWriter, type WriterRegistry, writeFileOutput } from "../targets/writers.js";
 import { loadCommandCatalog, type SlashCommandDefinition } from "./catalog.js";
 import {
 	renderClaudeCommand,
@@ -52,6 +80,21 @@ export type SyncRequest = {
 	useDefaults?: boolean;
 	validAgents?: string[];
 	excludeLocal?: boolean;
+};
+
+export type SyncRequestV2 = {
+	repoRoot: string;
+	agentsDir?: string | null;
+	targets: ResolvedTarget[];
+	overrideOnly?: string[] | null;
+	overrideSkip?: string[] | null;
+	conflictResolution?: ConflictResolution;
+	removeMissing?: boolean;
+	nonInteractive?: boolean;
+	validAgents?: string[];
+	excludeLocal?: boolean;
+	resolveTargetName?: (value: string) => string | null;
+	hooks?: SyncHooks;
 };
 
 export type SyncPlanAction = {
@@ -159,6 +202,12 @@ function emptySummaryCounts(): SummaryCounts {
 
 function hashContent(content: string): string {
 	return createHash("sha256").update(content).digest("hex");
+}
+
+function formatDisplayPath(repoRoot: string, absolutePath: string): string {
+	const relative = path.relative(repoRoot, absolutePath);
+	const isWithinRepo = relative && !relative.startsWith("..") && !path.isAbsolute(relative);
+	return isWithinRepo ? relative : absolutePath;
 }
 
 function hashIdentifier(value: string): string {
@@ -364,6 +413,7 @@ function resolveTargetCommands(
 function buildSourceCounts(
 	commands: SlashCommandDefinition[],
 	targets: TargetName[],
+	allTargets: string[],
 	request: SyncRequest,
 ): SyncSourceCounts {
 	const targetSet = new Set(targets.map((target) => normalizeName(target)));
@@ -377,7 +427,7 @@ function buildSourceCounts(
 			defaultTargets: command.targetAgents,
 			overrideOnly: request.overrideOnly ?? undefined,
 			overrideSkip: request.overrideSkip ?? undefined,
-			allTargets: ALL_TARGET_NAMES,
+			allTargets,
 		});
 		if (effectiveTargets.length === 0) {
 			continue;
@@ -870,7 +920,7 @@ export async function planSlashCommandSync(request: SyncRequest): Promise<SyncPl
 		request.targets && request.targets.length > 0
 			? request.targets
 			: SLASH_COMMAND_TARGETS.map((target) => target.name);
-	const validAgents = request.validAgents ?? [...SUPPORTED_AGENT_NAMES];
+	const validAgents = request.validAgents ?? SLASH_COMMAND_TARGETS.map((target) => target.name);
 	const conflictResolution = request.conflictResolution ?? DEFAULT_CONFLICT_RESOLUTION;
 	const unsupportedFallback = request.unsupportedFallback ?? DEFAULT_UNSUPPORTED_FALLBACK;
 	const codexOption = request.codexOption ?? DEFAULT_CODEX_OPTION;
@@ -919,7 +969,7 @@ export async function planSlashCommandSync(request: SyncRequest): Promise<SyncPl
 		targetSummaries,
 		conflicts,
 		warnings: buildInvalidTargetWarnings(catalog.commands),
-		sourceCounts: buildSourceCounts(catalog.commands, selectedTargets, request),
+		sourceCounts: buildSourceCounts(catalog.commands, selectedTargets, ALL_TARGET_NAMES, request),
 	};
 }
 
@@ -1143,4 +1193,523 @@ export function formatPlanSummary(plan: SyncPlan, targetSummaries: TargetPlanSum
 		}
 	}
 	return lines.join("\n");
+}
+
+type CommandOutputCandidate = {
+	target: ResolvedTarget;
+	command: SlashCommandDefinition;
+	templated: SlashCommandDefinition;
+	outputPath: string;
+	outputKind: "command" | "skill";
+	location: "project" | "user";
+	writer: OutputWriter | null;
+	converter: ConverterRule | null;
+};
+
+function renderCommandOutput(
+	command: SlashCommandDefinition,
+	targetId: string,
+	outputKind: "command" | "skill",
+): string {
+	if (outputKind === "skill") {
+		return renderSkillFromCommand(command);
+	}
+	if (targetId === "gemini") {
+		return renderGeminiCommand(command);
+	}
+	if (targetId === "codex") {
+		return renderCodexPrompt(command);
+	}
+	return renderClaudeCommand(command);
+}
+
+async function ensureBackupPath(outputPath: string): Promise<string> {
+	const dir = path.dirname(outputPath);
+	const ext = path.extname(outputPath);
+	const base = path.basename(outputPath, ext);
+	let suffix = 0;
+	while (true) {
+		const backupName = suffix === 0 ? `${base}-backup${ext}` : `${base}-backup-${suffix}${ext}`;
+		const candidate = path.join(dir, backupName);
+		try {
+			await stat(candidate);
+			suffix += 1;
+		} catch {
+			return candidate;
+		}
+	}
+}
+
+export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSummary> {
+	const catalog = await loadCommandCatalog(request.repoRoot, {
+		includeLocal: !request.excludeLocal,
+		agentsDir: request.agentsDir,
+		resolveTargetName: request.resolveTargetName,
+	});
+	const targets = request.targets.filter(
+		(target) => normalizeCommandOutputDefinition(target.outputs.commands) !== null,
+	);
+	if (targets.length === 0) {
+		return {
+			sourcePath: catalog.commandsPath,
+			results: [],
+			warnings: [],
+			hadFailures: false,
+			sourceCounts: {
+				shared: 0,
+				local: 0,
+				excludedLocal: request.excludeLocal ?? false,
+			},
+		};
+	}
+
+	const warnings = buildInvalidTargetWarnings(catalog.commands);
+	const removeMissing = request.removeMissing ?? false;
+	const allTargetIds = request.targets.map((target) => target.id);
+	const activeTargetIds = new Set(targets.map((target) => target.id));
+	const effectiveTargetsByCommand = new Map<SlashCommandDefinition, string[]>();
+	const activeSourcesByTarget = new Map<string, Set<string>>();
+	for (const command of catalog.commands) {
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: command.targetAgents,
+			overrideOnly: request.overrideOnly ?? undefined,
+			overrideSkip: request.overrideSkip ?? undefined,
+			allTargets: allTargetIds,
+		});
+		effectiveTargetsByCommand.set(command, effectiveTargets);
+		for (const targetId of effectiveTargets) {
+			if (!activeTargetIds.has(targetId)) {
+				continue;
+			}
+			const existing = activeSourcesByTarget.get(targetId) ?? new Set<string>();
+			existing.add(command.name);
+			activeSourcesByTarget.set(targetId, existing);
+		}
+	}
+
+	const sourceCounts: SyncSourceCounts = buildSourceCounts(
+		catalog.commands,
+		targets.map((target) => target.id),
+		allTargetIds,
+		{
+			overrideOnly: request.overrideOnly ?? undefined,
+			overrideSkip: request.overrideSkip ?? undefined,
+			excludeLocal: request.excludeLocal,
+		},
+	);
+
+	const agentsDirPath = resolveAgentsDirPath(request.repoRoot, request.agentsDir);
+	const homeDir = os.homedir();
+	const managedManifest = (await readManagedOutputs(request.repoRoot, homeDir)) ?? { entries: [] };
+	const nextManaged = new Map<string, ManagedOutputRecord>();
+	const activeOutputPaths = new Set<string>();
+	const countsByTarget = new Map<string, SummaryCounts>();
+	const getCounts = (targetId: string): SummaryCounts => {
+		const existing = countsByTarget.get(targetId) ?? emptySummaryCounts();
+		countsByTarget.set(targetId, existing);
+		return existing;
+	};
+	const converterRegistry: ConverterRegistry = new Map();
+	const writerRegistry: WriterRegistry = new Map();
+	const validAgents = request.validAgents ?? buildSupportedAgentNames(request.targets);
+	const commandDefs = new Map<
+		string,
+		NonNullable<ReturnType<typeof normalizeCommandOutputDefinition>>
+	>();
+	const skillDefs = new Map<string, NonNullable<ReturnType<typeof normalizeOutputDefinition>>>();
+	for (const target of targets) {
+		const commandDef = normalizeCommandOutputDefinition(target.outputs.commands);
+		if (commandDef) {
+			commandDefs.set(target.id, commandDef);
+		}
+		const skillDef = normalizeOutputDefinition(target.outputs.skills);
+		if (skillDef) {
+			skillDefs.set(target.id, skillDef);
+		}
+	}
+
+	const targetErrors = new Map<string, string[]>();
+	const recordError = (targetId: string, message: string) => {
+		const existing = targetErrors.get(targetId) ?? [];
+		existing.push(message);
+		targetErrors.set(targetId, existing);
+	};
+
+	const candidatesByPath = new Map<string, CommandOutputCandidate[]>();
+	for (const command of catalog.commands) {
+		const effectiveTargets = effectiveTargetsByCommand.get(command) ?? [];
+		if (effectiveTargets.length === 0) {
+			continue;
+		}
+		for (const target of targets) {
+			if (!effectiveTargets.includes(target.id)) {
+				continue;
+			}
+			const commandDef = commandDefs.get(target.id);
+			if (!commandDef) {
+				continue;
+			}
+			if (commandDef.fallback?.mode === "skip") {
+				continue;
+			}
+			let outputKind: "command" | "skill" = "command";
+			let commandPaths: Array<{ location: "project" | "user"; path: string }> = [];
+			if (commandDef.fallback?.mode === "convert" && commandDef.fallback.targetType === "skills") {
+				const skillDef = skillDefs.get(target.id);
+				if (!skillDef) {
+					recordError(target.id, `Missing skills output for ${target.id} fallback.`);
+					continue;
+				}
+				outputKind = "skill";
+				const basePath = resolveTargetOutputPath({
+					template: skillDef.path,
+					context: {
+						repoRoot: request.repoRoot,
+						agentsDir: agentsDirPath,
+						homeDir,
+						targetId: target.id,
+						itemName: command.name,
+					},
+					item: command,
+					baseDir: request.repoRoot,
+				});
+				commandPaths = [{ location: "project", path: path.join(basePath, "SKILL.md") }];
+			} else {
+				if (commandDef.projectPath) {
+					const resolved = resolveCommandOutputPath({
+						template: commandDef.projectPath,
+						context: {
+							repoRoot: request.repoRoot,
+							agentsDir: agentsDirPath,
+							homeDir,
+							targetId: target.id,
+							itemName: command.name,
+							commandLocation: "project",
+						},
+						item: command,
+						baseDir: request.repoRoot,
+					});
+					commandPaths.push({ location: "project", path: resolved });
+				}
+				if (commandDef.userPath) {
+					const resolved = resolveCommandOutputPath({
+						template: commandDef.userPath,
+						context: {
+							repoRoot: request.repoRoot,
+							agentsDir: agentsDirPath,
+							homeDir,
+							targetId: target.id,
+							itemName: command.name,
+							commandLocation: "user",
+						},
+						item: command,
+						baseDir: homeDir,
+					});
+					commandPaths.push({ location: "user", path: resolved });
+				}
+			}
+			const templated = applyTemplatingToCommand(command, target.id, validAgents);
+			const writer = resolveWriter(commandDef.writer, writerRegistry);
+			const converter = resolveConverter(commandDef.converter, converterRegistry);
+			for (const entry of commandPaths) {
+				const key = path.normalize(entry.path).replace(/\\/g, "/").toLowerCase();
+				const list = candidatesByPath.get(key) ?? [];
+				list.push({
+					target,
+					command,
+					templated,
+					outputPath: entry.path,
+					outputKind,
+					location: entry.location,
+					writer,
+					converter,
+				});
+				candidatesByPath.set(key, list);
+			}
+		}
+	}
+
+	for (const target of targets) {
+		await runSyncHook(request.hooks, "preSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsDirPath,
+			targetId: target.id,
+			outputType: "commands",
+		});
+		await runSyncHook(target.hooks, "preSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsDirPath,
+			targetId: target.id,
+			outputType: "commands",
+		});
+	}
+
+	for (const candidates of candidatesByPath.values()) {
+		if (candidates.length === 0) {
+			continue;
+		}
+		if (candidates.length > 1) {
+			for (const candidate of candidates) {
+				recordError(candidate.target.id, `Command output collision at ${candidate.outputPath}.`);
+			}
+			continue;
+		}
+		const selected = candidates[0];
+		const target = selected.target;
+		const recordManagedOutput = (entry: ManagedOutputRecord) => {
+			const managedKey = buildManagedOutputKey(entry);
+			nextManaged.set(managedKey, entry);
+			activeOutputPaths.add(normalizeManagedOutputPath(entry.outputPath));
+		};
+		const counts = getCounts(target.id);
+
+		try {
+			if (selected.converter) {
+				await runConvertHook(request.hooks, "preConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					targetId: target.id,
+					outputType: "commands",
+				});
+				await runConvertHook(target.hooks, "preConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					targetId: target.id,
+					outputType: "commands",
+				});
+				const decision = await selected.converter.convert(selected.templated, {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					homeDir,
+					targetId: target.id,
+					outputType: "commands",
+					commandLocation: selected.location,
+					validAgents,
+				});
+				const normalized = normalizeConverterDecision(decision);
+				await runConvertHook(request.hooks, "postConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					targetId: target.id,
+					outputType: "commands",
+				});
+				await runConvertHook(target.hooks, "postConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					targetId: target.id,
+					outputType: "commands",
+				});
+				if (normalized.error) {
+					recordError(target.id, normalized.error);
+					continue;
+				}
+				if (normalized.skip) {
+					counts.skipped += 1;
+					continue;
+				}
+				for (const output of normalized.outputs) {
+					const outputPath = path.isAbsolute(output.outputPath)
+						? output.outputPath
+						: path.resolve(request.repoRoot, output.outputPath);
+					const result = await writeFileOutput(outputPath, output.content);
+					const checksum = result.contentHash ?? (await hashOutputPath(outputPath));
+					if (checksum) {
+						recordManagedOutput({
+							targetId: target.id,
+							outputPath,
+							sourceType: "command",
+							sourceId: selected.command.name,
+							checksum,
+							lastSyncedAt: new Date().toISOString(),
+						});
+					}
+				}
+				counts.converted += 1;
+				continue;
+			}
+
+			const content = renderCommandOutput(
+				selected.templated,
+				selected.target.id,
+				selected.outputKind,
+			);
+			if (selected.writer) {
+				const writeResult = await selected.writer.write({
+					outputPath: selected.outputPath,
+					content,
+					item: selected.templated,
+					context: {
+						repoRoot: request.repoRoot,
+						agentsDir: agentsDirPath,
+						homeDir,
+						targetId: target.id,
+						outputType: "commands",
+						commandLocation: selected.location,
+						validAgents,
+					},
+				});
+				const checksum = writeResult.contentHash ?? (await hashOutputPath(selected.outputPath));
+				if (checksum) {
+					recordManagedOutput({
+						targetId: target.id,
+						outputPath: selected.outputPath,
+						sourceType: "command",
+						sourceId: selected.command.name,
+						checksum,
+						lastSyncedAt: new Date().toISOString(),
+						writerId: selected.writer.id,
+					});
+				}
+				if (selected.outputKind === "skill") {
+					if (writeResult.status === "skipped") {
+						counts.skipped += 1;
+					} else {
+						counts.converted += 1;
+					}
+				} else if (writeResult.status === "created") {
+					counts.created += 1;
+				} else if (writeResult.status === "updated") {
+					counts.updated += 1;
+				} else {
+					counts.skipped += 1;
+				}
+			} else {
+				const exists = await pathExists(selected.outputPath);
+				if (exists && request.conflictResolution === "skip") {
+					counts.skipped += 1;
+					continue;
+				}
+				if (exists && request.conflictResolution === "rename") {
+					const backupPath = await ensureBackupPath(selected.outputPath);
+					await rename(selected.outputPath, backupPath);
+				}
+				const writeResult = await writeFileOutput(selected.outputPath, content);
+				const checksum = writeResult.contentHash ?? (await hashOutputPath(selected.outputPath));
+				if (checksum) {
+					recordManagedOutput({
+						targetId: target.id,
+						outputPath: selected.outputPath,
+						sourceType: "command",
+						sourceId: selected.command.name,
+						checksum,
+						lastSyncedAt: new Date().toISOString(),
+					});
+				}
+				if (selected.outputKind === "skill") {
+					if (writeResult.status === "skipped") {
+						counts.skipped += 1;
+					} else {
+						counts.converted += 1;
+					}
+				} else if (writeResult.status === "created") {
+					counts.created += 1;
+				} else if (writeResult.status === "updated") {
+					counts.updated += 1;
+				} else {
+					counts.skipped += 1;
+				}
+			}
+		} catch (error) {
+			recordError(target.id, error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	for (const target of targets) {
+		await runSyncHook(request.hooks, "postSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsDirPath,
+			targetId: target.id,
+			outputType: "commands",
+		});
+		await runSyncHook(target.hooks, "postSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsDirPath,
+			targetId: target.id,
+			outputType: "commands",
+		});
+	}
+
+	if (managedManifest.entries.length > 0 || nextManaged.size > 0) {
+		const updatedEntries: ManagedOutputRecord[] = [];
+		for (const entry of managedManifest.entries) {
+			if (entry.sourceType !== "command" || !activeTargetIds.has(entry.targetId)) {
+				updatedEntries.push(entry);
+				continue;
+			}
+			const key = buildManagedOutputKey(entry);
+			if (nextManaged.has(key)) {
+				continue;
+			}
+			const activeSources = activeSourcesByTarget.get(entry.targetId);
+			const sourceStillActive = activeSources?.has(entry.sourceId) ?? false;
+			if (!removeMissing || sourceStillActive) {
+				updatedEntries.push(entry);
+				continue;
+			}
+			const outputKey = normalizeManagedOutputPath(entry.outputPath);
+			if (activeOutputPaths.has(outputKey)) {
+				continue;
+			}
+			const existingHash = await hashOutputPath(entry.outputPath);
+			if (!existingHash) {
+				continue;
+			}
+			if (existingHash !== entry.checksum) {
+				const display = formatDisplayPath(request.repoRoot, entry.outputPath);
+				warnings.push(`Output modified since last sync; skipping removal of ${display}.`);
+				updatedEntries.push(entry);
+				continue;
+			}
+			try {
+				await rm(entry.outputPath, { recursive: true, force: true });
+				getCounts(entry.targetId).removed += 1;
+			} catch (error) {
+				const display = formatDisplayPath(request.repoRoot, entry.outputPath);
+				warnings.push(`Failed to remove ${display}: ${String(error)}`);
+				updatedEntries.push(entry);
+			}
+		}
+		for (const entry of nextManaged.values()) {
+			updatedEntries.push(entry);
+		}
+		await writeManagedOutputs(request.repoRoot, { entries: updatedEntries }, homeDir);
+	}
+
+	const results: SyncResult[] = [];
+	let hadFailures = false;
+	for (const target of targets) {
+		const errors = targetErrors.get(target.id);
+		if (errors && errors.length > 0) {
+			hadFailures = true;
+			const combined = errors.join("; ");
+			const counts = getCounts(target.id);
+			const total =
+				counts.created + counts.updated + counts.removed + counts.converted + counts.skipped;
+			const status: SyncResult["status"] = total > 0 ? "partial" : "failed";
+			results.push({
+				targetName: target.id,
+				status,
+				message: formatResultMessage(target.displayName, status, null, counts, combined),
+				error: combined,
+				counts,
+			});
+		} else {
+			const counts = getCounts(target.id);
+			const status: SyncResult["status"] = "synced";
+			results.push({
+				targetName: target.id,
+				status,
+				message: formatResultMessage(target.displayName, status, null, counts),
+				counts,
+			});
+		}
+	}
+
+	return {
+		sourcePath: catalog.commandsPath,
+		results,
+		warnings,
+		hadFailures,
+		sourceCounts,
+	};
 }

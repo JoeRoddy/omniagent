@@ -11,9 +11,11 @@ export {
 	type SubagentSyncPlanAction,
 	type SubagentSyncPlanDetails,
 	type SubagentSyncRequest,
+	type SubagentSyncRequestV2,
 	type SubagentSyncResult,
 	type SubagentSyncSummary,
 	type SummaryCounts,
+	syncSubagents,
 } from "./sync.js";
 export {
 	getSubagentProfile,

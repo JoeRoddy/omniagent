@@ -3,7 +3,6 @@ import { extractFrontmatter, type FrontmatterValue } from "../slash-commands/fro
 import {
 	hasRawTargetValues,
 	InvalidFrontmatterTargetsError,
-	isTargetName,
 	resolveFrontmatterTargets,
 } from "../sync-targets.js";
 import type { InstructionTargetName } from "./targets.js";
@@ -43,10 +42,14 @@ export function parseInstructionFrontmatter(options: {
 	contents: string;
 	sourcePath: string;
 	repoRoot: string;
+	resolveTargetName: (value: string) => string | null;
 }): InstructionFrontmatterResult {
 	const { frontmatter, body } = extractFrontmatter(options.contents);
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
-	const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, isTargetName);
+	const { targets, invalidTargets } = resolveFrontmatterTargets(
+		rawTargets,
+		options.resolveTargetName,
+	);
 	if (invalidTargets.length > 0) {
 		const invalidList = invalidTargets.join(", ");
 		throw new InvalidFrontmatterTargetsError(

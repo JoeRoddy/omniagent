@@ -11,12 +11,14 @@ import {
 	stripLocalSuffix,
 } from "../local-sources.js";
 import {
+	createTargetNameResolver,
 	hasRawTargetValues,
 	InvalidFrontmatterTargetsError,
 	resolveFrontmatterTargets,
 } from "../sync-targets.js";
+import { BUILTIN_TARGETS } from "../targets/builtins.js";
 import { extractFrontmatter, type FrontmatterValue } from "./frontmatter.js";
-import { isSlashCommandTargetName, type TargetName } from "./targets.js";
+import type { TargetName } from "./targets.js";
 
 export type { FrontmatterValue } from "./frontmatter.js";
 
@@ -47,6 +49,7 @@ export type CommandCatalog = {
 export type LoadCommandCatalogOptions = {
 	includeLocal?: boolean;
 	agentsDir?: string | null;
+	resolveTargetName?: (value: string) => string | null;
 };
 
 async function listMarkdownFiles(root: string): Promise<string[]> {
@@ -70,6 +73,7 @@ async function buildCommandDefinition(options: {
 	commandName: string;
 	sourceType: SourceType;
 	markerType?: LocalMarkerType;
+	resolveTargetName: (value: string) => string | null;
 }): Promise<SlashCommandDefinition> {
 	const contents = await readFile(options.filePath, "utf8");
 	const { frontmatter, body } = extractFrontmatter(contents);
@@ -81,7 +85,7 @@ async function buildCommandDefinition(options: {
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
 	const { targets, invalidTargets } = resolveFrontmatterTargets(
 		rawTargets,
-		isSlashCommandTargetName,
+		options.resolveTargetName,
 	);
 	if (invalidTargets.length > 0) {
 		const invalidList = invalidTargets.join(", ");
@@ -140,6 +144,8 @@ export async function loadCommandCatalog(
 	options: LoadCommandCatalogOptions = {},
 ): Promise<CommandCatalog> {
 	const includeLocal = options.includeLocal ?? true;
+	const fallbackResolver = createTargetNameResolver(BUILTIN_TARGETS).resolveTargetName;
+	const resolveTargetName = options.resolveTargetName ?? fallbackResolver;
 	const commandsPath = resolveSharedCategoryRoot(repoRoot, "commands", options.agentsDir);
 	const localCommandsPath = resolveLocalCategoryRoot(repoRoot, "commands", options.agentsDir);
 
@@ -179,6 +185,7 @@ export async function loadCommandCatalog(
 					commandName: baseName,
 					sourceType: "local",
 					markerType: "suffix",
+					resolveTargetName,
 				}),
 			);
 		} else {
@@ -188,6 +195,7 @@ export async function loadCommandCatalog(
 					filePath,
 					commandName: baseName,
 					sourceType: "shared",
+					resolveTargetName,
 				}),
 			);
 		}
@@ -207,6 +215,7 @@ export async function loadCommandCatalog(
 					commandName: baseName,
 					sourceType: "local",
 					markerType: "path",
+					resolveTargetName,
 				}),
 			);
 		}

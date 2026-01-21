@@ -22,8 +22,8 @@ description: "Task list for Custom Agent Targets implementation"
 
 **Purpose**: Project initialization and baseline dependencies
 
-- [ ] T001 Add jiti dependency for TS/JS config loading in package.json and package-lock.json
-- [ ] T002 Create target config type definitions and exports in src/lib/targets/config-types.ts and src/lib/targets/index.ts
+- [X] T001 Add jiti dependency for TS/JS config loading in package.json and package-lock.json
+- [X] T002 Create target config type definitions and exports in src/lib/targets/config-types.ts and src/lib/targets/index.ts
 
 ---
 
@@ -33,11 +33,11 @@ description: "Task list for Custom Agent Targets implementation"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T003 Implement agentsDir config discovery + loader (extension precedence, jiti) in src/lib/targets/config-loader.ts
-- [ ] T004 Implement placeholder definitions and validation utilities in src/lib/targets/placeholders.ts
-- [ ] T005 Implement config schema validation + aggregated errors (IDs/aliases/output shapes/placeholders) in src/lib/targets/config-validate.ts
-- [ ] T006 Define built-in targets in the new schema (codex/claude/gemini/copilot) in src/lib/targets/builtins.ts
-- [ ] T007 Implement target resolution/merge + alias map in src/lib/targets/resolve-targets.ts
+- [X] T003 Implement agentsDir config discovery + loader (extension precedence, jiti) in src/lib/targets/config-loader.ts
+- [X] T004 Implement placeholder definitions and validation utilities in src/lib/targets/placeholders.ts
+- [X] T005 Implement config schema validation + aggregated errors (IDs/aliases/output shapes/placeholders) in src/lib/targets/config-validate.ts
+- [X] T006 Define built-in targets in the new schema (codex/claude/gemini/copilot) in src/lib/targets/builtins.ts
+- [X] T007 Implement target resolution/merge + alias map in src/lib/targets/resolve-targets.ts
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -51,13 +51,13 @@ description: "Task list for Custom Agent Targets implementation"
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Wire config discovery/validation/resolution into sync command and target selection in src/cli/commands/sync.ts
-- [ ] T009 [US1] Update dynamic target utilities + frontmatter parsing for skills/subagents/commands in src/lib/sync-targets.ts, src/lib/skills/catalog.ts, src/lib/subagents/catalog.ts, src/lib/slash-commands/catalog.ts
-- [ ] T010 [P] [US1] Write skills to configured output templates with placeholder expansion in src/lib/skills/sync.ts
-- [ ] T011 [P] [US1] Write subagents to configured output templates and skip when output missing in src/lib/subagents/sync.ts
-- [ ] T012 [P] [US1] Route slash commands to configured project/user paths in src/lib/slash-commands/sync.ts and src/lib/slash-commands/targets.ts
-- [ ] T013 [P] [US1] Apply instruction target validation + default output dir rules in src/lib/instructions/frontmatter.ts and src/lib/instructions/catalog.ts
-- [ ] T014 [US1] Resolve instruction output filenames per target and per-source output directories in src/lib/instructions/paths.ts and src/lib/instructions/sync.ts
+- [X] T008 [US1] Wire config discovery/validation/resolution into sync command and target selection in src/cli/commands/sync.ts
+- [X] T009 [US1] Update dynamic target utilities + frontmatter parsing for skills/subagents/commands in src/lib/sync-targets.ts, src/lib/skills/catalog.ts, src/lib/subagents/catalog.ts, src/lib/slash-commands/catalog.ts
+- [X] T010 [P] [US1] Write skills to configured output templates with placeholder expansion in src/lib/skills/sync.ts
+- [X] T011 [P] [US1] Write subagents to configured output templates and skip when output missing in src/lib/subagents/sync.ts
+- [X] T012 [P] [US1] Route slash commands to configured project/user paths in src/lib/slash-commands/sync.ts and src/lib/slash-commands/targets.ts
+- [X] T013 [P] [US1] Apply instruction target validation + default output dir rules in src/lib/instructions/frontmatter.ts and src/lib/instructions/catalog.ts
+- [X] T014 [US1] Resolve instruction output filenames per target and per-source output directories in src/lib/instructions/paths.ts and src/lib/instructions/sync.ts
 
 **Checkpoint**: User Story 1 should be fully functional and independently testable
 
@@ -71,9 +71,9 @@ description: "Task list for Custom Agent Targets implementation"
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] Enforce override/inherits + disableTargets validation rules in src/lib/targets/config-validate.ts
-- [ ] T016 [US2] Implement built-in override/disable merge semantics in src/lib/targets/resolve-targets.ts
-- [ ] T017 [US2] Update supported target listing and CLI validation to exclude disabled targets and use displayName in src/lib/supported-targets.ts and src/cli/commands/sync.ts
+- [X] T015 [US2] Enforce override/inherits + disableTargets validation rules in src/lib/targets/config-validate.ts
+- [X] T016 [US2] Implement built-in override/disable merge semantics in src/lib/targets/resolve-targets.ts
+- [X] T017 [US2] Update supported target listing and CLI validation to exclude disabled targets and use displayName in src/lib/supported-targets.ts and src/cli/commands/sync.ts
 
 **Checkpoint**: User Stories 1 and 2 both work independently
 
@@ -87,12 +87,12 @@ description: "Task list for Custom Agent Targets implementation"
 
 ### Implementation for User Story 3
 
-- [ ] T018 [P] [US3] Add converter/writer interfaces and default writer exports in src/lib/targets/converters.ts and src/lib/targets/writers.ts
-- [ ] T019 [P] [US3] Implement output definition normalization + placeholder resolution (short/long forms) in src/lib/targets/output-resolver.ts
-- [ ] T020 [US3] Integrate converter execution + fallback handling across sync pipelines in src/lib/skills/sync.ts, src/lib/subagents/sync.ts, src/lib/slash-commands/sync.ts, src/lib/instructions/sync.ts
-- [ ] T021 [US3] Implement output collision detection + instruction grouping resolution using default writers in src/lib/targets/resolve-targets.ts and src/lib/instructions/sync.ts
-- [ ] T022 [US3] Implement sync/conversion hooks (global + target) and wire into pipelines in src/lib/targets/hooks.ts, src/cli/commands/sync.ts, src/lib/skills/sync.ts, src/lib/subagents/sync.ts, src/lib/slash-commands/sync.ts, src/lib/instructions/sync.ts
-- [ ] T023 [US3] Add managed output tracking with checksum-based removal for custom targets in src/lib/targets/managed-outputs.ts and integrate with manifests in src/lib/skills/sync.ts, src/lib/subagents/sync.ts, src/lib/slash-commands/sync.ts, src/lib/instructions/sync.ts
+- [X] T018 [P] [US3] Add converter/writer interfaces and default writer exports in src/lib/targets/converters.ts and src/lib/targets/writers.ts
+- [X] T019 [P] [US3] Implement output definition normalization + placeholder resolution (short/long forms) in src/lib/targets/output-resolver.ts
+- [X] T020 [US3] Integrate converter execution + fallback handling across sync pipelines in src/lib/skills/sync.ts, src/lib/subagents/sync.ts, src/lib/slash-commands/sync.ts, src/lib/instructions/sync.ts
+- [X] T021 [US3] Implement output collision detection + instruction grouping resolution using default writers in src/lib/targets/resolve-targets.ts and src/lib/instructions/sync.ts
+- [X] T022 [US3] Implement sync/conversion hooks (global + target) and wire into pipelines in src/lib/targets/hooks.ts, src/cli/commands/sync.ts, src/lib/skills/sync.ts, src/lib/subagents/sync.ts, src/lib/slash-commands/sync.ts, src/lib/instructions/sync.ts
+- [X] T023 [US3] Add managed output tracking with checksum-based removal for custom targets in src/lib/targets/managed-outputs.ts and integrate with manifests in src/lib/skills/sync.ts, src/lib/subagents/sync.ts, src/lib/slash-commands/sync.ts, src/lib/instructions/sync.ts
 
 **Checkpoint**: All user stories are independently functional
 
@@ -102,8 +102,8 @@ description: "Task list for Custom Agent Targets implementation"
 
 **Purpose**: Documentation updates and final touch-ups
 
-- [ ] T024 [P] Update README with config discovery, placeholders, override/disable semantics, and default writers in README.md
-- [ ] T025 Update CLI help/examples to mention config auto-discovery in src/cli/commands/sync.ts
+- [X] T024 [P] Update README with config discovery, placeholders, override/disable semantics, and default writers in README.md
+- [X] T025 Update CLI help/examples to mention config auto-discovery in src/cli/commands/sync.ts
 
 ---
 

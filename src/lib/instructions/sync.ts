@@ -1,14 +1,45 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
 import { resolveAgentsDirPath } from "../agents-dir.js";
 import { resolveLocalPrecedence } from "../local-precedence.js";
 import type { SyncSourceCounts } from "../sync-results.js";
-import { resolveEffectiveTargets, TARGETS } from "../sync-targets.js";
+import { resolveEffectiveTargets } from "../sync-targets.js";
+import type {
+	ConverterRule,
+	OutputWriter,
+	ResolvedTarget,
+	SyncHooks,
+} from "../targets/config-types.js";
+import {
+	type ConverterRegistry,
+	normalizeConverterDecision,
+	resolveConverter,
+} from "../targets/converters.js";
+import { runConvertHook, runSyncHook } from "../targets/hooks.js";
+import {
+	buildManagedOutputKey,
+	hashOutputPath,
+	type ManagedOutputRecord,
+	normalizeManagedOutputPath,
+	readManagedOutputs,
+	writeManagedOutputs,
+} from "../targets/managed-outputs.js";
+import {
+	normalizeInstructionOutputDefinition,
+	resolveInstructionFilename,
+} from "../targets/output-resolver.js";
+import {
+	defaultInstructionWriter,
+	resolveWriter,
+	type WriterRegistry,
+	writeFileOutput,
+} from "../targets/writers.js";
 import { loadInstructionTemplateCatalog } from "./catalog.js";
 import { type InstructionManifestEntry, readManifest, writeManifest } from "./manifest.js";
-import { resolveInstructionOutputPath, resolveRepoInstructionOutputPath } from "./paths.js";
+import { resolveInstructionOutputPath } from "./paths.js";
 import { scanRepoInstructionSources } from "./scan.js";
 import {
 	buildInstructionResultMessage,
@@ -17,12 +48,8 @@ import {
 	type InstructionSyncResult,
 	type InstructionSyncSummary,
 } from "./summary.js";
-import {
-	type InstructionTargetGroup,
-	type InstructionTargetName,
-	isAgentsTarget,
-	resolveInstructionTargetGroup,
-} from "./targets.js";
+import type { InstructionTargetGroup, InstructionTargetName } from "./targets.js";
+import { resolveInstructionTargetGroup } from "./targets.js";
 import type { InstructionRepoSource, InstructionSource } from "./types.js";
 
 export type { InstructionSyncSummary } from "./summary.js";
@@ -30,13 +57,15 @@ export type { InstructionSyncSummary } from "./summary.js";
 export type InstructionSyncRequest = {
 	repoRoot: string;
 	agentsDir?: string | null;
-	targets: InstructionTargetName[];
+	targets: ResolvedTarget[];
 	overrideOnly?: InstructionTargetName[] | null;
 	overrideSkip?: InstructionTargetName[] | null;
 	excludeLocal?: boolean;
 	removeMissing?: boolean;
 	nonInteractive?: boolean;
 	validAgents: string[];
+	resolveTargetName?: (value: string) => string | null;
+	hooks?: SyncHooks;
 	confirmRemoval?: (options: {
 		outputPath: string;
 		sourcePath: string;
@@ -52,6 +81,8 @@ type InstructionOutputCandidate = {
 	source: InstructionSource;
 	content: string | null;
 	kind: "generated" | "satisfied";
+	writer: OutputWriter;
+	converter: ConverterRule | null;
 };
 
 type GroupResult = {
@@ -60,7 +91,12 @@ type GroupResult = {
 	hadFailure: boolean;
 };
 
-const ALL_TARGET_NAMES = TARGETS.map((target) => target.name);
+type InstructionTargetSelection = {
+	target: ResolvedTarget;
+	group: InstructionTargetGroup;
+	primary: boolean;
+	definition: ReturnType<typeof normalizeInstructionOutputDefinition>;
+};
 
 function hashContent(value: string | Buffer): string {
 	return createHash("sha256").update(value).digest("hex");
@@ -169,6 +205,7 @@ async function loadRepoSources(options: {
 function resolveEffectiveTargetsForSource(
 	source: InstructionSource,
 	selectedTargets: Set<InstructionTargetName>,
+	allTargets: InstructionTargetName[],
 	overrideOnly?: InstructionTargetName[] | null,
 	overrideSkip?: InstructionTargetName[] | null,
 ): InstructionTargetName[] {
@@ -177,36 +214,9 @@ function resolveEffectiveTargetsForSource(
 		defaultTargets,
 		overrideOnly: overrideOnly ?? undefined,
 		overrideSkip: overrideSkip ?? undefined,
-		allTargets: ALL_TARGET_NAMES,
+		allTargets,
 	});
 	return effective.filter((target) => selectedTargets.has(target));
-}
-
-async function readExistingBuffer(filePath: string): Promise<Buffer | null> {
-	try {
-		return await readFile(filePath);
-	} catch (error) {
-		const code = (error as NodeJS.ErrnoException).code;
-		if (code === "ENOENT") {
-			return null;
-		}
-		throw error;
-	}
-}
-
-async function writeOutputFile(
-	outputPath: string,
-	content: string,
-): Promise<{ status: "created" | "updated" | "skipped"; hash: string }> {
-	const buffer = Buffer.from(content, "utf8");
-	const hash = hashContent(buffer);
-	const existing = await readExistingBuffer(outputPath);
-	if (existing?.equals(buffer)) {
-		return { status: "skipped", hash };
-	}
-	await mkdir(path.dirname(outputPath), { recursive: true });
-	await writeFile(outputPath, buffer);
-	return { status: existing ? "updated" : "created", hash };
 }
 
 function createGroupResult(): GroupResult {
@@ -227,20 +237,32 @@ function recordCount(counts: InstructionOutputCounts, field: keyof InstructionOu
 export async function syncInstructions(
 	request: InstructionSyncRequest,
 ): Promise<InstructionSyncSummary> {
-	const selectedTargets = new Set(request.targets);
 	const includeLocal = !(request.excludeLocal ?? false);
 	const summarySourcePath = request.repoRoot;
-	const agentsRoot = resolveAgentsDirPath(request.repoRoot, request.agentsDir);
-	const rootTemplatePath = path.join(agentsRoot, "AGENTS.md");
-	const rootTemplateDisplay = formatDisplayPath(request.repoRoot, rootTemplatePath);
 	const warnings: string[] = [];
-	const primaryAgentsTarget: InstructionTargetName | null = selectedTargets.has("codex")
-		? "codex"
-		: selectedTargets.has("copilot")
-			? "copilot"
-			: null;
+	const homeDir = os.homedir();
+	const agentsRoot = resolveAgentsDirPath(request.repoRoot, request.agentsDir);
+	const managedManifest = (await readManagedOutputs(request.repoRoot, homeDir)) ?? { entries: [] };
+	const nextManaged = new Map<string, ManagedOutputRecord>();
+	const activeOutputPaths = new Set<string>();
+	const activeSourcesByTarget = new Map<string, Set<string>>();
+	const removeMissing = request.removeMissing ?? false;
 
-	if (request.targets.length === 0) {
+	const selections: InstructionTargetSelection[] = [];
+	for (const target of request.targets) {
+		const normalized = normalizeInstructionOutputDefinition(target.outputs.instructions);
+		if (!normalized) {
+			continue;
+		}
+		selections.push({
+			target,
+			group: resolveInstructionTargetGroup(target.id, normalized.group),
+			primary: false,
+			definition: normalized,
+		});
+	}
+
+	if (selections.length === 0) {
 		return {
 			sourcePath: summarySourcePath,
 			results: [],
@@ -254,11 +276,34 @@ export async function syncInstructions(
 		};
 	}
 
+	const selectionById = new Map<string, InstructionTargetSelection>();
+	for (const selection of selections) {
+		selectionById.set(selection.target.id, selection);
+	}
+
+	const primaryByGroup = new Map<InstructionTargetGroup, string>();
+	for (const target of request.targets) {
+		const selection = selectionById.get(target.id);
+		if (!selection) {
+			continue;
+		}
+		if (!primaryByGroup.has(selection.group)) {
+			primaryByGroup.set(selection.group, target.id);
+		}
+	}
+	for (const selection of selections) {
+		selection.primary = primaryByGroup.get(selection.group) === selection.target.id;
+	}
+
+	const selectedTargetIds = new Set(selections.map((selection) => selection.target.id));
+	const allTargetIds = request.targets.map((target) => target.id);
+
 	const [templateCatalog, repoSources] = await Promise.all([
 		loadInstructionTemplateCatalog({
 			repoRoot: request.repoRoot,
 			includeLocal,
 			agentsDir: request.agentsDir,
+			resolveTargetName: request.resolveTargetName,
 		}),
 		loadRepoSources({
 			repoRoot: request.repoRoot,
@@ -267,19 +312,23 @@ export async function syncInstructions(
 		}),
 	]);
 
+	const converterRegistry: ConverterRegistry = new Map();
+	const writerRegistry: WriterRegistry = new Map([
+		[defaultInstructionWriter.id, defaultInstructionWriter],
+	]);
+
 	const templateCandidates: InstructionOutputCandidate[] = [];
 	for (const template of templateCatalog.templates) {
 		const resolvedOutputDir = template.resolvedOutputDir;
 		if (!resolvedOutputDir) {
 			const display = formatDisplayPath(request.repoRoot, template.sourcePath);
-			warnings.push(
-				`Instruction template missing outPutPath (required outside ${rootTemplateDisplay}): ${display}.`,
-			);
+			warnings.push(`Instruction template missing output directory: ${display}.`);
 			continue;
 		}
 		const effectiveTargets = resolveEffectiveTargetsForSource(
 			template,
-			selectedTargets,
+			selectedTargetIds,
+			allTargetIds,
 			request.overrideOnly,
 			request.overrideSkip,
 		);
@@ -287,23 +336,43 @@ export async function syncInstructions(
 			continue;
 		}
 		for (const targetName of effectiveTargets) {
-			const outputGroup = resolveInstructionTargetGroup(targetName);
-			const outputPath = resolveInstructionOutputPath(resolvedOutputDir, targetName);
-			const key = buildOutputKey(outputPath, outputGroup);
+			const selection = selectionById.get(targetName);
+			if (!selection) {
+				continue;
+			}
+			const itemName = path.basename(template.sourcePath, path.extname(template.sourcePath));
+			const filename = resolveInstructionFilename({
+				template: selection.definition.filename,
+				context: {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsRoot,
+					homeDir,
+					targetId: targetName,
+					itemName,
+				},
+				item: template,
+			});
+			const outputPath = resolveInstructionOutputPath(resolvedOutputDir, filename);
+			const key = buildOutputKey(outputPath, selection.group);
 			const content = applyAgentTemplating({
 				content: template.body,
 				target: targetName,
 				validAgents: request.validAgents,
 				sourcePath: template.sourcePath,
 			});
+			const writer =
+				resolveWriter(selection.definition.writer, writerRegistry) ?? defaultInstructionWriter;
+			const converter = resolveConverter(selection.definition.converter, converterRegistry);
 			templateCandidates.push({
 				key,
-				outputGroup,
+				outputGroup: selection.group,
 				outputPath,
 				targetName,
 				source: template,
 				content,
 				kind: "generated",
+				writer,
+				converter,
 			});
 		}
 	}
@@ -312,7 +381,8 @@ export async function syncInstructions(
 	for (const source of repoSources) {
 		const effectiveTargets = resolveEffectiveTargetsForSource(
 			source,
-			selectedTargets,
+			selectedTargetIds,
+			allTargetIds,
 			request.overrideOnly,
 			request.overrideSkip,
 		);
@@ -320,18 +390,40 @@ export async function syncInstructions(
 			continue;
 		}
 		for (const targetName of effectiveTargets) {
-			const outputGroup = resolveInstructionTargetGroup(targetName);
-			const outputPath = resolveRepoInstructionOutputPath(source.sourcePath, targetName);
-			const key = buildOutputKey(outputPath, outputGroup);
-			const isAgentsOutput = isAgentsTarget(targetName);
+			const selection = selectionById.get(targetName);
+			if (!selection) {
+				continue;
+			}
+			const itemName = path.basename(source.sourcePath, path.extname(source.sourcePath));
+			const filename = resolveInstructionFilename({
+				template: selection.definition.filename,
+				context: {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsRoot,
+					homeDir,
+					targetId: targetName,
+					itemName,
+				},
+				item: source,
+			});
+			const outputPath = resolveInstructionOutputPath(source.resolvedOutputDir, filename);
+			const key = buildOutputKey(outputPath, selection.group);
+			const normalizedOutput = path.normalize(outputPath);
+			const normalizedSource = path.normalize(source.sourcePath);
+			const isSatisfied = normalizedOutput === normalizedSource;
+			const writer =
+				resolveWriter(selection.definition.writer, writerRegistry) ?? defaultInstructionWriter;
+			const converter = resolveConverter(selection.definition.converter, converterRegistry);
 			repoCandidates.push({
 				key,
-				outputGroup,
+				outputGroup: selection.group,
 				outputPath,
 				targetName,
 				source,
-				content: isAgentsOutput ? null : source.body,
-				kind: isAgentsOutput ? "satisfied" : "generated",
+				content: isSatisfied ? null : source.body,
+				kind: isSatisfied ? "satisfied" : "generated",
+				writer,
+				converter,
 			});
 		}
 	}
@@ -352,7 +444,7 @@ export async function syncInstructions(
 	const templateWinners = new Map<string, InstructionOutputCandidate>();
 	for (const [key, candidates] of templateGroups) {
 		const outputGroup = candidates[0]?.outputGroup;
-		const preferred = outputGroup === "agents" ? primaryAgentsTarget : null;
+		const preferred = outputGroup ? (primaryByGroup.get(outputGroup) ?? null) : null;
 		const selected = selectCandidate(candidates, preferred);
 		if (selected) {
 			templateWinners.set(key, selected);
@@ -361,7 +453,7 @@ export async function syncInstructions(
 	const repoWinners = new Map<string, InstructionOutputCandidate>();
 	for (const [key, candidates] of repoGroups) {
 		const outputGroup = candidates[0]?.outputGroup;
-		const preferred = outputGroup === "agents" ? primaryAgentsTarget : null;
+		const preferred = outputGroup ? (primaryByGroup.get(outputGroup) ?? null) : null;
 		const selected = selectCandidate(candidates, preferred);
 		if (selected) {
 			repoWinners.set(key, selected);
@@ -380,6 +472,21 @@ export async function syncInstructions(
 		activeOutputKeys.add(key);
 	}
 
+	for (const selection of selections) {
+		await runSyncHook(request.hooks, "preSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsRoot,
+			targetId: selection.target.id,
+			outputType: "instructions",
+		});
+		await runSyncHook(selection.target.hooks, "preSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsRoot,
+			targetId: selection.target.id,
+			outputType: "instructions",
+		});
+	}
+
 	const groupResults = new Map<InstructionTargetGroup, GroupResult>();
 	const getGroupResult = (group: InstructionTargetGroup): GroupResult => {
 		const existing = groupResults.get(group);
@@ -393,17 +500,26 @@ export async function syncInstructions(
 
 	const now = new Date().toISOString();
 	const activeGroups = new Set<InstructionTargetGroup>(
-		Array.from(selectedTargets).map((target) => resolveInstructionTargetGroup(target)),
+		selections.map((selection) => selection.group),
 	);
 
 	const nextManifestEntries = new Map<string, InstructionManifestEntry>();
 	const usedSources = new Map<string, InstructionSource>();
+	const recordManagedOutput = (entry: ManagedOutputRecord) => {
+		const key = buildManagedOutputKey(entry);
+		nextManaged.set(key, entry);
+		activeOutputPaths.add(normalizeManagedOutputPath(entry.outputPath));
+	};
 
 	for (const candidate of finalCandidates.values()) {
 		const groupResult = getGroupResult(candidate.outputGroup);
-		const targetForManifest =
-			candidate.outputGroup === "agents" ? primaryAgentsTarget : candidate.targetName;
+		const targetForManifest = primaryByGroup.get(candidate.outputGroup) ?? candidate.targetName;
 		activeOutputKeys.add(candidate.key);
+		if (targetForManifest) {
+			const existing = activeSourcesByTarget.get(targetForManifest) ?? new Set<string>();
+			existing.add(candidate.source.sourcePath);
+			activeSourcesByTarget.set(targetForManifest, existing);
+		}
 		usedSources.set(candidate.source.sourcePath, candidate.source);
 
 		if (candidate.kind === "satisfied" || !targetForManifest || candidate.content === null) {
@@ -412,13 +528,92 @@ export async function syncInstructions(
 		}
 
 		try {
-			const writeResult = await writeOutputFile(candidate.outputPath, candidate.content);
+			if (candidate.converter) {
+				await runConvertHook(request.hooks, "preConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsRoot,
+					targetId: candidate.targetName,
+					outputType: "instructions",
+				});
+				await runConvertHook(selectionById.get(candidate.targetName)?.target.hooks, "preConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsRoot,
+					targetId: candidate.targetName,
+					outputType: "instructions",
+				});
+				const decision = await candidate.converter.convert(candidate.source, {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsRoot,
+					homeDir,
+					targetId: candidate.targetName,
+					outputType: "instructions",
+					validAgents: request.validAgents,
+				});
+				const normalized = normalizeConverterDecision(decision);
+				await runConvertHook(request.hooks, "postConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsRoot,
+					targetId: candidate.targetName,
+					outputType: "instructions",
+				});
+				await runConvertHook(selectionById.get(candidate.targetName)?.target.hooks, "postConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsRoot,
+					targetId: candidate.targetName,
+					outputType: "instructions",
+				});
+				if (normalized.error) {
+					groupResult.warnings.push(normalized.error);
+					groupResult.hadFailure = true;
+					continue;
+				}
+				if (normalized.skip) {
+					recordCount(groupResult.counts, "skipped");
+					continue;
+				}
+				for (const output of normalized.outputs) {
+					const outputPath = path.isAbsolute(output.outputPath)
+						? output.outputPath
+						: path.resolve(request.repoRoot, output.outputPath);
+					const result = await writeFileOutput(outputPath, output.content);
+					const checksum = result.contentHash ?? (await hashOutputPath(outputPath));
+					if (checksum) {
+						recordManagedOutput({
+							targetId: targetForManifest,
+							outputPath,
+							sourceType: "instruction",
+							sourceId: candidate.source.sourcePath,
+							checksum,
+							lastSyncedAt: now,
+						});
+					}
+				}
+				recordCount(groupResult.counts, "created");
+				continue;
+			}
+			const writeResult = await candidate.writer.write({
+				outputPath: candidate.outputPath,
+				content: candidate.content,
+				item: { sourcePath: candidate.source.sourcePath, content: candidate.content },
+				context: {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsRoot,
+					homeDir,
+					targetId: candidate.targetName,
+					outputType: "instructions",
+					validAgents: request.validAgents,
+				},
+			});
 			recordCount(groupResult.counts, writeResult.status);
+			const contentHash =
+				writeResult.contentHash ??
+				(await hashOutputPath(candidate.outputPath)) ??
+				hashContent(candidate.content);
 			nextManifestEntries.set(candidate.key, {
 				outputPath: candidate.outputPath,
 				targetName: targetForManifest,
 				sourcePath: candidate.source.sourcePath,
-				contentHash: writeResult.hash,
+				contentHash,
 				lastSyncedAt: now,
 			});
 		} catch (error) {
@@ -441,7 +636,6 @@ export async function syncInstructions(
 	}
 
 	const mergedEntries = new Map<string, InstructionManifestEntry>();
-	const removeMissing = request.removeMissing ?? false;
 	const nonInteractive = request.nonInteractive ?? false;
 
 	const recordRemoval = (group: InstructionTargetGroup, status: "removed" | "skipped") => {
@@ -549,6 +743,68 @@ export async function syncInstructions(
 
 	await writeManifest(request.repoRoot, { entries: Array.from(mergedEntries.values()) });
 
+	for (const selection of selections) {
+		await runSyncHook(request.hooks, "postSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsRoot,
+			targetId: selection.target.id,
+			outputType: "instructions",
+		});
+		await runSyncHook(selection.target.hooks, "postSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsRoot,
+			targetId: selection.target.id,
+			outputType: "instructions",
+		});
+	}
+
+	if (managedManifest.entries.length > 0 || nextManaged.size > 0) {
+		const updatedEntries: ManagedOutputRecord[] = [];
+		for (const entry of managedManifest.entries) {
+			if (entry.sourceType !== "instruction" || !selectedTargetIds.has(entry.targetId)) {
+				updatedEntries.push(entry);
+				continue;
+			}
+			const key = buildManagedOutputKey(entry);
+			if (nextManaged.has(key)) {
+				continue;
+			}
+			const activeSources = activeSourcesByTarget.get(entry.targetId);
+			const sourceStillActive = activeSources?.has(entry.sourceId) ?? false;
+			if (!removeMissing || sourceStillActive) {
+				updatedEntries.push(entry);
+				continue;
+			}
+			const outputKey = normalizeManagedOutputPath(entry.outputPath);
+			if (activeOutputPaths.has(outputKey)) {
+				continue;
+			}
+			const existingHash = await hashOutputPath(entry.outputPath);
+			if (!existingHash) {
+				continue;
+			}
+			if (existingHash !== entry.checksum) {
+				const display = formatDisplayPath(request.repoRoot, entry.outputPath);
+				warnings.push(`Output modified since last sync; skipping removal of ${display}.`);
+				updatedEntries.push(entry);
+				continue;
+			}
+			try {
+				await rm(entry.outputPath, { recursive: true, force: true });
+				const group = resolveInstructionTargetGroup(entry.targetId);
+				recordCount(getGroupResult(group).counts, "removed");
+			} catch (error) {
+				const display = formatDisplayPath(request.repoRoot, entry.outputPath);
+				warnings.push(`Failed to remove ${display}: ${String(error)}`);
+				updatedEntries.push(entry);
+			}
+		}
+		for (const entry of nextManaged.values()) {
+			updatedEntries.push(entry);
+		}
+		await writeManagedOutputs(request.repoRoot, { entries: updatedEntries }, homeDir);
+	}
+
 	const sourceCounts: SyncSourceCounts = {
 		shared: 0,
 		local: 0,
@@ -565,33 +821,34 @@ export async function syncInstructions(
 	const results: InstructionSyncResult[] = [];
 	let hadFailures = false;
 
-	for (const targetName of request.targets) {
-		const group = resolveInstructionTargetGroup(targetName);
+	for (const selection of selections) {
+		const targetName = selection.target.id;
+		const group = selection.group;
 		const groupResult = groupResults.get(group) ?? createGroupResult();
-		const isAgentsGroup = group === "agents";
-		const isPrimaryAgents = !isAgentsGroup || targetName === primaryAgentsTarget;
-		const counts = isPrimaryAgents ? groupResult.counts : emptyOutputCounts();
+		const primaryTarget = primaryByGroup.get(group);
+		const isPrimary = !primaryTarget || targetName === primaryTarget;
+		const counts = isPrimary ? groupResult.counts : emptyOutputCounts();
 		const status = groupResult.hadFailure
 			? groupResult.counts.total > 0
 				? "partial"
 				: "failed"
 			: "synced";
-		const message = isPrimaryAgents
+		const message = isPrimary
 			? buildInstructionResultMessage({
 					targetName,
 					status,
 					counts,
 				})
-			: `Shared AGENTS.md output with ${primaryAgentsTarget}.`;
+			: `Shared instruction output with ${primaryTarget}.`;
 		if (groupResult.hadFailure) {
 			hadFailures = true;
 		}
 		results.push({
 			targetName,
-			status: isPrimaryAgents ? status : "skipped",
+			status: isPrimary ? status : "skipped",
 			message,
 			counts,
-			warnings: isPrimaryAgents ? groupResult.warnings : [],
+			warnings: isPrimary ? groupResult.warnings : [],
 		});
 	}
 

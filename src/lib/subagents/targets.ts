@@ -1,6 +1,6 @@
 import path from "node:path";
 
-export type SubagentTargetName = "claude" | "codex" | "copilot" | "gemini";
+export type SubagentTargetName = string;
 
 export type SubagentTargetProfile = {
 	name: SubagentTargetName;

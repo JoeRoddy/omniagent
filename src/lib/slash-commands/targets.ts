@@ -1,6 +1,6 @@
 import path from "node:path";
 
-export type TargetName = "claude" | "codex" | "gemini" | "copilot";
+export type TargetName = string;
 export type Scope = "project" | "global";
 export type FileFormat = "markdown" | "toml";
 

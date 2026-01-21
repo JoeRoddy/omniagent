@@ -39,6 +39,7 @@
   "author": "plsdontemailme@joeroddy.net",
   "license": "MIT",
   "dependencies": {
+    "jiti": "^2.6.1",
     "yargs": "^17.7.2"
   },
   "devDependencies": {

@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
+import { resolveAgentsDirPath } from "../agents-dir.js";
 import { listSkillDirectories, normalizeName, type SkillDirectoryEntry } from "../catalog-utils.js";
 import { stripFrontmatterFields } from "../frontmatter-strip.js";
 import {
@@ -10,9 +11,37 @@ import {
 	resolveSharedCategoryRoot,
 	stripLocalPathSuffix,
 } from "../local-sources.js";
-import { SUPPORTED_AGENT_NAMES } from "../supported-targets.js";
+import { buildSupportedAgentNames } from "../supported-targets.js";
 import type { SyncSourceCounts } from "../sync-results.js";
 import { resolveEffectiveTargets } from "../sync-targets.js";
+import type {
+	ConverterRule,
+	OutputWriter,
+	ResolvedTarget,
+	SyncHooks,
+} from "../targets/config-types.js";
+import {
+	type ConverterRegistry,
+	normalizeConverterDecision,
+	resolveConverter,
+} from "../targets/converters.js";
+import { runConvertHook, runSyncHook } from "../targets/hooks.js";
+import {
+	buildManagedOutputKey,
+	hashOutputPath,
+	type ManagedOutputRecord,
+	normalizeManagedOutputPath,
+	readManagedOutputs,
+	writeManagedOutputs,
+} from "../targets/managed-outputs.js";
+import { normalizeOutputDefinition, resolveOutputPath } from "../targets/output-resolver.js";
+import {
+	defaultSubagentWriter,
+	resolveWriter,
+	type SubagentWriterItem,
+	type WriterRegistry,
+	writeFileOutput,
+} from "../targets/writers.js";
 import { loadSubagentCatalog, type SubagentDefinition } from "./catalog.js";
 import {
 	type ManagedSubagent,
@@ -39,6 +68,20 @@ export type SubagentSyncRequest = {
 	validAgents?: string[];
 	excludeLocal?: boolean;
 	includeLocalSkills?: boolean;
+};
+
+export type SubagentSyncRequestV2 = {
+	repoRoot: string;
+	agentsDir?: string | null;
+	targets: ResolvedTarget[];
+	overrideOnly?: string[] | null;
+	overrideSkip?: string[] | null;
+	removeMissing?: boolean;
+	validAgents?: string[];
+	excludeLocal?: boolean;
+	includeLocalSkills?: boolean;
+	resolveTargetName?: (value: string) => string | null;
+	hooks?: SyncHooks;
 };
 
 export type SubagentSyncPlanAction = {
@@ -144,9 +187,16 @@ function normalizeSkillRelativePath(relativePath: string): string {
 	return parent === "." ? strippedBase : path.join(parent, strippedBase);
 }
 
+function formatDisplayPath(repoRoot: string, absolutePath: string): string {
+	const relative = path.relative(repoRoot, absolutePath);
+	const isWithinRepo = relative && !relative.startsWith("..") && !path.isAbsolute(relative);
+	return isWithinRepo ? relative : absolutePath;
+}
+
 function buildSourceCounts(
 	subagents: SubagentDefinition[],
 	targets: SubagentTargetName[],
+	allTargets: string[],
 	request: SubagentSyncRequest,
 ): SyncSourceCounts {
 	const targetSet = new Set(targets.map((target) => target.toLowerCase()));
@@ -160,7 +210,7 @@ function buildSourceCounts(
 			defaultTargets: subagent.targetAgents,
 			overrideOnly: request.overrideOnly ?? undefined,
 			overrideSkip: request.overrideSkip ?? undefined,
-			allTargets: ALL_TARGET_NAMES,
+			allTargets,
 		});
 		if (effectiveTargets.length === 0) {
 			continue;
@@ -599,7 +649,7 @@ export async function planSubagentSync(
 		request.targets && request.targets.length > 0
 			? request.targets
 			: SUBAGENT_TARGETS.map((target) => target.name);
-	const validAgents = request.validAgents ?? [...SUPPORTED_AGENT_NAMES];
+	const validAgents = request.validAgents ?? SUBAGENT_TARGETS.map((target) => target.name);
 	const removeMissing = request.removeMissing ?? true;
 	const timestamp = new Date().toISOString();
 
@@ -635,7 +685,7 @@ export async function planSubagentSync(
 		targetPlans,
 		targetSummaries,
 		warnings: buildInvalidTargetWarnings(catalog.subagents),
-		sourceCounts: buildSourceCounts(catalog.subagents, selectedTargets, request),
+		sourceCounts: buildSourceCounts(catalog.subagents, selectedTargets, ALL_TARGET_NAMES, request),
 	};
 }
 
@@ -813,4 +863,431 @@ export function formatSubagentSummary(summary: SubagentSyncSummary, jsonOutput: 
 		lines.push(`Sources: shared ${shared}, local ${local}${suffix}`);
 	}
 	return lines.join("\n");
+}
+
+type SubagentOutputCandidate = {
+	target: ResolvedTarget;
+	subagent: SubagentDefinition;
+	outputPath: string;
+	outputKind: "subagent" | "skill";
+	writer: OutputWriter;
+	converter: ConverterRule | null;
+};
+
+export async function syncSubagents(request: SubagentSyncRequestV2): Promise<SubagentSyncSummary> {
+	const catalog = await loadSubagentCatalog(request.repoRoot, {
+		includeLocal: !request.excludeLocal,
+		agentsDir: request.agentsDir,
+		resolveTargetName: request.resolveTargetName,
+	});
+	const targets = request.targets.filter(
+		(target) => normalizeOutputDefinition(target.outputs.subagents) !== null,
+	);
+	const warnings = buildInvalidTargetWarnings(catalog.subagents);
+	const removeMissing = request.removeMissing ?? false;
+	if (targets.length === 0) {
+		return {
+			sourcePath: catalog.catalogPath,
+			results: [],
+			warnings,
+			hadFailures: false,
+			sourceCounts: {
+				shared: 0,
+				local: 0,
+				excludedLocal: request.excludeLocal ?? false,
+			},
+		};
+	}
+
+	const allTargetIds = request.targets.map((target) => target.id);
+	const activeTargetIds = new Set(targets.map((target) => target.id));
+	const effectiveTargetsBySubagent = new Map<SubagentDefinition, string[]>();
+	const activeSourcesByTarget = new Map<string, Set<string>>();
+	for (const subagent of catalog.subagents) {
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: subagent.targetAgents,
+			overrideOnly: request.overrideOnly ?? undefined,
+			overrideSkip: request.overrideSkip ?? undefined,
+			allTargets: allTargetIds,
+		});
+		effectiveTargetsBySubagent.set(subagent, effectiveTargets);
+		for (const targetId of effectiveTargets) {
+			if (!activeTargetIds.has(targetId)) {
+				continue;
+			}
+			const existing = activeSourcesByTarget.get(targetId) ?? new Set<string>();
+			existing.add(subagent.resolvedName);
+			activeSourcesByTarget.set(targetId, existing);
+		}
+	}
+
+	const sourceCounts: SyncSourceCounts = buildSourceCounts(
+		catalog.subagents,
+		targets.map((target) => target.id),
+		allTargetIds,
+		{
+			overrideOnly: request.overrideOnly ?? undefined,
+			overrideSkip: request.overrideSkip ?? undefined,
+			excludeLocal: request.excludeLocal,
+		},
+	);
+
+	const agentsDirPath = resolveAgentsDirPath(request.repoRoot, request.agentsDir);
+	const homeDir = os.homedir();
+	const managedManifest = (await readManagedOutputs(request.repoRoot, homeDir)) ?? { entries: [] };
+	const nextManaged = new Map<string, ManagedOutputRecord>();
+	const activeOutputPaths = new Set<string>();
+	const countsByTarget = new Map<string, SummaryCounts>();
+	const getCounts = (targetId: string): SummaryCounts => {
+		const existing = countsByTarget.get(targetId) ?? emptySummaryCounts();
+		countsByTarget.set(targetId, existing);
+		return existing;
+	};
+	const converterRegistry: ConverterRegistry = new Map();
+	const writerRegistry: WriterRegistry = new Map([
+		[defaultSubagentWriter.id, defaultSubagentWriter],
+	]);
+	const canonicalSkills = await loadCanonicalSkillIndex(request.repoRoot, {
+		includeLocal: request.includeLocalSkills ?? true,
+		agentsDir: request.agentsDir,
+	});
+	const validAgents = request.validAgents ?? buildSupportedAgentNames(request.targets);
+
+	const outputDefs = new Map<string, NonNullable<ReturnType<typeof normalizeOutputDefinition>>>();
+	const skillDefs = new Map<string, NonNullable<ReturnType<typeof normalizeOutputDefinition>>>();
+	const outputKindByTarget = new Map<string, OutputKind>();
+	for (const target of targets) {
+		const normalized = normalizeOutputDefinition(target.outputs.subagents);
+		if (normalized) {
+			outputDefs.set(target.id, normalized);
+		}
+		const skillDef = normalizeOutputDefinition(target.outputs.skills);
+		if (skillDef) {
+			skillDefs.set(target.id, skillDef);
+		}
+	}
+
+	const targetErrors = new Map<string, string[]>();
+	const recordError = (targetId: string, message: string) => {
+		const existing = targetErrors.get(targetId) ?? [];
+		existing.push(message);
+		targetErrors.set(targetId, existing);
+	};
+
+	const candidatesByPath = new Map<string, SubagentOutputCandidate[]>();
+	for (const subagent of catalog.subagents) {
+		const effectiveTargets = effectiveTargetsBySubagent.get(subagent) ?? [];
+		if (effectiveTargets.length === 0) {
+			continue;
+		}
+		for (const target of targets) {
+			if (!effectiveTargets.includes(target.id)) {
+				continue;
+			}
+			const outputDef = outputDefs.get(target.id);
+			if (!outputDef) {
+				continue;
+			}
+			if (outputDef.fallback?.mode === "skip") {
+				continue;
+			}
+			let outputKind: "subagent" | "skill" = "subagent";
+			let pathDef = outputDef;
+			if (outputDef.fallback?.mode === "convert" && outputDef.fallback.targetType === "skills") {
+				const skillDef = skillDefs.get(target.id);
+				if (!skillDef) {
+					recordError(target.id, `Missing skills output for ${target.id} fallback.`);
+					continue;
+				}
+				outputKind = "skill";
+				pathDef = skillDef;
+			}
+			if (!outputKindByTarget.has(target.id)) {
+				outputKindByTarget.set(target.id, outputKind);
+			}
+
+			if (outputKind === "skill") {
+				const canonicalSkillKey = normalizeSkillKey(subagent.resolvedName);
+				const canonicalSkillPath = canonicalSkills.get(canonicalSkillKey);
+				if (canonicalSkillPath) {
+					warnings.push(
+						`Skipped ${target.displayName} skill "${subagent.resolvedName}" because canonical skill exists at ${canonicalSkillPath}.`,
+					);
+					continue;
+				}
+			}
+
+			const outputPath = resolveOutputPath({
+				template: pathDef.path,
+				context: {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					homeDir,
+					targetId: target.id,
+					itemName: subagent.resolvedName,
+				},
+				item: subagent,
+				baseDir: request.repoRoot,
+			});
+			const key = path.normalize(outputPath).replace(/\\/g, "/").toLowerCase();
+			const writer = resolveWriter(outputDef.writer, writerRegistry) ?? defaultSubagentWriter;
+			const converter = resolveConverter(outputDef.converter, converterRegistry);
+			const list = candidatesByPath.get(key) ?? [];
+			list.push({ target, subagent, outputPath, outputKind, writer, converter });
+			candidatesByPath.set(key, list);
+		}
+	}
+
+	for (const target of targets) {
+		await runSyncHook(request.hooks, "preSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsDirPath,
+			targetId: target.id,
+			outputType: "subagents",
+		});
+		await runSyncHook(target.hooks, "preSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsDirPath,
+			targetId: target.id,
+			outputType: "subagents",
+		});
+	}
+
+	for (const candidates of candidatesByPath.values()) {
+		if (candidates.length === 0) {
+			continue;
+		}
+		const sorted = [...candidates].sort((left, right) =>
+			left.target.id.localeCompare(right.target.id),
+		);
+		const selected = sorted[0];
+		const useDefaultWriter = sorted.length > 1;
+		const writer = useDefaultWriter ? defaultSubagentWriter : selected.writer;
+		const converter = selected.converter;
+		const target = selected.target;
+		const recordManagedOutput = (entry: ManagedOutputRecord) => {
+			const key = buildManagedOutputKey(entry);
+			nextManaged.set(key, entry);
+			activeOutputPaths.add(normalizeManagedOutputPath(entry.outputPath));
+		};
+		const counts = getCounts(target.id);
+
+		try {
+			if (converter) {
+				await runConvertHook(request.hooks, "preConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					targetId: target.id,
+					outputType: "subagents",
+				});
+				await runConvertHook(target.hooks, "preConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					targetId: target.id,
+					outputType: "subagents",
+				});
+				const decision = await converter.convert(selected.subagent, {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					homeDir,
+					targetId: target.id,
+					outputType: "subagents",
+					validAgents,
+				});
+				const normalized = normalizeConverterDecision(decision);
+				await runConvertHook(request.hooks, "postConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					targetId: target.id,
+					outputType: "subagents",
+				});
+				await runConvertHook(target.hooks, "postConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					targetId: target.id,
+					outputType: "subagents",
+				});
+				if (normalized.error) {
+					recordError(target.id, normalized.error);
+					continue;
+				}
+				if (normalized.skip) {
+					counts.skipped += 1;
+					continue;
+				}
+				for (const output of normalized.outputs) {
+					const outputPath = path.isAbsolute(output.outputPath)
+						? output.outputPath
+						: path.resolve(request.repoRoot, output.outputPath);
+					const result = await writeFileOutput(outputPath, output.content);
+					const checksum = result.contentHash ?? (await hashOutputPath(outputPath));
+					if (checksum) {
+						recordManagedOutput({
+							targetId: target.id,
+							outputPath,
+							sourceType: "subagent",
+							sourceId: selected.subagent.resolvedName,
+							checksum,
+							lastSyncedAt: new Date().toISOString(),
+						});
+					}
+				}
+				counts.converted += 1;
+				continue;
+			}
+
+			const item: SubagentWriterItem = {
+				resolvedName: selected.subagent.resolvedName,
+				rawContents: selected.subagent.rawContents,
+				sourcePath: selected.subagent.sourcePath,
+				outputKind: selected.outputKind,
+			};
+			const writeResult = await writer.write({
+				outputPath: selected.outputPath,
+				content: selected.subagent.rawContents,
+				item,
+				context: {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					homeDir,
+					targetId: target.id,
+					outputType: "subagents",
+					validAgents,
+				},
+			});
+			const checksum =
+				selected.outputKind === "skill"
+					? await hashOutputPath(selected.outputPath)
+					: (writeResult.contentHash ?? (await hashOutputPath(selected.outputPath)));
+			if (checksum) {
+				recordManagedOutput({
+					targetId: target.id,
+					outputPath: selected.outputPath,
+					sourceType: "subagent",
+					sourceId: selected.subagent.resolvedName,
+					checksum,
+					lastSyncedAt: new Date().toISOString(),
+					writerId: writer.id,
+				});
+			}
+			if (selected.outputKind === "skill") {
+				if (writeResult.status === "skipped") {
+					counts.skipped += 1;
+				} else {
+					counts.converted += 1;
+				}
+			} else if (writeResult.status === "created") {
+				counts.created += 1;
+			} else if (writeResult.status === "updated") {
+				counts.updated += 1;
+			} else {
+				counts.skipped += 1;
+			}
+		} catch (error) {
+			recordError(target.id, error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	for (const target of targets) {
+		await runSyncHook(request.hooks, "postSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsDirPath,
+			targetId: target.id,
+			outputType: "subagents",
+		});
+		await runSyncHook(target.hooks, "postSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsDirPath,
+			targetId: target.id,
+			outputType: "subagents",
+		});
+	}
+
+	if (managedManifest.entries.length > 0 || nextManaged.size > 0) {
+		const updatedEntries: ManagedOutputRecord[] = [];
+		for (const entry of managedManifest.entries) {
+			if (entry.sourceType !== "subagent" || !activeTargetIds.has(entry.targetId)) {
+				updatedEntries.push(entry);
+				continue;
+			}
+			const key = buildManagedOutputKey(entry);
+			if (nextManaged.has(key)) {
+				continue;
+			}
+			const activeSources = activeSourcesByTarget.get(entry.targetId);
+			const sourceStillActive = activeSources?.has(entry.sourceId) ?? false;
+			if (!removeMissing || sourceStillActive) {
+				updatedEntries.push(entry);
+				continue;
+			}
+			const outputKey = normalizeManagedOutputPath(entry.outputPath);
+			if (activeOutputPaths.has(outputKey)) {
+				continue;
+			}
+			const existingHash = await hashOutputPath(entry.outputPath);
+			if (!existingHash) {
+				continue;
+			}
+			if (existingHash !== entry.checksum) {
+				const display = formatDisplayPath(request.repoRoot, entry.outputPath);
+				warnings.push(`Output modified since last sync; skipping removal of ${display}.`);
+				updatedEntries.push(entry);
+				continue;
+			}
+			try {
+				await rm(entry.outputPath, { recursive: true, force: true });
+				getCounts(entry.targetId).removed += 1;
+			} catch (error) {
+				const display = formatDisplayPath(request.repoRoot, entry.outputPath);
+				warnings.push(`Failed to remove ${display}: ${String(error)}`);
+				updatedEntries.push(entry);
+			}
+		}
+		for (const entry of nextManaged.values()) {
+			updatedEntries.push(entry);
+		}
+		await writeManagedOutputs(request.repoRoot, { entries: updatedEntries }, homeDir);
+	}
+
+	const results: SubagentSyncResult[] = [];
+	let hadFailures = false;
+	for (const target of targets) {
+		const errors = targetErrors.get(target.id);
+		if (errors && errors.length > 0) {
+			hadFailures = true;
+			const combined = errors.join("; ");
+			const counts = getCounts(target.id);
+			const total =
+				counts.created + counts.updated + counts.removed + counts.converted + counts.skipped;
+			const status: SubagentSyncResult["status"] = total > 0 ? "partial" : "failed";
+			const outputKind = outputKindByTarget.get(target.id) ?? "subagent";
+			results.push({
+				targetName: target.id,
+				status,
+				message: formatResultMessage(target.displayName, outputKind, status, counts, combined),
+				error: combined,
+				counts,
+				warnings: [],
+			});
+		} else {
+			const counts = getCounts(target.id);
+			const status: SubagentSyncResult["status"] = "synced";
+			const outputKind = outputKindByTarget.get(target.id) ?? "subagent";
+			results.push({
+				targetName: target.id,
+				status,
+				message: formatResultMessage(target.displayName, outputKind, status, counts),
+				counts,
+				warnings: [],
+			});
+		}
+	}
+
+	return {
+		sourcePath: catalog.catalogPath,
+		results,
+		warnings,
+		hadFailures,
+		sourceCounts,
+	};
 }
