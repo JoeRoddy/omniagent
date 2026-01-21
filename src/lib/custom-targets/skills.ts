@@ -6,9 +6,15 @@ import { stripFrontmatterFields } from "../frontmatter-strip.js";
 import { loadSkillCatalog, type SkillDefinition } from "../skills/catalog.js";
 import { normalizeConvertResult } from "./convert.js";
 import { runConvertHook } from "./hooks.js";
+import type { OutputWriter } from "./output-writer.js";
 import { resolveConfigValue } from "./resolve-output.js";
-import type { ConvertContext, OutputFile, ResolvedTargetDefinition, SkillItem } from "./types.js";
-import { OutputWriter } from "./output-writer.js";
+import type {
+	ConvertContext,
+	ConvertResult,
+	OutputFile,
+	ResolvedTargetDefinition,
+	SkillItem,
+} from "./types.js";
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 const TARGET_FRONTMATTER_KEYS = new Set(["targets", "targetagents"]);
@@ -112,10 +118,10 @@ function buildOutputFile(options: {
 	};
 }
 
-function resolveDefaultPaths(options: {
-	basePath: string;
-	item: SkillItem;
-}): { directoryPath: string; skillFilePath: string } {
+function resolveDefaultPaths(options: { basePath: string; item: SkillItem }): {
+	directoryPath: string;
+	skillFilePath: string;
+} {
 	const directoryPath = path.join(options.basePath, options.item.relativePath);
 	return {
 		directoryPath,
@@ -201,10 +207,7 @@ export async function writeSkillOutputs(options: {
 			item,
 			context: options.context,
 			onError: (message) =>
-				options.outputWriter.recordError(
-					options.target.id,
-					`Skill ${item.name}: ${message}`,
-				),
+				options.outputWriter.recordError(options.target.id, `Skill ${item.name}: ${message}`),
 			label: "beforeConvert",
 		});
 		if (!beforeOk) {
@@ -226,7 +229,7 @@ export async function writeSkillOutputs(options: {
 		const basePath = options.context.resolvePath(basePathRaw, { item });
 		const defaultPaths = resolveDefaultPaths({ basePath, item });
 		if (outputConfig.convert) {
-			let converted;
+			let converted: ConvertResult;
 			try {
 				converted = await outputConfig.convert({ item, context: options.context });
 			} catch (error) {
@@ -301,10 +304,7 @@ export async function writeSkillOutputs(options: {
 				item,
 				context: options.context,
 				onError: (hookMessage) =>
-					options.outputWriter.recordError(
-						options.target.id,
-						`Skill ${item.name}: ${hookMessage}`,
-					),
+					options.outputWriter.recordError(options.target.id, `Skill ${item.name}: ${hookMessage}`),
 				label: "afterConvert",
 			});
 			continue;
@@ -323,10 +323,7 @@ export async function writeSkillOutputs(options: {
 			item,
 			context: options.context,
 			onError: (hookMessage) =>
-				options.outputWriter.recordError(
-					options.target.id,
-					`Skill ${item.name}: ${hookMessage}`,
-				),
+				options.outputWriter.recordError(options.target.id, `Skill ${item.name}: ${hookMessage}`),
 			label: "afterConvert",
 		});
 	}

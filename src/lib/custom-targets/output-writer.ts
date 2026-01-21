@@ -61,10 +61,6 @@ export class OutputWriter {
 		return created;
 	}
 
-	private recordGlobalWarning(message: string): void {
-		this.globalWarnings.push(message);
-	}
-
 	private recordGlobalError(message: string): void {
 		this.globalErrors.push(message);
 	}
@@ -83,7 +79,7 @@ export class OutputWriter {
 		}
 
 		const result = this.ensureResult(output.targetId);
-		if (existing && existing.equals(buffer)) {
+		if (existing?.equals(buffer)) {
 			result.counts.skipped += 1;
 			return;
 		}

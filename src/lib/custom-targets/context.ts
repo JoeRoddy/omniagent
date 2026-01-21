@@ -66,9 +66,7 @@ export function createConvertContext(options: {
 			if (!templated.trim()) {
 				return "";
 			}
-			const absolute = path.isAbsolute(templated)
-				? templated
-				: path.resolve(repoRoot, templated);
+			const absolute = path.isAbsolute(templated) ? templated : path.resolve(repoRoot, templated);
 			return path.normalize(absolute);
 		},
 		hash: (value) => createHash("sha256").update(value).digest("hex"),

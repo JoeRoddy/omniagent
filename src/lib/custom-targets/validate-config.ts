@@ -14,11 +14,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function recordError(
-	errors: ConfigValidationError[],
-	message: string,
-	path?: string,
-): void {
+function recordError(errors: ConfigValidationError[], message: string, path?: string): void {
 	errors.push({ message, path });
 }
 
@@ -68,11 +64,7 @@ function validateStringArray(
 	return valid;
 }
 
-function validatePathLike(
-	errors: ConfigValidationError[],
-	value: unknown,
-	path: string,
-): boolean {
+function validatePathLike(errors: ConfigValidationError[], value: unknown, path: string): boolean {
 	if (typeof value === "string") {
 		if (!value.trim()) {
 			recordError(errors, "Value cannot be empty.", path);
@@ -87,11 +79,7 @@ function validatePathLike(
 	return false;
 }
 
-function validateConverter(
-	errors: ConfigValidationError[],
-	value: unknown,
-	path: string,
-): boolean {
+function validateConverter(errors: ConfigValidationError[], value: unknown, path: string): boolean {
 	if (value === undefined) {
 		return true;
 	}
@@ -120,10 +108,14 @@ function validateSubagentOutput(
 	value: unknown,
 	path: string,
 ): void {
-	return validateSkillOutput(errors, value, path);
+	validateSkillOutput(errors, value, path);
 }
 
-function validateCommandOutput(errors: ConfigValidationError[], value: unknown, path: string): void {
+function validateCommandOutput(
+	errors: ConfigValidationError[],
+	value: unknown,
+	path: string,
+): void {
 	if (typeof value === "string" || typeof value === "function") {
 		validatePathLike(errors, value, path);
 		return;
@@ -139,7 +131,7 @@ function validateCommandOutput(errors: ConfigValidationError[], value: unknown, 
 		} else if (typeof value.format === "string") {
 			const normalized = value.format.toLowerCase();
 			if (normalized !== "markdown" && normalized !== "toml") {
-				recordError(errors, "Format must be \"markdown\" or \"toml\".", `${path}.format`);
+				recordError(errors, 'Format must be "markdown" or "toml".', `${path}.format`);
 			}
 		}
 	}
@@ -147,7 +139,7 @@ function validateCommandOutput(errors: ConfigValidationError[], value: unknown, 
 		if (typeof value.scopes === "string") {
 			const normalized = value.scopes.toLowerCase();
 			if (normalized !== "project" && normalized !== "global") {
-				recordError(errors, "Scope must be \"project\" or \"global\".", `${path}.scopes`);
+				recordError(errors, 'Scope must be "project" or "global".', `${path}.scopes`);
 			}
 		} else if (Array.isArray(value.scopes)) {
 			value.scopes.forEach((scope, index) => {
@@ -157,7 +149,7 @@ function validateCommandOutput(errors: ConfigValidationError[], value: unknown, 
 				}
 				const normalized = scope.toLowerCase();
 				if (normalized !== "project" && normalized !== "global") {
-					recordError(errors, "Scope must be \"project\" or \"global\".", `${path}.scopes[${index}]`);
+					recordError(errors, 'Scope must be "project" or "global".', `${path}.scopes[${index}]`);
 				}
 			});
 		} else if (typeof value.scopes !== "function") {
@@ -173,7 +165,7 @@ function validateCommandOutput(errors: ConfigValidationError[], value: unknown, 
 		} else if (typeof value.fallback === "string") {
 			const normalized = value.fallback.toLowerCase();
 			if (normalized !== "skills" && normalized !== "skip") {
-				recordError(errors, "Fallback must be \"skills\" or \"skip\".", `${path}.fallback`);
+				recordError(errors, 'Fallback must be "skills" or "skip".', `${path}.fallback`);
 			}
 		}
 	}
@@ -282,11 +274,7 @@ export function validateConfig(
 					validateCommandOutput(errors, target.outputs.commands, `${basePath}.outputs.commands`);
 				}
 				if (target.outputs.subagents !== undefined) {
-					validateSubagentOutput(
-						errors,
-						target.outputs.subagents,
-						`${basePath}.outputs.subagents`,
-					);
+					validateSubagentOutput(errors, target.outputs.subagents, `${basePath}.outputs.subagents`);
 				}
 				if (target.outputs.instructions !== undefined) {
 					validateInstructionOutput(
@@ -303,11 +291,7 @@ export function validateConfig(
 			} else {
 				for (const [hookKey, hookValue] of Object.entries(target.hooks)) {
 					if (hookValue !== undefined && typeof hookValue !== "function") {
-						recordError(
-							errors,
-							"Hook must be a function.",
-							`${basePath}.hooks.${hookKey}`,
-						);
+						recordError(errors, "Hook must be a function.", `${basePath}.hooks.${hookKey}`);
 					}
 				}
 			}

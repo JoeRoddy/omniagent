@@ -8,9 +8,9 @@ import { DEFAULT_AGENTS_DIR, resolveAgentsDir, validateAgentsDir } from "../../l
 import { loadConfig } from "../../lib/custom-targets/load-config.js";
 import { resolveTargets } from "../../lib/custom-targets/resolve-targets.js";
 import {
+	type CustomTargetSyncSummary,
 	formatCustomTargetSummary,
 	syncCustomTargets,
-	type CustomTargetSyncSummary,
 } from "../../lib/custom-targets/sync.js";
 import { validateConfig } from "../../lib/custom-targets/validate-config.js";
 import { readIgnorePreference, recordIgnorePromptDeclined } from "../../lib/ignore-preferences.js";
@@ -70,7 +70,7 @@ import {
 	SUBAGENT_TARGETS,
 	type SubagentTargetName,
 } from "../../lib/subagents/targets.js";
-import { SUPPORTED_AGENT_NAMES, resolveSupportedAgentNames } from "../../lib/supported-targets.js";
+import { resolveSupportedAgentNames, SUPPORTED_AGENT_NAMES } from "../../lib/supported-targets.js";
 import {
 	buildSummary,
 	formatSummary,
@@ -80,8 +80,8 @@ import {
 import {
 	InvalidFrontmatterTargetsError,
 	type TargetName as SkillTargetName,
-	TARGETS,
 	setCustomTargetNames,
+	TARGETS,
 } from "../../lib/sync-targets.js";
 
 type SyncArgs = {
@@ -1247,9 +1247,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				}
 			}
 
-			const unknownTargets = [...skipList, ...onlyList].filter(
-				(name) => !aliasMap.has(name),
-			);
+			const unknownTargets = [...skipList, ...onlyList].filter((name) => !aliasMap.has(name));
 			if (unknownTargets.length > 0) {
 				const unknownList = unknownTargets.join(", ");
 				const supportedList = resolvedTargets.map((target) => target.id).join(", ");
@@ -1260,8 +1258,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				return;
 			}
 
-			const resolveTargetId = (value: string): string =>
-				aliasMap.get(value) ?? value;
+			const resolveTargetId = (value: string): string => aliasMap.get(value) ?? value;
 			const resolvedSkip = skipList.map(resolveTargetId);
 			const resolvedOnly = onlyList.map(resolveTargetId);
 			const skipSet = new Set(resolvedSkip.map((value) => value.toLowerCase()));
@@ -1281,9 +1278,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 
 			const overrideOnly = resolvedOnly.length > 0 ? resolvedOnly : undefined;
 			const overrideSkip = resolvedSkip.length > 0 ? resolvedSkip : undefined;
-			const validAgents = resolveSupportedAgentNames(
-				resolvedTargets.map((target) => target.id),
-			);
+			const validAgents = resolveSupportedAgentNames(resolvedTargets.map((target) => target.id));
 			setCustomTargetNames(resolvedTargets.map((target) => target.id));
 
 			if (selectedTargetIds.length === 0 && !listLocal) {
@@ -1307,18 +1302,14 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const hasLocalItems = await hasLocalSources(repoRoot, agentsDir);
 
 			const selectedTargetSet = new Set(selectedTargetIds.map((id) => id.toLowerCase()));
-			const builtInTargetSet = new Set(
-				registry.builtIns.map((target) => target.id.toLowerCase()),
-			);
+			const builtInTargetSet = new Set(registry.builtIns.map((target) => target.id.toLowerCase()));
 			const overriddenSet = registry.overriddenIds;
 			const builtInSelectedIds = selectedTargetIds.filter((id) => {
 				const normalized = id.toLowerCase();
 				return builtInTargetSet.has(normalized) && !overriddenSet.has(normalized);
 			});
 			const builtInSelectedSet = new Set(builtInSelectedIds.map((id) => id.toLowerCase()));
-			const selectedSkillTargets = TARGETS.filter((target) =>
-				builtInSelectedSet.has(target.name),
-			);
+			const selectedSkillTargets = TARGETS.filter((target) => builtInSelectedSet.has(target.name));
 			const selectedCommandTargets = SLASH_COMMAND_TARGETS.filter((target) =>
 				builtInSelectedSet.has(target.name),
 			).map((target) => target.name as CommandTargetName);
@@ -1330,8 +1321,12 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const customTargetsToSync = resolvedTargets.filter(
 				(target) => target.source !== "built-in" && selectedTargetSet.has(target.id.toLowerCase()),
 			);
-			const customNeedsSkills = customTargetsToSync.some((target) => Boolean(target.outputs.skills));
-			const customNeedsCommands = customTargetsToSync.some((target) => Boolean(target.outputs.commands));
+			const customNeedsSkills = customTargetsToSync.some((target) =>
+				Boolean(target.outputs.skills),
+			);
+			const customNeedsCommands = customTargetsToSync.some((target) =>
+				Boolean(target.outputs.commands),
+			);
 			const customNeedsSubagents = customTargetsToSync.some((target) => {
 				if (target.outputs.subagents) {
 					return true;
@@ -1376,12 +1371,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const hasInstructionsToSync =
 				selectedInstructionTargets.length > 0 || customNeedsInstructions;
 
-			if (
-				!hasSkillsToSync &&
-				!hasCommandsToSync &&
-				!hasSubagentsToSync &&
-				!hasInstructionsToSync
-			) {
+			if (!hasSkillsToSync && !hasCommandsToSync && !hasSubagentsToSync && !hasInstructionsToSync) {
 				const missingMessages: string[] = [];
 				if (skillsRequested && !skillsAvailable) {
 					const skillsLabel = includeLocalSkills
@@ -1389,7 +1379,10 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 						: skillsSourcePath;
 					missingMessages.push(`Canonical config source not found at ${skillsLabel}.`);
 				}
-				if ((selectedCommandTargets.length > 0 || customNeedsCommands) && !commandsStatus.available) {
+				if (
+					(selectedCommandTargets.length > 0 || customNeedsCommands) &&
+					!commandsStatus.available
+				) {
 					missingMessages.push(commandsStatus.reason);
 				}
 				const message =

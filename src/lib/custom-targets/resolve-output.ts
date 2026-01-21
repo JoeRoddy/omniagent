@@ -1,8 +1,10 @@
 import type {
 	CommandFallback,
 	CommandFormat,
+	CommandItem,
 	CommandOutputConfig,
 	CommandScope,
+	ConfigCallback,
 	ConfigValue,
 	ConvertContext,
 	InstructionOutputConfig,
@@ -10,6 +12,12 @@ import type {
 	SubagentOutputConfig,
 	TargetOutputsConfig,
 } from "./types.js";
+
+function isConfigCallback<TItem, TValue>(
+	value: ConfigValue<TItem, TValue>,
+): value is ConfigCallback<TItem, TValue> {
+	return typeof value === "function";
+}
 
 export async function resolveConfigValue<TItem, TValue>(options: {
 	value: ConfigValue<TItem, TValue> | undefined;
@@ -21,7 +29,7 @@ export async function resolveConfigValue<TItem, TValue>(options: {
 	if (value === undefined) {
 		return options.fallback;
 	}
-	if (typeof value === "function") {
+	if (isConfigCallback(value)) {
 		return (await value({ item: options.item, context: options.context })) as TValue;
 	}
 	return value as TValue;
@@ -80,7 +88,7 @@ export function resolveInstructionOutputConfig(
 
 export async function resolveCommandFormat(options: {
 	config: CommandOutputConfig;
-	item: { name: string };
+	item: CommandItem;
 	context: ConvertContext;
 }): Promise<CommandFormat> {
 	const resolved = await resolveConfigValue({
@@ -94,7 +102,7 @@ export async function resolveCommandFormat(options: {
 
 export async function resolveCommandScopes(options: {
 	config: CommandOutputConfig;
-	item: { name: string };
+	item: CommandItem;
 	context: ConvertContext;
 }): Promise<CommandScope[]> {
 	const resolved = await resolveConfigValue({
@@ -114,7 +122,7 @@ export async function resolveCommandScopes(options: {
 
 export async function resolveCommandFallback(options: {
 	config: CommandOutputConfig;
-	item: { name: string };
+	item: CommandItem;
 	context: ConvertContext;
 }): Promise<CommandFallback> {
 	const resolved = await resolveConfigValue({

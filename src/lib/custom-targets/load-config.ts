@@ -63,9 +63,7 @@ async function loadTypeScript() {
 		return await import("typescript");
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		throw new Error(
-			`TypeScript runtime is required to load omniagent.config.ts. ${message}`,
-		);
+		throw new Error(`TypeScript runtime is required to load omniagent.config.ts. ${message}`);
 	}
 }
 
@@ -74,9 +72,9 @@ function rewriteOmniagentImports(contents: string, stubUrl: string): string {
 	const dynamicRegex = /import\(\s*["']omniagent["']\s*\)/g;
 	const requireRegex = /require\(\s*["']omniagent["']\s*\)/g;
 	return contents
-		.replace(fromRegex, `from \"${stubUrl}\"`)
-		.replace(dynamicRegex, `import(\"${stubUrl}\")`)
-		.replace(requireRegex, `require(\"${stubUrl}\")`);
+		.replace(fromRegex, `from "${stubUrl}"`)
+		.replace(dynamicRegex, `import("${stubUrl}")`)
+		.replace(requireRegex, `require("${stubUrl}")`);
 }
 
 async function transpileConfig(configPath: string): Promise<string> {
@@ -122,9 +120,7 @@ export async function loadConfig(options: {
 	}
 
 	const compiled = await transpileConfig(configPath);
-	const tempName = `.omniagent.config.${Date.now()}-${Math.random()
-		.toString(36)
-		.slice(2)}.mjs`;
+	const tempName = `.omniagent.config.${Date.now()}-${Math.random().toString(36).slice(2)}.mjs`;
 	const tempPath = path.join(path.dirname(configPath), tempName);
 	try {
 		await writeFile(tempPath, compiled, "utf8");

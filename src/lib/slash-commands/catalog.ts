@@ -79,10 +79,7 @@ async function buildCommandDefinition(options: {
 	}
 
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
-	const { targets, invalidTargets } = resolveFrontmatterTargets(
-		rawTargets,
-		isKnownTargetName,
-	);
+	const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, isKnownTargetName);
 	if (invalidTargets.length > 0) {
 		const invalidList = invalidTargets.join(", ");
 		throw new InvalidFrontmatterTargetsError(

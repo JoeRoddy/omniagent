@@ -145,7 +145,9 @@ function mergeOutputConfigs(
 	const merged: ResolvedTargetOutputs = { ...base };
 	if ("skills" in override) {
 		const overrideValue = normalizeSkillOutput(override.skills);
-		merged.skills = base.skills ? { ...base.skills, ...stripUndefined(overrideValue ?? {}) } : overrideValue;
+		merged.skills = base.skills
+			? { ...base.skills, ...stripUndefined(overrideValue ?? {}) }
+			: overrideValue;
 	}
 	if ("commands" in override) {
 		const overrideValue = normalizeCommandOutput(override.commands);
@@ -166,7 +168,7 @@ function mergeOutputConfigs(
 		} else if (overrideValue === null) {
 			merged.instructions = base.instructions ?? null;
 		} else {
-			const baseValue = base.instructions && base.instructions !== false ? base.instructions : null;
+			const baseValue = base.instructions === false ? null : (base.instructions ?? null);
 			merged.instructions = baseValue
 				? { ...baseValue, ...stripUndefined(overrideValue ?? {}) }
 				: overrideValue;
@@ -234,16 +236,14 @@ function resolveMergedTarget(options: {
 
 export function resolveTargets(config: OmniagentConfig | null): TargetRegistry {
 	const builtIns = buildBuiltInTargets();
-	const builtInById = new Map(
-		builtIns.map((target) => [normalizeString(target.id), target]),
-	);
+	const builtInById = new Map(builtIns.map((target) => [normalizeString(target.id), target]));
 
 	const overriddenIds = new Set<string>();
 	const disabledIds = new Set<string>();
 
-	const targets = Array.isArray(config?.targets) ? config?.targets ?? [] : [];
+	const targets = Array.isArray(config?.targets) ? (config?.targets ?? []) : [];
 	const disabledTargets = Array.isArray(config?.disabledTargets)
-		? config?.disabledTargets ?? []
+		? (config?.disabledTargets ?? [])
 		: [];
 	for (const entry of disabledTargets) {
 		if (typeof entry === "string" && entry.trim()) {
@@ -279,9 +279,7 @@ export function resolveTargets(config: OmniagentConfig | null): TargetRegistry {
 		}
 		const override = overrides.get(normalized);
 		if (override) {
-			resolved.push(
-				resolveMergedTarget({ base, config: override, source: "override" }),
-			);
+			resolved.push(resolveMergedTarget({ base, config: override, source: "override" }));
 		} else {
 			resolved.push(base);
 		}
@@ -292,9 +290,7 @@ export function resolveTargets(config: OmniagentConfig | null): TargetRegistry {
 		if (disabledIds.has(normalized)) {
 			continue;
 		}
-		const base = target.extends
-			? builtInById.get(normalizeString(target.extends)) ?? null
-			: null;
+		const base = target.extends ? (builtInById.get(normalizeString(target.extends)) ?? null) : null;
 		resolved.push(resolveMergedTarget({ base, config: target, source: "custom" }));
 	}
 

@@ -1,28 +1,30 @@
+import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
 import { loadCommandCatalog, type SlashCommandDefinition } from "../slash-commands/catalog.js";
-import { extractFrontmatter } from "../slash-commands/frontmatter.js";
 import {
 	renderClaudeCommand,
 	renderGeminiCommand,
 	renderSkillFromCommand,
 } from "../slash-commands/formatting.js";
+import { extractFrontmatter } from "../slash-commands/frontmatter.js";
 import { normalizeConvertResult } from "./convert.js";
+import { runConvertHook } from "./hooks.js";
+import type { OutputWriter } from "./output-writer.js";
 import {
 	resolveCommandFallback,
 	resolveCommandFormat,
 	resolveCommandScopes,
 	resolveConfigValue,
 } from "./resolve-output.js";
-import { runConvertHook } from "./hooks.js";
 import type {
 	CommandItem,
 	ConvertContext,
+	ConvertResult,
 	OutputFile,
 	ResolvedTargetDefinition,
+	SkillItem,
 	SkillOutputConfig,
 } from "./types.js";
-import { OutputWriter } from "./output-writer.js";
-import path from "node:path";
 
 function normalizeTargetList(values: string[] | null | undefined): string[] {
 	return (values ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean);
@@ -48,7 +50,10 @@ function matchesTarget(options: {
 	return false;
 }
 
-function toSlashCommandDefinition(item: CommandItem, templatedContents: string): SlashCommandDefinition {
+function toSlashCommandDefinition(
+	item: CommandItem,
+	templatedContents: string,
+): SlashCommandDefinition {
 	const { frontmatter, body } = extractFrontmatter(templatedContents);
 	return {
 		name: item.name,
@@ -102,10 +107,7 @@ function buildOutputFile(options: {
 	};
 }
 
-function resolveSkillFallbackPath(options: {
-	basePath: string;
-	item: CommandItem;
-}): string {
+function resolveSkillFallbackPath(options: { basePath: string; item: CommandItem }): string {
 	return path.join(options.basePath, options.item.name, "SKILL.md");
 }
 
@@ -132,10 +134,7 @@ export async function writeCommandOutputs(options: {
 			item,
 			context: options.context,
 			onError: (message) =>
-				options.outputWriter.recordError(
-					options.target.id,
-					`Command ${item.name}: ${message}`,
-				),
+				options.outputWriter.recordError(options.target.id, `Command ${item.name}: ${message}`),
 			label: "beforeConvert",
 		});
 		if (!beforeOk) {
@@ -143,7 +142,7 @@ export async function writeCommandOutputs(options: {
 		}
 
 		if (outputConfig.convert) {
-			let converted;
+			let converted: ConvertResult;
 			try {
 				converted = await outputConfig.convert({ item, context: options.context });
 			} catch (error) {
@@ -272,7 +271,7 @@ export async function writeCommandOutputs(options: {
 			}
 			const basePathRaw = await resolveConfigValue({
 				value: options.skillOutput.path,
-				item,
+				item: item as unknown as SkillItem,
 				context: options.context,
 			});
 			if (!basePathRaw) {
@@ -318,9 +317,10 @@ export async function writeCommandOutputs(options: {
 			context: options.context,
 		});
 		const extension = format === "toml" ? ".toml" : ".md";
-		const content = format === "toml"
-			? renderGeminiCommand(templatedCommand)
-			: renderClaudeCommand(templatedCommand);
+		const content =
+			format === "toml"
+				? renderGeminiCommand(templatedCommand)
+				: renderClaudeCommand(templatedCommand);
 
 		for (const scope of scopes) {
 			const pathValue =
@@ -358,10 +358,7 @@ export async function writeCommandOutputs(options: {
 			item,
 			context: options.context,
 			onError: (hookMessage) =>
-				options.outputWriter.recordError(
-					options.target.id,
-					`Command ${item.name}: ${hookMessage}`,
-				),
+				options.outputWriter.recordError(options.target.id, `Command ${item.name}: ${hookMessage}`),
 			label: "afterConvert",
 		});
 	}

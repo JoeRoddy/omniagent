@@ -1,10 +1,10 @@
+import { loadCommandItems, writeCommandOutputs } from "./commands.js";
 import { createConvertContext } from "./context.js";
 import { runSyncHook } from "./hooks.js";
+import { loadInstructionItems, writeInstructionOutputs } from "./instructions.js";
 import { OutputWriter } from "./output-writer.js";
-import { loadCommandItems, writeCommandOutputs } from "./commands.js";
 import { loadSkillItems, writeSkillOutputs } from "./skills.js";
 import { loadSubagentItems, writeSubagentOutputs } from "./subagents.js";
-import { loadInstructionItems, writeInstructionOutputs } from "./instructions.js";
 import type { ConvertContext, OutputWriteCounts, ResolvedTargetDefinition } from "./types.js";
 
 export type CustomTargetSyncResult = {
@@ -36,10 +36,7 @@ export function formatCustomTargetSummary(
 	const lines: string[] = [];
 	for (const result of summary.results) {
 		const total =
-			result.counts.created +
-			result.counts.updated +
-			result.counts.skipped +
-			result.counts.failed;
+			result.counts.created + result.counts.updated + result.counts.skipped + result.counts.failed;
 		if (total === 0) {
 			lines.push(`No outputs for ${result.displayName}.`);
 		} else {
@@ -72,10 +69,7 @@ function resolveResultStatus(result: {
 	errors: string[];
 }): CustomTargetSyncResult["status"] {
 	const total =
-		result.counts.created +
-		result.counts.updated +
-		result.counts.skipped +
-		result.counts.failed;
+		result.counts.created + result.counts.updated + result.counts.skipped + result.counts.failed;
 	if (total === 0 && result.errors.length === 0) {
 		return "skipped";
 	}
@@ -91,7 +85,8 @@ async function runHooks(options: {
 	outputWriter: OutputWriter;
 	phase: "before" | "after";
 }): Promise<boolean> {
-	const hook = options.phase === "before" ? options.target.hooks.beforeSync : options.target.hooks.afterSync;
+	const hook =
+		options.phase === "before" ? options.target.hooks.beforeSync : options.target.hooks.afterSync;
 	return runSyncHook({
 		hook,
 		context: options.context,
@@ -153,6 +148,7 @@ export async function syncCustomTargets(options: {
 			target,
 			flags: options.flags,
 		});
+		const skillOutput = target.outputs.skills ?? null;
 		const beforeOk = await runHooks({
 			target,
 			context,
@@ -174,7 +170,7 @@ export async function syncCustomTargets(options: {
 		await writeCommandOutputs({
 			items: commandItems,
 			output: target.outputs.commands,
-			skillOutput: target.outputs.skills,
+			skillOutput,
 			context,
 			outputWriter,
 			target,
@@ -183,7 +179,7 @@ export async function syncCustomTargets(options: {
 		await writeSubagentOutputs({
 			items: subagentItems,
 			output: target.outputs.subagents,
-			skillOutput: target.outputs.skills,
+			skillOutput,
 			context,
 			outputWriter,
 			target,
@@ -227,7 +223,9 @@ export async function syncCustomTargets(options: {
 		};
 	});
 
-	const hadFailures = results.some((result) => result.status === "failed" || result.status === "partial");
+	const hadFailures = results.some(
+		(result) => result.status === "failed" || result.status === "partial",
+	);
 
 	return {
 		results,

@@ -4,15 +4,17 @@ import { stripFrontmatterFields } from "../frontmatter-strip.js";
 import { loadSubagentCatalog } from "../subagents/catalog.js";
 import { normalizeConvertResult } from "./convert.js";
 import { runConvertHook } from "./hooks.js";
+import type { OutputWriter } from "./output-writer.js";
 import { resolveConfigValue } from "./resolve-output.js";
 import type {
 	ConvertContext,
+	ConvertResult,
 	OutputFile,
 	ResolvedTargetDefinition,
+	SkillItem,
 	SkillOutputConfig,
 	SubagentItem,
 } from "./types.js";
-import { OutputWriter } from "./output-writer.js";
 
 const TARGET_FRONTMATTER_KEYS = new Set(["targets", "targetagents"]);
 const SKILL_FRONTMATTER_KEYS_TO_REMOVE = new Set([
@@ -114,10 +116,7 @@ export async function writeSubagentOutputs(options: {
 			item,
 			context: options.context,
 			onError: (message) =>
-				options.outputWriter.recordError(
-					options.target.id,
-					`Subagent ${item.name}: ${message}`,
-				),
+				options.outputWriter.recordError(options.target.id, `Subagent ${item.name}: ${message}`),
 			label: "beforeConvert",
 		});
 		if (!beforeOk) {
@@ -132,7 +131,7 @@ export async function writeSubagentOutputs(options: {
 		});
 
 		if (outputConfig?.convert) {
-			let converted;
+			let converted: ConvertResult;
 			try {
 				converted = await outputConfig.convert({ item, context: options.context });
 			} catch (error) {
@@ -260,10 +259,14 @@ export async function writeSubagentOutputs(options: {
 			continue;
 		}
 
-		if (!options.target.supports.subagents && options.target.source !== "custom" && options.skillOutput) {
+		if (
+			!options.target.supports.subagents &&
+			options.target.source !== "custom" &&
+			options.skillOutput
+		) {
 			const basePathRaw = await resolveConfigValue({
 				value: options.skillOutput.path,
-				item,
+				item: item as unknown as SkillItem,
 				context: options.context,
 			});
 			if (!basePathRaw) {
