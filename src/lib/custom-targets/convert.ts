@@ -8,7 +8,7 @@ export type NormalizedConvertResult =
 
 function isOutput(value: unknown): value is ConvertOutput {
 	return (
-		value !== null &&
+		Boolean(value) &&
 		typeof value === "object" &&
 		"path" in value &&
 		"content" in value &&

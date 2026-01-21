@@ -7,7 +7,9 @@ import type { OmniagentConfig } from "../../../src/lib/custom-targets/types.js";
 import { resolveSupportedAgentNames } from "../../../src/lib/supported-targets.js";
 import { setCustomTargetNames } from "../../../src/lib/sync-targets.js";
 
-async function withTempRepo(fn: (root: string, homeDir: string) => Promise<void>): Promise<void> {
+async function withTempRepo(
+	fn: (root: string, homeDir: string) => Promise<void>,
+): Promise<void> {
 	const root = await mkdtemp(path.join(os.tmpdir(), "omniagent-custom-sync-"));
 	const homeDir = path.join(root, "home");
 	await mkdir(homeDir, { recursive: true });
@@ -57,7 +59,9 @@ async function writeInstructionTemplate(
 	const filePath = path.join(root, "agents", relativePath);
 	await mkdir(path.dirname(filePath), { recursive: true });
 	const contents =
-		frontmatterLines.length > 0 ? ["---", ...frontmatterLines, "---", body, ""].join("\n") : body;
+		frontmatterLines.length > 0
+			? ["---", ...frontmatterLines, "---", body, ""].join("\n")
+			: body;
 	await writeFile(filePath, contents, "utf8");
 }
 
@@ -88,11 +92,15 @@ describe.sequential("custom target sync", () => {
 				targets: [{ id: "custom", outputs: { skills: "custom/skills" } }],
 			});
 
-			expect(await pathExists(path.join(root, "custom", "skills", "alpha", "SKILL.md"))).toBe(true);
-			expect(await pathExists(path.join(root, "custom", "skills", "hello", "SKILL.md"))).toBe(
+			expect(
+				await pathExists(path.join(root, "custom", "skills", "alpha", "SKILL.md")),
+			).toBe(true);
+			expect(
+				await pathExists(path.join(root, "custom", "skills", "hello", "SKILL.md")),
+			).toBe(false);
+			expect(await pathExists(path.join(root, "custom", "agents", "helper.md"))).toBe(
 				false,
 			);
-			expect(await pathExists(path.join(root, "custom", "agents", "helper.md"))).toBe(false);
 			expect(await pathExists(path.join(root, "AGENTS.md"))).toBe(true);
 		});
 	});
@@ -114,7 +122,9 @@ describe.sequential("custom target sync", () => {
 				],
 			});
 
-			expect(await pathExists(path.join(root, "out", "skills", "alpha", "SKILL.md"))).toBe(true);
+			expect(await pathExists(path.join(root, "out", "skills", "alpha", "SKILL.md"))).toBe(
+				true,
+			);
 			const commandPath = path.join(root, "out", "commands", "hello.toml");
 			expect(await pathExists(commandPath)).toBe(true);
 			const commandContents = await readFile(commandPath, "utf8");
@@ -146,7 +156,8 @@ describe.sequential("custom target sync", () => {
 						id: "callback",
 						outputs: {
 							skills: {
-								path: ({ item, context }) => path.join(context.repo, "out", "skills", item.name),
+								path: ({ item, context }) =>
+									path.join(context.repo, "out", "skills", item.name),
 							},
 							commands: {
 								path: ({ context }) =>
@@ -157,7 +168,8 @@ describe.sequential("custom target sync", () => {
 									path.join(context.repo, "out", "global-commands", context.target.id),
 							},
 							subagents: {
-								path: ({ context }) => path.join(context.repo, "out", "agents", context.target.id),
+								path: ({ context }) =>
+									path.join(context.repo, "out", "agents", context.target.id),
 							},
 							instructions: {
 								fileName: ({ item, context }) =>
@@ -169,18 +181,22 @@ describe.sequential("custom target sync", () => {
 				],
 			});
 
-			expect(await pathExists(path.join(root, "out", "skills", "alpha", "alpha", "SKILL.md"))).toBe(
-				true,
-			);
-			expect(await pathExists(path.join(root, "out", "commands", "callback", "ping.toml"))).toBe(
-				true,
-			);
 			expect(
-				await pathExists(path.join(root, "out", "global-commands", "callback", "ping.toml")),
+				await pathExists(
+					path.join(root, "out", "skills", "alpha", "alpha", "SKILL.md"),
+				),
 			).toBe(true);
-			expect(await pathExists(path.join(root, "out", "agents", "callback", "helper.md"))).toBe(
-				true,
-			);
+			expect(
+				await pathExists(path.join(root, "out", "commands", "callback", "ping.toml")),
+			).toBe(true);
+			expect(
+				await pathExists(
+					path.join(root, "out", "global-commands", "callback", "ping.toml"),
+				),
+			).toBe(true);
+			expect(
+				await pathExists(path.join(root, "out", "agents", "callback", "helper.md")),
+			).toBe(true);
 			const alphaDir = path.join(root, "docs", "alpha");
 			const alphaList = (await pathExists(alphaDir)) ? await readdir(alphaDir) : [];
 			expect(alphaList.some((entry) => entry.startsWith("callback-alpha.agents"))).toBe(true);
@@ -239,17 +255,20 @@ describe.sequential("custom target sync", () => {
 			});
 
 			expect(
-				await readFile(path.join(root, "out", "skills", "string-output", "SKILL.md"), "utf8"),
+				await readFile(
+					path.join(root, "out", "skills", "string-output", "SKILL.md"),
+					"utf8",
+				),
 			).toBe("string content");
 			expect(await pathExists(path.join(root, "out", "custom", "single.md"))).toBe(true);
 			expect(await pathExists(path.join(root, "out", "custom", "multi-a.md"))).toBe(true);
 			expect(await pathExists(path.join(root, "out", "custom", "multi-b.md"))).toBe(true);
-			expect(await pathExists(path.join(root, "out", "skills", "skip-output", "SKILL.md"))).toBe(
-				false,
-			);
-			expect(await pathExists(path.join(root, "out", "skills", "satisfy-output", "SKILL.md"))).toBe(
-				false,
-			);
+			expect(
+				await pathExists(path.join(root, "out", "skills", "skip-output", "SKILL.md")),
+			).toBe(false);
+			expect(
+				await pathExists(path.join(root, "out", "skills", "satisfy-output", "SKILL.md")),
+			).toBe(false);
 
 			const result = summary.results.find((entry) => entry.targetId === "converter");
 			expect(result?.counts.failed).toBe(1);
@@ -300,7 +319,8 @@ describe.sequential("custom target sync", () => {
 							commands: {
 								path: ({ context }) => path.join(context.repo, "out", "commands"),
 								scopes: () => ["project", "global"],
-								globalPath: ({ context }) => path.join(context.repo, "out", "global-commands"),
+								globalPath: ({ context }) =>
+									path.join(context.repo, "out", "global-commands"),
 								format: () => "markdown",
 							},
 						},
@@ -309,7 +329,9 @@ describe.sequential("custom target sync", () => {
 			});
 
 			expect(await pathExists(path.join(root, "out", "commands", "deploy.md"))).toBe(true);
-			expect(await pathExists(path.join(root, "out", "global-commands", "deploy.md"))).toBe(true);
+			expect(await pathExists(path.join(root, "out", "global-commands", "deploy.md"))).toBe(
+				true,
+			);
 		});
 	});
 
@@ -332,7 +354,9 @@ describe.sequential("custom target sync", () => {
 				],
 			});
 
-			expect(await pathExists(path.join(root, "out", "skills", "assist", "SKILL.md"))).toBe(true);
+			expect(
+				await pathExists(path.join(root, "out", "skills", "assist", "SKILL.md")),
+			).toBe(true);
 			expect(await pathExists(path.join(root, "out", "commands", "assist.md"))).toBe(false);
 		});
 	});
@@ -360,7 +384,8 @@ describe.sequential("custom target sync", () => {
 						hooks: {
 							beforeSync: ({ context }) => syncEvents.push(`before:${context.target.id}`),
 							afterSync: ({ context }) => syncEvents.push(`after:${context.target.id}`),
-							beforeConvert: ({ item }) => beforeConvert.push(`${item.itemType}:${item.name}`),
+							beforeConvert: ({ item }) =>
+								beforeConvert.push(`${item.itemType}:${item.name}`),
 							afterConvert: ({ item }) => afterConvert.push(`${item.itemType}:${item.name}`),
 						},
 					},
@@ -457,7 +482,9 @@ describe.sequential("custom target sync", () => {
 			const healthy = summary.results.find((entry) => entry.targetId === "healthy");
 			expect(broken?.status).toBe("failed");
 			expect(healthy?.status).toBe("synced");
-			expect(await pathExists(path.join(root, "out", "healthy", "alpha", "SKILL.md"))).toBe(true);
+			expect(
+				await pathExists(path.join(root, "out", "healthy", "alpha", "SKILL.md")),
+			).toBe(true);
 		});
 	});
 

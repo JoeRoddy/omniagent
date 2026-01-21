@@ -36,7 +36,7 @@ export type SkillSyncRequest = {
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 const TARGET_FRONTMATTER_KEYS = new Set(["targets", "targetagents"]);
-const ALL_TARGET_NAMES = TARGETS.map((target) => target.name) as TargetName[];
+const ALL_TARGET_NAMES = TARGETS.map((target) => target.name);
 
 function decodeUtf8(buffer: Buffer): string | null {
 	try {
@@ -233,7 +233,7 @@ function resolveEffectiveTargetsForSkill(
 	skill: SkillDefinition,
 	overrideOnly?: TargetName[] | null,
 	overrideSkip?: TargetName[] | null,
-): string[] {
+): TargetName[] {
 	return resolveEffectiveTargets({
 		defaultTargets: skill.targetAgents,
 		overrideOnly: overrideOnly ?? undefined,
@@ -257,7 +257,7 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 		agentsDir: request.agentsDir,
 	});
 	const warnings = buildInvalidTargetWarnings(catalog.skills);
-	const effectiveTargetsBySkill = new Map<SkillDefinition, string[]>();
+	const effectiveTargetsBySkill = new Map<SkillDefinition, TargetName[]>();
 	for (const skill of catalog.skills) {
 		effectiveTargetsBySkill.set(
 			skill,
@@ -265,7 +265,7 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 		);
 	}
 
-	const targetNames = new Set<string>(request.targets.map((target) => target.name));
+	const targetNames = new Set(request.targets.map((target) => target.name));
 	const sourceCounts: SyncSourceCounts = {
 		shared: 0,
 		local: 0,

@@ -179,9 +179,8 @@ function resolveEffectiveTargetsForSource(
 		overrideSkip: overrideSkip ?? undefined,
 		allTargets: ALL_TARGET_NAMES,
 	});
-	return effective.filter((target) =>
-		selectedTargets.has(target as InstructionTargetName),
-	) as InstructionTargetName[];
+	return effective.filter((target) => selectedTargets.has(target as InstructionTargetName)) as
+		InstructionTargetName[];
 }
 
 async function readExistingBuffer(filePath: string): Promise<Buffer | null> {

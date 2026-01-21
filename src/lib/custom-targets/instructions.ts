@@ -5,16 +5,15 @@ import { loadInstructionTemplateCatalog } from "../instructions/catalog.js";
 import { scanRepoInstructionSources } from "../instructions/scan.js";
 import { normalizeConvertResult } from "./convert.js";
 import { runConvertHook } from "./hooks.js";
-import type { OutputWriter } from "./output-writer.js";
 import { resolveConfigValue } from "./resolve-output.js";
 import type {
 	ConvertContext,
-	ConvertResult,
 	InstructionItem,
 	InstructionOutputConfig,
 	OutputFile,
 	ResolvedTargetDefinition,
 } from "./types.js";
+import { OutputWriter } from "./output-writer.js";
 
 const DEFAULT_INSTRUCTION_FILE = "AGENTS.md";
 
@@ -68,7 +67,9 @@ export async function loadInstructionItems(options: {
 	const warnings: string[] = [];
 	for (const template of templateCatalog.templates) {
 		if (!template.resolvedOutputDir) {
-			warnings.push(`Instruction template missing outPutPath: ${template.sourcePath}.`);
+			warnings.push(
+				`Instruction template missing outPutPath: ${template.sourcePath}.`,
+			);
 			continue;
 		}
 		items.push({
@@ -162,7 +163,8 @@ export async function writeInstructionOutputs(options: {
 		return;
 	}
 
-	const outputConfig: InstructionOutputConfig | null = options.output ?? null;
+	const outputConfig: InstructionOutputConfig | null =
+		options.output && options.output !== false ? options.output : null;
 	const isDefaultInstructions = options.output === null || options.output === undefined;
 
 	for (const item of options.items) {
@@ -217,7 +219,7 @@ export async function writeInstructionOutputs(options: {
 		});
 
 		if (outputConfig?.convert) {
-			let converted: ConvertResult;
+			let converted;
 			try {
 				converted = await outputConfig.convert({ item, context: options.context });
 			} catch (error) {
