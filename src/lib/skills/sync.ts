@@ -164,6 +164,17 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 		existing.push(message);
 		targetErrors.set(targetId, existing);
 	};
+	const converterErrorsByTarget = new Map<string, Set<string>>();
+	const formatItemError = (itemLabel: string, message: string) => `${itemLabel}: ${message}`;
+	const recordItemError = (targetId: string, itemLabel: string, message: string) => {
+		recordError(targetId, formatItemError(itemLabel, message));
+	};
+	const recordConverterError = (targetId: string, itemLabel: string, message: string) => {
+		recordItemError(targetId, itemLabel, message);
+		const existing = converterErrorsByTarget.get(targetId) ?? new Set<string>();
+		existing.add(itemLabel);
+		converterErrorsByTarget.set(targetId, existing);
+	};
 
 	const candidatesByPath = new Map<string, SkillOutputCandidate[]>();
 	for (const skill of catalog.skills) {
@@ -227,14 +238,17 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 		const writer = useDefaultWriter ? defaultSkillWriter : selected.writer;
 		const converter = selected.converter;
 		const target = selected.target;
+		const itemLabel = selected.skill.relativePath || selected.skill.name;
 		const recordManagedOutput = (entry: ManagedOutputRecord) => {
 			const key = buildManagedOutputKey(entry);
 			nextManaged.set(key, entry);
 			activeOutputPaths.add(normalizeManagedOutputPath(entry.outputPath));
 		};
 
+		let converterActive = false;
 		try {
 			if (converter) {
+				converterActive = true;
 				await runConvertHook(request.hooks, "preConvert", {
 					repoRoot: request.repoRoot,
 					agentsDir: agentsDirPath,
@@ -269,10 +283,12 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 					outputType: "skills",
 				});
 				if (normalized.error) {
-					recordError(target.id, normalized.error);
+					recordConverterError(target.id, itemLabel, normalized.error);
+					converterActive = false;
 					continue;
 				}
 				if (normalized.skip) {
+					converterActive = false;
 					continue;
 				}
 				for (const output of normalized.outputs) {
@@ -292,6 +308,7 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 						});
 					}
 				}
+				converterActive = false;
 				continue;
 			}
 
@@ -327,7 +344,12 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 				});
 			}
 		} catch (error) {
-			recordError(target.id, error instanceof Error ? error.message : String(error));
+			const message = error instanceof Error ? error.message : String(error);
+			if (converterActive) {
+				recordConverterError(target.id, itemLabel, message);
+			} else {
+				recordItemError(target.id, itemLabel, message);
+			}
 		}
 	}
 
@@ -390,6 +412,17 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 			updatedEntries.push(entry);
 		}
 		await writeManagedOutputs(request.repoRoot, { entries: updatedEntries }, homeDir);
+	}
+
+	for (const target of skillTargets) {
+		const items = converterErrorsByTarget.get(target.id);
+		if (items && items.size > 0) {
+			warnings.push(
+				`Converter errors in skills for ${target.displayName}: ${[...items]
+					.sort()
+					.join(", ")}.`,
+			);
+		}
 	}
 
 	for (const target of skillTargets) {

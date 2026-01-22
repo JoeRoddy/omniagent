@@ -1338,6 +1338,17 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 		existing.push(message);
 		targetErrors.set(targetId, existing);
 	};
+	const converterErrorsByTarget = new Map<string, Set<string>>();
+	const formatItemError = (itemLabel: string, message: string) => `${itemLabel}: ${message}`;
+	const recordItemError = (targetId: string, itemLabel: string, message: string) => {
+		recordError(targetId, formatItemError(itemLabel, message));
+	};
+	const recordConverterError = (targetId: string, itemLabel: string, message: string) => {
+		recordItemError(targetId, itemLabel, message);
+		const existing = converterErrorsByTarget.get(targetId) ?? new Set<string>();
+		existing.add(itemLabel);
+		converterErrorsByTarget.set(targetId, existing);
+	};
 
 	const candidatesByPath = new Map<string, CommandOutputCandidate[]>();
 	for (const command of catalog.commands) {
@@ -1460,6 +1471,7 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 		}
 		const selected = candidates[0];
 		const target = selected.target;
+		const itemLabel = selected.command.name;
 		const recordManagedOutput = (entry: ManagedOutputRecord) => {
 			const managedKey = buildManagedOutputKey(entry);
 			nextManaged.set(managedKey, entry);
@@ -1467,8 +1479,10 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 		};
 		const counts = getCounts(target.id);
 
+		let converterActive = false;
 		try {
 			if (selected.converter) {
+				converterActive = true;
 				await runConvertHook(request.hooks, "preConvert", {
 					repoRoot: request.repoRoot,
 					agentsDir: agentsDirPath,
@@ -1504,11 +1518,13 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 					outputType: "commands",
 				});
 				if (normalized.error) {
-					recordError(target.id, normalized.error);
+					recordConverterError(target.id, itemLabel, normalized.error);
+					converterActive = false;
 					continue;
 				}
 				if (normalized.skip) {
 					counts.skipped += 1;
+					converterActive = false;
 					continue;
 				}
 				for (const output of normalized.outputs) {
@@ -1529,6 +1545,7 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 					}
 				}
 				counts.converted += 1;
+				converterActive = false;
 				continue;
 			}
 
@@ -1614,7 +1631,12 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 				}
 			}
 		} catch (error) {
-			recordError(target.id, error instanceof Error ? error.message : String(error));
+			const message = error instanceof Error ? error.message : String(error);
+			if (converterActive) {
+				recordConverterError(target.id, itemLabel, message);
+			} else {
+				recordItemError(target.id, itemLabel, message);
+			}
 		}
 	}
 
@@ -1677,6 +1699,17 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 			updatedEntries.push(entry);
 		}
 		await writeManagedOutputs(request.repoRoot, { entries: updatedEntries }, homeDir);
+	}
+
+	for (const target of targets) {
+		const items = converterErrorsByTarget.get(target.id);
+		if (items && items.size > 0) {
+			warnings.push(
+				`Converter errors in commands for ${target.displayName}: ${[...items]
+					.sort()
+					.join(", ")}.`,
+			);
+		}
 	}
 
 	const results: SyncResult[] = [];

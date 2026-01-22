@@ -182,6 +182,17 @@ function selectCandidate(
 	return preferred ?? selectCandidateBySource(candidates);
 }
 
+function selectCollisionCandidate(
+	candidates: InstructionOutputCandidate[],
+): InstructionOutputCandidate | null {
+	if (candidates.length === 0) {
+		return null;
+	}
+	const templates = candidates.filter((candidate) => candidate.source.kind === "template");
+	const pool = templates.length > 0 ? templates : candidates;
+	return selectCandidateBySource(pool);
+}
+
 async function loadRepoSources(options: {
 	repoRoot: string;
 	includeLocal: boolean;
@@ -508,6 +519,33 @@ export async function syncInstructions(
 	for (const [key, candidate] of templateWinners) {
 		finalCandidates.set(key, candidate);
 	}
+
+	const outputPathGroups = new Map<string, InstructionOutputCandidate[]>();
+	for (const candidate of finalCandidates.values()) {
+		const outputKey = normalizeKeyPath(candidate.outputPath);
+		const list = outputPathGroups.get(outputKey) ?? [];
+		list.push(candidate);
+		outputPathGroups.set(outputKey, list);
+	}
+	for (const candidates of outputPathGroups.values()) {
+		if (candidates.length < 2) {
+			continue;
+		}
+		const selected = selectCollisionCandidate(candidates);
+		if (!selected) {
+			continue;
+		}
+		selected.writer = defaultInstructionWriter;
+		for (const candidate of candidates) {
+			if (candidate === selected) {
+				continue;
+			}
+			candidate.kind = "satisfied";
+			candidate.content = null;
+			candidate.writer = defaultInstructionWriter;
+		}
+	}
+
 	for (const key of finalCandidates.keys()) {
 		activeOutputKeys.add(key);
 	}

@@ -225,6 +225,96 @@ describe("custom target sync", () => {
 		});
 	});
 
+	it("summarizes subagent converter errors with item names", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSubagent(root, "helper", "Helper body");
+			await writeSubagent(root, "runner", "Runner body");
+			const outputDir = path.join(root, "converted-subagents");
+
+			const target = createTarget("acme", {
+				subagents: {
+					path: "{repoRoot}/.acme/agents/{itemName}.md",
+					converter: {
+						convert: (item) => {
+							const name = (item as { resolvedName?: string }).resolvedName ?? "";
+							if (name === "helper") {
+								return { error: "bad helper" };
+							}
+							return {
+								output: {
+									outputPath: path.join(outputDir, `${name}.md`),
+									content: "ok",
+								},
+							};
+						},
+					},
+				},
+			});
+
+			const summary = await syncSubagents({
+				repoRoot: root,
+				targets: [target],
+				validAgents: VALID_AGENTS,
+				removeMissing: true,
+			});
+
+			expect(summary.hadFailures).toBe(true);
+			expect(await readFile(path.join(outputDir, "runner.md"), "utf8")).toBe("ok");
+			expect(
+				summary.warnings.some(
+					(warning) =>
+						warning.includes("Converter errors in subagents") && warning.includes("helper"),
+				),
+			).toBe(true);
+		});
+	});
+
+	it("summarizes command converter errors with item names", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeCommand(root, "hello", "Say hello.");
+			await writeCommand(root, "goodbye", "Say goodbye.");
+			const outputDir = path.join(root, "converted-commands");
+
+			const target = createTarget("acme", {
+				commands: {
+					projectPath: "{repoRoot}/.acme/commands/{itemName}.md",
+					converter: {
+						convert: (item) => {
+							const name = (item as { name?: string }).name ?? "";
+							if (name === "hello") {
+								return { error: "bad hello" };
+							}
+							return {
+								output: {
+									outputPath: path.join(outputDir, `${name}.md`),
+									content: "ok",
+								},
+							};
+						},
+					},
+				},
+			});
+
+			const summary = await syncSlashCommands({
+				repoRoot: root,
+				targets: [target],
+				validAgents: VALID_AGENTS,
+				removeMissing: true,
+			});
+
+			expect(summary.hadFailures).toBe(true);
+			expect(await readFile(path.join(outputDir, "goodbye.md"), "utf8")).toBe("ok");
+			expect(
+				summary.warnings.some(
+					(warning) =>
+						warning.includes("Converter errors in commands") && warning.includes("hello"),
+				),
+			).toBe(true);
+		});
+	});
+
 	it("supports converter outputs and skip decisions", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
@@ -299,19 +389,25 @@ describe("custom target sync", () => {
 				},
 			});
 
-			const summary = await syncSkills({
-				repoRoot: root,
-				targets: [target],
-				validAgents: VALID_AGENTS,
-				removeMissing: true,
-			});
-
-			expect(summary.hadFailures).toBe(true);
-			expect(await readFile(outputPath, "utf8")).toBe("gamma");
-			const result = summary.results.find((entry) => entry.targetName === "acme");
-			expect(result?.status).toBe("failed");
+		const summary = await syncSkills({
+			repoRoot: root,
+			targets: [target],
+			validAgents: VALID_AGENTS,
+			removeMissing: true,
 		});
+
+		expect(summary.hadFailures).toBe(true);
+		expect(await readFile(outputPath, "utf8")).toBe("gamma");
+		expect(
+			summary.warnings.some(
+				(warning) =>
+					warning.includes("Converter errors in skills") && warning.includes("alpha"),
+			),
+		).toBe(true);
+		const result = summary.results.find((entry) => entry.targetName === "acme");
+		expect(result?.status).toBe("failed");
 	});
+});
 
 	it("uses default writers for skill output collisions", async () => {
 		await withTempRepo(async (root) => {
@@ -417,6 +513,44 @@ describe("custom target sync", () => {
 			expect(alphaResult?.counts.created).toBe(1);
 			expect(betaResult?.counts.total).toBe(0);
 			expect(betaResult?.message).toContain("Shared AGENTS.md output with alpha");
+		});
+	});
+
+	it("uses default instruction writer when outputs collide across groups", async () => {
+		await withTempRepo(async (root) => {
+			await writeInstructionTemplate(root, path.join("agents", "AGENTS.md"), "Shared instructions");
+
+			const customWriter: OutputWriter = {
+				id: "custom-instruction-writer",
+				write: async ({ outputPath }) => {
+					await mkdir(path.dirname(outputPath), { recursive: true });
+					await writeFile(outputPath, "CUSTOM", "utf8");
+					return { status: "created" };
+				},
+			};
+
+			const targetA = createTarget("alpha", {
+				instructions: {
+					filename: "AGENTS.md",
+					writer: customWriter,
+				},
+			});
+			const targetB = createTarget("beta", {
+				instructions: {
+					filename: "AGENTS.md",
+					writer: customWriter,
+				},
+			});
+
+			await syncInstructions({
+				repoRoot: root,
+				targets: [targetA, targetB],
+				validAgents: VALID_AGENTS,
+				nonInteractive: true,
+			});
+
+			const output = await readFile(path.join(root, "AGENTS.md"), "utf8");
+			expect(output).toBe("Shared instructions");
 		});
 	});
 

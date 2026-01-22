@@ -152,9 +152,7 @@ Define custom targets in the agents directory. The CLI auto-discovers the first 
 `omniagent.config.ts`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`.
 
 ```ts
-import type { OmniagentConfig } from "./src/lib/targets/config-types.js";
-
-const config: OmniagentConfig = {
+const config = {
 	targets: [
 		{
 			id: "acme",
