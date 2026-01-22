@@ -449,9 +449,7 @@ describe("instruction sync", () => {
 			});
 
 			const manifest = await readManifest(root);
-			const recorded = manifest?.entries.find((entry) =>
-				entry.outputPath.endsWith("CLAUDE.md"),
-			);
+			const recorded = manifest?.entries.find((entry) => entry.outputPath.endsWith("CLAUDE.md"));
 			expect(recorded).toBeTruthy();
 		});
 	});
