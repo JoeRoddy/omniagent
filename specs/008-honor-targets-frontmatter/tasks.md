@@ -22,7 +22,7 @@ of each story.
 
 **Purpose**: Shared utilities used by all stories
 
-- [x] T001 Add target normalization + validation helpers in `<repo>/src/lib/sync-targets.ts`
+- [x] T001 Add target normalization + validation helpers in `src/lib/sync-targets.ts`
 
 ---
 
@@ -30,10 +30,10 @@ of each story.
 
 **Purpose**: Core plumbing needed before any user story work
 
-- [x] T002 [P] Extend slash command catalog to combine `targets`/`targetAgents` and track invalids in `<repo>/src/lib/slash-commands/catalog.ts`
-- [x] T003 [P] Extend subagent catalog to parse `targets`/`targetAgents` defaults + invalids in `<repo>/src/lib/subagents/catalog.ts`
-- [x] T004 [P] Add skill catalog loader to parse `<repo>/agents/skills/**/SKILL.md` targets in `<repo>/src/lib/skills/catalog.ts`
-- [x] T005 Add effective target resolution helper (defaults + `--only`/`--skip`) in `<repo>/src/lib/sync-targets.ts`
+- [x] T002 [P] Extend slash command catalog to combine `targets`/`targetAgents` and track invalids in `src/lib/slash-commands/catalog.ts`
+- [x] T003 [P] Extend subagent catalog to parse `targets`/`targetAgents` defaults + invalids in `src/lib/subagents/catalog.ts`
+- [x] T004 [P] Add skill catalog loader to parse `agents/skills/**/SKILL.md` targets in `src/lib/skills/catalog.ts`
+- [x] T005 Add effective target resolution helper (defaults + `--only`/`--skip`) in `src/lib/sync-targets.ts`
 
 **Checkpoint**: Target normalization and catalogs ready; user story work can begin
 
@@ -48,9 +48,9 @@ sync without overrides; outputs appear only for those targets.
 
 ### Implementation for User Story 1
 
-- [x] T006 [P] [US1] Apply per-file target defaults for slash commands in `<repo>/src/lib/slash-commands/sync.ts`
-- [x] T007 [P] [US1] Apply per-file target defaults for subagents in `<repo>/src/lib/subagents/sync.ts`
-- [x] T008 [US1] Implement per-file skill selection in `<repo>/src/lib/skills/sync.ts` and wire it into `<repo>/src/cli/commands/sync.ts`
+- [x] T006 [P] [US1] Apply per-file target defaults for slash commands in `src/lib/slash-commands/sync.ts`
+- [x] T007 [P] [US1] Apply per-file target defaults for subagents in `src/lib/subagents/sync.ts`
+- [x] T008 [US1] Implement per-file skill selection in `src/lib/skills/sync.ts` and wire it into `src/cli/commands/sync.ts`
 
 **Checkpoint**: Default targeting works across skills, subagents, and slash commands
 
@@ -65,10 +65,10 @@ outputs match override behavior.
 
 ### Implementation for User Story 2
 
-- [x] T009 [US2] Pass raw `--only`/`--skip` lists through `<repo>/src/cli/commands/sync.ts` into skill, subagent, and command sync calls
-- [x] T010 [P] [US2] Update slash command selection to ignore defaults when `--only` is set and apply `--skip` after base in `<repo>/src/lib/slash-commands/sync.ts`
-- [x] T011 [P] [US2] Update subagent selection to ignore defaults when `--only` is set and apply `--skip` after base in `<repo>/src/lib/subagents/sync.ts`
-- [x] T012 [US2] Update skill selection to honor `--only`/`--skip` in `<repo>/src/lib/skills/sync.ts`
+- [x] T009 [US2] Pass raw `--only`/`--skip` lists through `src/cli/commands/sync.ts` into skill, subagent, and command sync calls
+- [x] T010 [P] [US2] Update slash command selection to ignore defaults when `--only` is set and apply `--skip` after base in `src/lib/slash-commands/sync.ts`
+- [x] T011 [P] [US2] Update subagent selection to ignore defaults when `--only` is set and apply `--skip` after base in `src/lib/subagents/sync.ts`
+- [x] T012 [US2] Update skill selection to honor `--only`/`--skip` in `src/lib/skills/sync.ts`
 
 **Checkpoint**: CLI overrides deterministically replace/filter per-file defaults
 
@@ -84,9 +84,9 @@ warnings plus correct output filtering.
 
 ### Implementation for User Story 3
 
-- [x] T013 [P] [US3] Surface invalid-target warnings for slash commands in `<repo>/src/lib/slash-commands/sync.ts`
-- [x] T014 [P] [US3] Surface invalid-target warnings for subagents and skills in `<repo>/src/lib/subagents/sync.ts` and `<repo>/src/lib/skills/sync.ts`, then print them in `<repo>/src/cli/commands/sync.ts`
-- [x] T015 [US3] Strip `targets`/`targetAgents` from all generated outputs in `<repo>/src/lib/slash-commands/formatting.ts`, `<repo>/src/lib/subagents/sync.ts`, and `<repo>/src/lib/skills/sync.ts`
+- [x] T013 [P] [US3] Surface invalid-target warnings for slash commands in `src/lib/slash-commands/sync.ts`
+- [x] T014 [P] [US3] Surface invalid-target warnings for subagents and skills in `src/lib/subagents/sync.ts` and `src/lib/skills/sync.ts`, then print them in `src/cli/commands/sync.ts`
+- [x] T015 [US3] Strip `targets`/`targetAgents` from all generated outputs in `src/lib/slash-commands/formatting.ts`, `src/lib/subagents/sync.ts`, and `src/lib/skills/sync.ts`
 
 **Checkpoint**: Invalid targets are visible to users and target metadata is removed from outputs
 
@@ -96,8 +96,8 @@ warnings plus correct output filtering.
 
 **Purpose**: Documentation and verification
 
-- [x] T016 [P] Document targets for skills/subagents and override behavior in `<repo>/README.md`
-- [x] T017 Run quickstart steps and update `<repo>/specs/008-honor-targets-frontmatter/quickstart.md` if needed
+- [x] T016 [P] Document targets for skills/subagents and override behavior in `README.md`
+- [x] T017 Run quickstart steps and update `specs/008-honor-targets-frontmatter/quickstart.md` if needed
 
 ---
 
@@ -128,8 +128,8 @@ warnings plus correct output filtering.
 ## Parallel Example: User Story 1
 
 ```bash
-Task: "Apply per-file target defaults for slash commands in <repo>/src/lib/slash-commands/sync.ts"
-Task: "Apply per-file target defaults for subagents in <repo>/src/lib/subagents/sync.ts"
+Task: "Apply per-file target defaults for slash commands in src/lib/slash-commands/sync.ts"
+Task: "Apply per-file target defaults for subagents in src/lib/subagents/sync.ts"
 ```
 
 ---
@@ -137,8 +137,8 @@ Task: "Apply per-file target defaults for subagents in <repo>/src/lib/subagents/
 ## Parallel Example: User Story 2
 
 ```bash
-Task: "Update slash command selection to ignore defaults when --only is set in <repo>/src/lib/slash-commands/sync.ts"
-Task: "Update subagent selection to ignore defaults when --only is set in <repo>/src/lib/subagents/sync.ts"
+Task: "Update slash command selection to ignore defaults when --only is set in src/lib/slash-commands/sync.ts"
+Task: "Update subagent selection to ignore defaults when --only is set in src/lib/subagents/sync.ts"
 ```
 
 ---

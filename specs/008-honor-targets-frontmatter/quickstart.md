@@ -1,7 +1,7 @@
 # Quickstart: Honor Targets Frontmatter
 
 **Date**: 2026-01-14  
-**Feature**: `<repo>/specs/008-honor-targets-frontmatter/spec.md`
+**Feature**: `specs/008-honor-targets-frontmatter/spec.md`
 
 ## Example Usage
 

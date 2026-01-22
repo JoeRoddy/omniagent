@@ -3,7 +3,7 @@
 **Feature Branch**: `004-sync-agent-config`  
 **Created**: January 10, 2026  
 **Status**: Draft  
-**Input**: User description: "create a cli command called sync that synchronizes the agent config to all target agents. here is an example shell script from another project that inspired this oss project: set -euo pipefail ROOT_DIR=$(cd $(dirname ${BASH_SOURCE[0]})/.. && pwd) SRC=$ROOT_DIR/agents/skills usage() { cat <<EOF Sync shared coding agent configs to multiple destinations. Usage: ./agents/sync.sh Options: --skip Skip one or more destinations (names: codex, claude, copilot) ./agents/sync.sh --skip codex,copilot --only Sync only the listed destinations (names: codex, claude, copilot) ./agents/sync.sh --only claude --help Show this help text EOF } if [[ ! -d $SRC ]]; then echo Source skills directory not found: $SRC >&2 exit 1 fi DESTS=( codex:$ROOT_DIR/.codex/skills claude:$ROOT_DIR/.claude/skills copilot:$ROOT_DIR/.github/skills ) SKIP=() ONLY=() while [[ $# -gt 0 ]]; do case $1 in --skip) shift IFS=, read -r -a SKIP <<< ${1:-} ;; --only) shift IFS=, read -r -a ONLY <<< ${1:-} ;; -h|--help) usage exit 0 ;; *) echo Unknown option: $1 >&2 usage >&2 exit 2 ;; esac shift done if [[ ${#SKIP[@]} -gt 0 && ${#ONLY[@]} -gt 0 ]]; then echo Use either --skip or --only, not both. >&2 exit 2 fi should_sync() { local name=$1 if [[ ${#ONLY[@]} -gt 0 ]]; then for item in ${ONLY[@]}; do [[ $item == $name ]] && return 0 done return 1 fi if [[ ${#SKIP[@]} -gt 0 ]]; then for item in ${SKIP[@]}; do [[ $item == $name ]] && return 1 done fi return 0 } for entry in ${DESTS[@]}; do name=${entry%%:*} dest=${entry#*:} if [[ $SRC == $ROOT_DIR/* ]]; then src_display=${SRC#$ROOT_DIR/} else src_display=$SRC fi if [[ $dest == $ROOT_DIR/* ]]; then dest_display=${dest#$ROOT_DIR/} else dest_display=$dest fi if ! should_sync $name; then echo Skipped $src_display -> $dest_display continue fi mkdir -p $dest rsync -a $SRC/ $dest/ echo Synced $src_display -> $dest_display done"
+**Input**: User description: "create a cli command called sync that synchronizes the agent config to all target agents. here is an example shell script from another project that inspired this oss project: set -euo pipefail ROOT_DIR=$(cd $(dirname ${BASH_SOURCE[0]})/.. && pwd) SRC=$ROOT_DIR/agents/skills usage() { cat <<EOF Sync shared coding agent configs to multiple destinations. Usage: ./agents/sync.sh Options: --skip Skip one or more destinations (names: codex, claude, copilot) ./agents/sync.sh --skip codex,copilot --only Sync only the listed destinations (names: codex, claude, copilot) ./agents/sync.sh --only claude --help Show this help text EOF } if [[! -d $SRC]]; then echo Source skills directory not found: $SRC >&2 exit 1 fi DESTS=( codex:$ROOT_DIR/.codex/skills claude:$ROOT_DIR/.claude/skills copilot:$ROOT_DIR/.github/skills ) SKIP=() ONLY=() while [[$# -gt 0]]; do case $1 in --skip) shift IFS=, read -r -a SKIP <<< ${1:-} ;; --only) shift IFS=, read -r -a ONLY <<< ${1:-} ;; -h|--help) usage exit 0 ;; *) echo Unknown option: $1 >&2 usage >&2 exit 2 ;; esac shift done if [[ ${#SKIP[@]} -gt 0 && ${#ONLY[@]} -gt 0 ]]; then echo Use either --skip or --only, not both. >&2 exit 2 fi should_sync() { local name=$1 if [[ ${#ONLY[@]} -gt 0 ]]; then for item in ${ONLY[@]}; do [[ $item == $name ]] && return 0 done return 1 fi if [[ ${#SKIP[@]} -gt 0 ]]; then for item in ${SKIP[@]}; do [[ $item == $name ]] && return 1 done fi return 0 } for entry in ${DESTS[@]}; do name=${entry%%:_} dest=${entry#_:} if [[$SRC == $ROOT_DIR/*]]; then src_display=${SRC#$ROOT_DIR/} else src_display=$SRC fi if [[ $dest == $ROOT_DIR/* ]]; then dest_display=${dest#$ROOT_DIR/} else dest_display=$dest fi if ! should_sync $name; then echo Skipped $src_display -> $dest_display continue fi mkdir -p $dest rsync -a $SRC/ $dest/ echo Synced $src_display -> $dest_display done"
 
 ## Clarifications
 
@@ -11,11 +11,11 @@
 
 - Q: Should sync delete destination-only files? → A: Non-destructive; overwrite source files and keep extra destination files.
 - Q: Should the command work from any repo subdirectory? → A: Yes; resolve repo root automatically.
-- Q: Should missing-source errors reference the repo root path? → A: Yes; resolve repo root via repo markers (e.g., `.git` or `package.json`) and report `<repo>/agents/skills`.
+- Q: Should missing-source errors reference the repo root path? → A: Yes; resolve repo root via repo markers (e.g., `.git` or `package.json`) and report `agents/skills`.
 - Q: If syncing one target fails, should the command continue? → A: Continue other targets; report all results; exit non-zero if any failed.
 - Q: How should unknown target names be handled? → A: Error and perform no sync.
 
-## User Scenarios & Testing *(mandatory)*
+## User Scenarios & Testing _(mandatory)_
 
 ### User Story 1 - Sync all target agents (Priority: P1)
 
@@ -74,7 +74,7 @@ As a user, I want clear help text and actionable error messages so I can correct
 - What happens when the user lacks write permission to a destination directory?
 - How does the system handle unknown flags or malformed option values?
 
-## Requirements *(mandatory)*
+## Requirements _(mandatory)_
 
 ### Functional Requirements
 
@@ -93,9 +93,9 @@ As a user, I want clear help text and actionable error messages so I can correct
 - **FR-013**: The sync command MUST be portable across supported operating systems and MUST NOT require external command-line tools to perform file operations.
 - **FR-014**: The system MUST resolve the repository root automatically when invoked from a subdirectory of the working copy.
 - **FR-015**: The system MUST continue syncing remaining targets after a per-target failure and MUST exit non-zero if any target failed.
-- **FR-016**: The system MUST report missing-source errors using the repository root path (`<repo>/agents/skills`) when the repo root can be resolved.
+- **FR-016**: The system MUST report missing-source errors using the repository root path (`agents/skills`) when the repo root can be resolved.
 
-### Key Entities *(include if feature involves data)*
+### Key Entities _(include if feature involves data)_
 
 - **Canonical Config Set**: The authoritative collection of agent configuration files to be synced.
 - **Target Agent**: A named destination that receives the canonical config (e.g., codex, claude, copilot).
@@ -110,7 +110,7 @@ As a user, I want clear help text and actionable error messages so I can correct
 - Repo root detection relies on repo markers such as `.git` or `package.json` when the canonical source directory is missing.
 - No external services are required to complete a sync.
 
-## Success Criteria *(mandatory)*
+## Success Criteria _(mandatory)_
 
 ### Measurable Outcomes
 

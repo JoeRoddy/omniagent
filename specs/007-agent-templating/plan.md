@@ -1,6 +1,6 @@
 # Implementation Plan: Agent-Specific Templating
 
-**Branch**: `007-agent-templating` | **Date**: 2026-01-12 | **Spec**: <repo>/specs/007-agent-templating/spec.md
+**Branch**: `007-agent-templating` | **Date**: 2026-01-12 | **Spec**: specs/007-agent-templating/spec.md
 **Input**: Feature specification from `/specs/007-agent-templating/spec.md`
 
 **Note**: This plan follows the `/speckit.plan` workflow.
@@ -40,7 +40,7 @@ _GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 ### Documentation (this feature)
 
 ```text
-<repo>/specs/007-agent-templating/
+specs/007-agent-templating/
 ├── plan.md              # This file (/speckit.plan output)
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output
@@ -82,7 +82,7 @@ tests/
   - Rationale: reduces user error while keeping explicit scope.
   - Alternatives considered: case-sensitive matching or unrestricted identifiers.
 
-**Output**: `<repo>/specs/007-agent-templating/research.md`
+**Output**: `specs/007-agent-templating/research.md`
 
 ## Phase 1: Design & Contracts
 
@@ -90,23 +90,23 @@ tests/
 
 - Capture Template Block and Agent Identifier entities and validation rules from the spec.
 
-**Output**: `<repo>/specs/007-agent-templating/data-model.md`
+**Output**: `specs/007-agent-templating/data-model.md`
 
 ### Contracts
 
 - No external HTTP/GraphQL APIs are introduced; document CLI-facing contract notes.
 
-**Output**: `<repo>/specs/007-agent-templating/contracts/README.md`
+**Output**: `specs/007-agent-templating/contracts/README.md`
 
 ### Quickstart
 
 - Provide user-facing examples for the finalized syntax and error behavior.
 
-**Output**: `<repo>/specs/007-agent-templating/quickstart.md`
+**Output**: `specs/007-agent-templating/quickstart.md`
 
 ### Agent Context Update
 
-- Run `<repo>/.specify/scripts/bash/update-agent-context.sh codex` after design artifacts are generated.
+- Run `.specify/scripts/bash/update-agent-context.sh codex` after design artifacts are generated.
 
 ## Phase 2: Planning Handoff
 

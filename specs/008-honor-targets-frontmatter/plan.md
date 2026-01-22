@@ -1,6 +1,6 @@
 # Implementation Plan: Honor Targets Frontmatter
 
-**Branch**: `008-honor-targets-frontmatter` | **Date**: 2026-01-14 | **Spec**: `<repo>/specs/008-honor-targets-frontmatter/spec.md`
+**Branch**: `008-honor-targets-frontmatter` | **Date**: 2026-01-14 | **Spec**: `specs/008-honor-targets-frontmatter/spec.md`
 **Input**: Feature specification from `/specs/008-honor-targets-frontmatter/spec.md`
 
 ## Summary
@@ -126,7 +126,7 @@ CLI usage and tests; no HTTP or RPC endpoints are introduced.
 
 ### Agent Context Update
 
-- Run `<repo>/.specify/scripts/bash/update-agent-context.sh codex`
+- Run `.specify/scripts/bash/update-agent-context.sh codex`
 - Confirm manual additions preserved
 
 ## Phase 1 Constitution Re-Check

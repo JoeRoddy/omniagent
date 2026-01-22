@@ -2,7 +2,7 @@
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-01-12
-**Feature**: <repo>/specs/007-agent-templating/spec.md
+**Feature**: specs/007-agent-templating/spec.md
 
 ## Content Quality
 

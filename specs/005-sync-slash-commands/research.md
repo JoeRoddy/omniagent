@@ -1,6 +1,7 @@
 # Research Findings: Sync Custom Slash Commands
 
 ## Canonical Command Source
+
 - Decision: Store canonical slash commands as Markdown files under
   `agents/commands/`, using Claude Code's command definition format as the
   source of truth. The filename (without `.md`) is the command name and the file
@@ -11,8 +12,9 @@
   JSON-based schema (rejected for markdown-first principle).
 
 ## Gemini CLI Custom Commands
+
 - Decision: Map each canonical command to a TOML file at either
-  `<repo>/.gemini/commands/` (project) or `~/.gemini/commands/` (global), using
+  `.gemini/commands/` (project) or `~/.gemini/commands/` (global), using
   `prompt` and optional `description` fields.
 - Rationale: Gemini CLI requires TOML with `prompt` and supports optional
   `description`; project commands override user commands with the same name and
@@ -21,6 +23,7 @@
   support and TOML requirements).
 
 ## Claude Code Custom Commands
+
 - Decision: Treat Claude Code's Markdown command format as canonical and map
   other agents to it. Use `.claude/commands/` (project) or `~/.claude/commands/`
   (personal) for direct sync.
@@ -30,6 +33,7 @@
   Code to it (adds unnecessary transformation complexity).
 
 ## Codex Custom Prompts
+
 - Decision: Map commands to `~/.codex/prompts/*.md` only. Project-level prompts
   are not supported; offer conversion to skills as an alternative (skip by
   excluding the target).
@@ -39,6 +43,7 @@
   supported by Codex).
 
 ## GitHub Copilot CLI
+
 - Decision: Treat custom slash commands as unsupported for Copilot CLI and
   convert commands to skills by default (skip by excluding the target).
 - Rationale: Copilot CLI currently exposes only built-in slash commands, and a
@@ -47,6 +52,7 @@
   (no evidence of support).
 
 ## Sync State Tracking and Deletions
+
 - Decision: Track managed commands per target in a small manifest file (TOML)
   stored alongside target outputs and remove only commands listed in the
   manifest when they are removed from the shared catalog.
@@ -55,6 +61,7 @@
   full directories (too destructive).
 
 ## Non-Interactive Defaults
+
 - Decision: Support `--yes` to accept defaults for all prompts. Defaults are:
   project scope for agents that support project/global, global scope for Codex
   conversions, convert-to-skills for unsupported agents, and skip on conflicts.
