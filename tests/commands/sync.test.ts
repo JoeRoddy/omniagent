@@ -385,8 +385,7 @@ describe.sequential("sync command", () => {
 			});
 
 			const warning = logSpy.mock.calls.find(
-				([message]) =>
-					typeof message === "string" && message.includes("Codex only supports global prompts"),
+				([message]) => typeof message === "string" && message.includes("commands are user-only"),
 			);
 			expect(warning).toBeTruthy();
 		});
@@ -448,7 +447,7 @@ describe.sequential("sync command", () => {
 
 			expect(errorSpy).toHaveBeenCalled();
 			expect(errorSpy).toHaveBeenCalledWith(
-				expect.stringContaining("Valid agents: codex, claude, copilot, gemini."),
+				expect.stringContaining("Valid agents: codex, claude, gemini, copilot."),
 			);
 			expect(exitSpy).toHaveBeenCalledWith(1);
 			expect(await pathExists(path.join(root, ".claude", "commands"))).toBe(false);

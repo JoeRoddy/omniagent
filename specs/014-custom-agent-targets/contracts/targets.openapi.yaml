@@ -1,0 +1,275 @@
+openapi: 3.1.0
+info:
+  title: Omniagent Target Configuration API (conceptual)
+  version: 0.1.0
+  description: |
+    Conceptual API contract describing config validation, target resolution, and sync
+    operations for custom agent targets.
+servers:
+  - url: http://localhost
+paths:
+  /targets/validate:
+    post:
+      summary: Validate a target configuration payload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TargetConfig"
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationResult"
+  /targets/resolve:
+    post:
+      summary: Resolve built-in and custom targets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TargetResolveRequest"
+      responses:
+        "200":
+          description: Resolved target set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TargetResolveResponse"
+  /sync:
+    post:
+      summary: Run a sync for selected targets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncRequest"
+      responses:
+        "200":
+          description: Sync summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncResponse"
+components:
+  schemas:
+    TargetConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/TargetDefinition"
+        disableTargets:
+          type: array
+          items:
+            type: string
+        hooks:
+          $ref: "#/components/schemas/SyncHooks"
+    TargetDefinition:
+      type: object
+      additionalProperties: false
+      required: [id]
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        aliases:
+          type: array
+          items:
+            type: string
+        inherits:
+          type: string
+        override:
+          type: boolean
+        outputs:
+          $ref: "#/components/schemas/TargetOutputs"
+        hooks:
+          $ref: "#/components/schemas/TargetHooks"
+    TargetOutputs:
+      type: object
+      additionalProperties: false
+      properties:
+        skills:
+          $ref: "#/components/schemas/OutputDefinition"
+        commands:
+          $ref: "#/components/schemas/CommandOutputDefinition"
+        subagents:
+          $ref: "#/components/schemas/OutputDefinition"
+        instructions:
+          $ref: "#/components/schemas/InstructionOutputDefinition"
+    OutputDefinition:
+      oneOf:
+        - type: string
+        - type: object
+          additionalProperties: false
+          required: [path]
+          properties:
+            path:
+              type: string
+            writer:
+              $ref: "#/components/schemas/WriterRef"
+            converter:
+              $ref: "#/components/schemas/ConverterRef"
+            fallback:
+              $ref: "#/components/schemas/FallbackRule"
+    CommandOutputDefinition:
+      oneOf:
+        - type: string
+        - type: object
+          additionalProperties: false
+          properties:
+            projectPath:
+              type: string
+            userPath:
+              type: string
+            writer:
+              $ref: "#/components/schemas/WriterRef"
+            converter:
+              $ref: "#/components/schemas/ConverterRef"
+            fallback:
+              $ref: "#/components/schemas/FallbackRule"
+    InstructionOutputDefinition:
+      oneOf:
+        - type: string
+        - type: object
+          additionalProperties: false
+          required: [filename]
+          properties:
+            filename:
+              type: string
+            group:
+              type: string
+            writer:
+              $ref: "#/components/schemas/WriterRef"
+            converter:
+              $ref: "#/components/schemas/ConverterRef"
+    WriterRef:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+    ConverterRef:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+    FallbackRule:
+      type: object
+      additionalProperties: false
+      properties:
+        mode:
+          type: string
+          enum: [skip, convert]
+        targetType:
+          type: string
+          enum: [skills, commands, subagents, instructions]
+    SyncHooks:
+      type: object
+      additionalProperties: false
+      properties:
+        preSync:
+          $ref: "#/components/schemas/HookRef"
+        postSync:
+          $ref: "#/components/schemas/HookRef"
+        preConvert:
+          $ref: "#/components/schemas/HookRef"
+        postConvert:
+          $ref: "#/components/schemas/HookRef"
+    TargetHooks:
+      type: object
+      additionalProperties: false
+      properties:
+        preSync:
+          $ref: "#/components/schemas/HookRef"
+        postSync:
+          $ref: "#/components/schemas/HookRef"
+        preConvert:
+          $ref: "#/components/schemas/HookRef"
+        postConvert:
+          $ref: "#/components/schemas/HookRef"
+    HookRef:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+    ValidationResult:
+      type: object
+      additionalProperties: false
+      required: [valid, errors]
+      properties:
+        valid:
+          type: boolean
+        errors:
+          type: array
+          items:
+            type: string
+    TargetResolveRequest:
+      type: object
+      additionalProperties: false
+      required: [config]
+      properties:
+        config:
+          $ref: "#/components/schemas/TargetConfig"
+        includeBuiltIns:
+          type: boolean
+          default: true
+    TargetResolveResponse:
+      type: object
+      additionalProperties: false
+      required: [targets]
+      properties:
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResolvedTarget"
+    ResolvedTarget:
+      type: object
+      additionalProperties: false
+      required: [id, outputs]
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        aliases:
+          type: array
+          items:
+            type: string
+        outputs:
+          $ref: "#/components/schemas/TargetOutputs"
+        isBuiltIn:
+          type: boolean
+    SyncRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        targets:
+          type: array
+          items:
+            type: string
+        config:
+          $ref: "#/components/schemas/TargetConfig"
+        removeMissing:
+          type: boolean
+    SyncResponse:
+      type: object
+      additionalProperties: false
+      required: [success, errors]
+      properties:
+        success:
+          type: boolean
+        errors:
+          type: array
+          items:
+            type: string

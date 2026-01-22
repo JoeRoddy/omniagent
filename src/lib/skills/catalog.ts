@@ -13,12 +13,13 @@ import {
 } from "../local-sources.js";
 import { extractFrontmatter, type FrontmatterValue } from "../slash-commands/frontmatter.js";
 import {
+	createTargetNameResolver,
 	hasRawTargetValues,
 	InvalidFrontmatterTargetsError,
-	isTargetName,
 	resolveFrontmatterTargets,
 	type TargetName,
 } from "../sync-targets.js";
+import { BUILTIN_TARGETS } from "../targets/builtins.js";
 
 export type SkillDefinition = {
 	name: string;
@@ -50,6 +51,7 @@ export type SkillCatalog = {
 export type LoadSkillCatalogOptions = {
 	includeLocal?: boolean;
 	agentsDir?: string | null;
+	resolveTargetName?: (value: string) => string | null;
 };
 
 function resolveSkillName(frontmatter: Record<string, FrontmatterValue>, fallback: string): string {
@@ -92,6 +94,7 @@ async function buildSkillDefinition(options: {
 	skillFileName: string;
 	sourceType: SourceType;
 	markerType?: LocalMarkerType;
+	resolveTargetName: (value: string) => string | null;
 }): Promise<SkillDefinition> {
 	let metadata: ReturnType<typeof buildSourceMetadata>;
 	if (options.sourceType === "local") {
@@ -110,7 +113,10 @@ async function buildSkillDefinition(options: {
 		options.relativePath ?? path.relative(options.skillsRoot, options.directoryPath);
 	const name = resolveSkillName(frontmatter, relativePath || path.basename(options.directoryPath));
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
-	const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, isTargetName);
+	const { targets, invalidTargets } = resolveFrontmatterTargets(
+		rawTargets,
+		options.resolveTargetName,
+	);
 	if (invalidTargets.length > 0) {
 		const invalidList = invalidTargets.join(", ");
 		throw new InvalidFrontmatterTargetsError(
@@ -145,6 +151,8 @@ export async function loadSkillCatalog(
 	options: LoadSkillCatalogOptions = {},
 ): Promise<SkillCatalog> {
 	const includeLocal = options.includeLocal ?? true;
+	const fallbackResolver = createTargetNameResolver(BUILTIN_TARGETS).resolveTargetName;
+	const resolveTargetName = options.resolveTargetName ?? fallbackResolver;
 	const skillsRoot = resolveSharedCategoryRoot(repoRoot, "skills", options.agentsDir);
 	const localSkillsRoot = resolveLocalCategoryRoot(repoRoot, "skills", options.agentsDir);
 
@@ -186,6 +194,7 @@ export async function loadSkillCatalog(
 					skillFileName,
 					sourceType: "local",
 					markerType: "suffix",
+					resolveTargetName,
 				}),
 			);
 			continue;
@@ -198,6 +207,7 @@ export async function loadSkillCatalog(
 					relativePath,
 					skillFileName: entry.sharedSkillFile,
 					sourceType: "shared",
+					resolveTargetName,
 				}),
 			);
 		}
@@ -210,6 +220,7 @@ export async function loadSkillCatalog(
 					skillFileName: entry.localSkillFile,
 					sourceType: "local",
 					markerType: "suffix",
+					resolveTargetName,
 				}),
 			);
 		}
@@ -230,6 +241,7 @@ export async function loadSkillCatalog(
 					skillFileName,
 					sourceType: "local",
 					markerType: "path",
+					resolveTargetName,
 				}),
 			);
 		}

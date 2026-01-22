@@ -90,7 +90,6 @@ describe("slash command sync planning", () => {
 			const plan = await planSlashCommandSync({
 				repoRoot: root,
 				targets: ["copilot"],
-				unsupportedFallback: "convert_to_skills",
 				conflictResolution: "skip",
 				removeMissing: true,
 			});
@@ -117,7 +116,6 @@ describe("slash command sync planning", () => {
 			const plan = await planSlashCommandSync({
 				repoRoot: root,
 				targets: ["copilot"],
-				unsupportedFallback: "convert_to_skills",
 				conflictResolution: "skip",
 				removeMissing: true,
 			});
@@ -145,7 +143,6 @@ describe("slash command sync planning", () => {
 			const plan = await planSlashCommandSync({
 				repoRoot: root,
 				targets: ["copilot"],
-				unsupportedFallback: "convert_to_skills",
 				conflictResolution: "skip",
 				removeMissing: true,
 			});
@@ -194,8 +191,20 @@ describe("slash command sync planning", () => {
 			const plan = await planSlashCommandSync({
 				repoRoot: root,
 				targets: ["codex"],
-				codexOption: "convert_to_skills",
-				codexConversionScope: "project",
+				config: {
+					targets: [
+						{
+							id: "codex",
+							override: true,
+							outputs: {
+								commands: {
+									userPath: "{homeDir}/.codex/prompts/{itemName}.md",
+									fallback: { mode: "convert", targetType: "skills" },
+								},
+							},
+						},
+					],
+				},
 				conflictResolution: "skip",
 				removeMissing: true,
 			});

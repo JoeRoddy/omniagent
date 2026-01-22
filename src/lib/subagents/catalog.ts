@@ -11,11 +11,13 @@ import {
 	stripLocalSuffix,
 } from "../local-sources.js";
 import {
+	createTargetNameResolver,
 	hasRawTargetValues,
 	InvalidFrontmatterTargetsError,
 	resolveFrontmatterTargets,
 } from "../sync-targets.js";
-import { isSubagentTargetName, type SubagentTargetName } from "./targets.js";
+import { BUILTIN_TARGETS } from "../targets/builtins.js";
+import type { SubagentTargetName } from "./targets.js";
 
 export type FrontmatterValue = string | string[];
 
@@ -37,7 +39,7 @@ export type SubagentCatalog = {
 	repoRoot: string;
 	catalogPath: string;
 	localCatalogPath: string;
-	canonicalStandard: "claude_code";
+	canonicalStandard: "canonical";
 	subagents: SubagentDefinition[];
 	sharedSubagents: SubagentDefinition[];
 	localSubagents: SubagentDefinition[];
@@ -65,6 +67,7 @@ async function listCatalogFiles(root: string): Promise<string[]> {
 export type LoadSubagentCatalogOptions = {
 	includeLocal?: boolean;
 	agentsDir?: string | null;
+	resolveTargetName?: (value: string) => string | null;
 };
 
 function parseScalar(rawValue: string): string {
@@ -176,6 +179,7 @@ async function buildSubagentDefinition(options: {
 	fileName: string;
 	sourceType: SourceType;
 	markerType?: LocalMarkerType;
+	resolveTargetName: (value: string) => string | null;
 }): Promise<SubagentDefinition> {
 	const contents = await readFile(options.filePath, "utf8");
 	if (!contents.trim()) {
@@ -204,7 +208,10 @@ async function buildSubagentDefinition(options: {
 	}
 
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
-	const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, isSubagentTargetName);
+	const { targets, invalidTargets } = resolveFrontmatterTargets(
+		rawTargets,
+		options.resolveTargetName,
+	);
 	if (invalidTargets.length > 0) {
 		const invalidList = invalidTargets.join(", ");
 		throw new InvalidFrontmatterTargetsError(
@@ -264,6 +271,8 @@ export async function loadSubagentCatalog(
 	options: LoadSubagentCatalogOptions = {},
 ): Promise<SubagentCatalog> {
 	const includeLocal = options.includeLocal ?? true;
+	const fallbackResolver = createTargetNameResolver(BUILTIN_TARGETS).resolveTargetName;
+	const resolveTargetName = options.resolveTargetName ?? fallbackResolver;
 	const catalogPath = resolveSharedCategoryRoot(repoRoot, "agents", options.agentsDir);
 	const localCatalogPath = resolveLocalCategoryRoot(repoRoot, "agents", options.agentsDir);
 
@@ -301,6 +310,7 @@ export async function loadSubagentCatalog(
 			fileName,
 			sourceType: hadLocalSuffix ? "local" : "shared",
 			markerType: hadLocalSuffix ? "suffix" : undefined,
+			resolveTargetName,
 		});
 		if (hadLocalSuffix) {
 			if (!includeLocal) {
@@ -327,6 +337,7 @@ export async function loadSubagentCatalog(
 				fileName,
 				sourceType: "local",
 				markerType: "path",
+				resolveTargetName,
 			});
 			registerUniqueName(seenLocalPath, definition.resolvedName, filePath);
 			localPathSubagents.push(definition);
@@ -349,7 +360,7 @@ export async function loadSubagentCatalog(
 		repoRoot,
 		catalogPath,
 		localCatalogPath,
-		canonicalStandard: "claude_code",
+		canonicalStandard: "canonical",
 		subagents,
 		sharedSubagents,
 		localSubagents,

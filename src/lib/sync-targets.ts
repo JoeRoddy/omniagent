@@ -1,16 +1,9 @@
-export const TARGETS = [
-	{ name: "codex", relativePath: ".codex/skills" },
-	{ name: "claude", relativePath: ".claude/skills" },
-	{ name: "copilot", relativePath: ".github/skills" },
-	{ name: "gemini", relativePath: ".gemini/skills" },
-] as const;
+export type TargetName = string;
 
-export type TargetName = (typeof TARGETS)[number]["name"];
-export type TargetSpec = (typeof TARGETS)[number];
-export type RawTargetValue = string | string[] | null | undefined;
-
-const targetNames = TARGETS.map((target) => target.name) as TargetName[];
-const targetNameSet = new Set<TargetName>(targetNames);
+export type TargetIdentity = {
+	id: string;
+	aliases?: string[];
+};
 
 export class InvalidFrontmatterTargetsError extends Error {
 	constructor(message: string) {
@@ -19,9 +12,34 @@ export class InvalidFrontmatterTargetsError extends Error {
 	}
 }
 
-export function isTargetName(value: string): value is TargetName {
-	return targetNameSet.has(value as TargetName);
+function normalizeTargetName(value: string): string {
+	return value.trim().toLowerCase();
 }
+
+export function createTargetNameResolver(targets: TargetIdentity[]): {
+	isTargetName: (value: string) => boolean;
+	resolveTargetName: (value: string) => string | null;
+	allTargets: string[];
+} {
+	const aliasToId = new Map<string, string>();
+	const allTargets: string[] = [];
+	for (const target of targets) {
+		const idKey = normalizeTargetName(target.id);
+		aliasToId.set(idKey, target.id);
+		allTargets.push(target.id);
+		for (const alias of target.aliases ?? []) {
+			aliasToId.set(normalizeTargetName(alias), target.id);
+		}
+	}
+
+	const isTargetName = (value: string): boolean => aliasToId.has(normalizeTargetName(value));
+	const resolveTargetName = (value: string): string | null =>
+		aliasToId.get(normalizeTargetName(value)) ?? null;
+
+	return { isTargetName, resolveTargetName, allTargets };
+}
+
+export type RawTargetValue = string | string[] | null | undefined;
 
 function normalizeTargetInputs(rawValues: RawTargetValue[]): string[] {
 	const values: string[] = [];
@@ -36,10 +54,7 @@ function normalizeTargetInputs(rawValues: RawTargetValue[]): string[] {
 		}
 	}
 
-	return values
-		.map((value) => value.trim())
-		.filter(Boolean)
-		.map((value) => value.toLowerCase());
+	return values.map((value) => value.trim()).filter(Boolean);
 }
 
 function dedupeTargets<T extends string>(values: T[]): T[] {
@@ -56,21 +71,22 @@ function dedupeTargets<T extends string>(values: T[]): T[] {
 	return output;
 }
 
-export function resolveFrontmatterTargets<T extends string>(
+export function resolveFrontmatterTargets(
 	rawValues: RawTargetValue[],
-	isValidTarget: (value: string) => value is T,
-): { targets: T[] | null; invalidTargets: string[] } {
+	resolveTargetName: (value: string) => string | null,
+): { targets: TargetName[] | null; invalidTargets: string[] } {
 	const normalized = normalizeTargetInputs(rawValues);
 	if (normalized.length === 0) {
 		return { targets: null, invalidTargets: [] };
 	}
 
-	const targets: T[] = [];
+	const targets: TargetName[] = [];
 	const invalidTargets: string[] = [];
 
 	for (const value of normalized) {
-		if (isValidTarget(value)) {
-			targets.push(value);
+		const resolved = resolveTargetName(value);
+		if (resolved) {
+			targets.push(resolved);
 		} else {
 			invalidTargets.push(value);
 		}
@@ -105,6 +121,6 @@ export function resolveEffectiveTargets<T extends string>(options: {
 		base = options.allTargets;
 	}
 
-	const skipSet = new Set(overrideSkip);
-	return dedupeTargets(base.filter((target) => !skipSet.has(target)));
+	const skipSet = new Set(overrideSkip.map((target) => normalizeTargetName(target)));
+	return dedupeTargets(base.filter((target) => !skipSet.has(normalizeTargetName(target))));
 }

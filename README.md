@@ -146,6 +146,41 @@ targets: [claude, gemini]
 - `name`: overrides filename when supported.
 - `description`: optional metadata.
 
+### Custom targets (omniagent.config.*)
+
+Define custom targets in the agents directory. The CLI auto-discovers the first match in:
+`omniagent.config.ts`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`.
+
+```ts
+const config = {
+	targets: [
+		{
+			id: "acme",
+			displayName: "Acme Agent",
+			outputs: {
+				skills: "{repoRoot}/.acme/skills/{itemName}",
+				subagents: "{repoRoot}/.acme/agents/{itemName}.md",
+				commands: {
+					projectPath: "{repoRoot}/.acme/commands/{itemName}.md",
+					userPath: "{homeDir}/.acme/commands/{itemName}.md",
+				},
+				instructions: "AGENTS.md",
+			},
+		},
+	],
+	disableTargets: ["copilot"],
+};
+
+export default config;
+```
+
+- Built-in IDs require `override: true` or `inherits: "claude"` to avoid collisions.
+- `disableTargets` removes built-ins from the active target set.
+- Placeholders: `{repoRoot}`, `{homeDir}`, `{agentsDir}`, `{targetId}`, `{itemName}`,
+  `{commandLocation}`.
+- When multiple targets resolve to the same output file, default writers handle
+  skills/subagents/instructions. Command collisions are errors.
+
 ### Instruction templates (per-target outputs)
 
 ```text

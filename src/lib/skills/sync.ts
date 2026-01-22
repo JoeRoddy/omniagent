@@ -1,218 +1,62 @@
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { TextDecoder } from "node:util";
-import { applyAgentTemplating } from "../agent-templating.js";
-import { listSkillDirectories, type SkillDirectoryEntry } from "../catalog-utils.js";
-import { stripFrontmatterFields } from "../frontmatter-strip.js";
-import {
-	resolveLocalCategoryRoot,
-	resolveSharedCategoryRoot,
-	stripLocalPathSuffix,
-} from "../local-sources.js";
+import { resolveAgentsDirPath } from "../agents-dir.js";
+import { resolveSharedCategoryRoot } from "../local-sources.js";
 import {
 	buildSummary,
 	type SyncResult,
 	type SyncSourceCounts,
 	type SyncSummary,
 } from "../sync-results.js";
+import { resolveEffectiveTargets, type TargetName } from "../sync-targets.js";
+import type {
+	ConverterRule,
+	OutputWriter,
+	ResolvedTarget,
+	SyncHooks,
+} from "../targets/config-types.js";
 import {
-	resolveEffectiveTargets,
-	TARGETS,
-	type TargetName,
-	type TargetSpec,
-} from "../sync-targets.js";
+	type ConverterRegistry,
+	normalizeConverterDecision,
+	resolveConverter,
+} from "../targets/converters.js";
+import { runConvertHook, runSyncHook } from "../targets/hooks.js";
+import {
+	buildManagedOutputKey,
+	hashOutputPath,
+	type ManagedOutputRecord,
+	normalizeManagedOutputPath,
+	readManagedOutputs,
+	writeManagedOutputs,
+} from "../targets/managed-outputs.js";
+import { normalizeOutputDefinition, resolveOutputPath } from "../targets/output-resolver.js";
+import {
+	defaultSkillWriter,
+	resolveWriter,
+	type SkillWriterItem,
+	type WriterRegistry,
+	writeFileOutput,
+} from "../targets/writers.js";
 import { loadSkillCatalog, type SkillDefinition } from "./catalog.js";
 
 export type SkillSyncRequest = {
 	repoRoot: string;
 	agentsDir?: string | null;
-	targets: TargetSpec[];
+	targets: ResolvedTarget[];
 	overrideOnly?: TargetName[] | null;
 	overrideSkip?: TargetName[] | null;
 	validAgents: string[];
 	excludeLocal?: boolean;
 	removeMissing?: boolean;
+	resolveTargetName?: (value: string) => string | null;
+	hooks?: SyncHooks;
 };
-
-const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
-const TARGET_FRONTMATTER_KEYS = new Set(["targets", "targetagents"]);
-const ALL_TARGET_NAMES = TARGETS.map((target) => target.name);
-
-function decodeUtf8(buffer: Buffer): string | null {
-	try {
-		return utf8Decoder.decode(buffer);
-	} catch {
-		return null;
-	}
-}
 
 function formatDisplayPath(repoRoot: string, absolutePath: string): string {
 	const relative = path.relative(repoRoot, absolutePath);
 	const isWithinRepo = relative && !relative.startsWith("..") && !path.isAbsolute(relative);
 	return isWithinRepo ? relative : absolutePath;
-}
-
-function normalizeRelativePath(relativePath: string): string {
-	return path.normalize(relativePath).replace(/\\/g, "/").toLowerCase();
-}
-
-function resolveSkillRelativePathForDirectory(
-	skillsRoot: string,
-	directoryPath: string,
-): { relativePath: string; hadLocalSuffix: boolean } | null {
-	const relativePath = path.relative(skillsRoot, directoryPath);
-	if (!relativePath) {
-		return null;
-	}
-	const baseName = path.basename(relativePath);
-	const { baseName: strippedBase, hadLocalSuffix } = stripLocalPathSuffix(baseName);
-	if (!hadLocalSuffix) {
-		return { relativePath, hadLocalSuffix: false };
-	}
-	const parent = path.dirname(relativePath);
-	const normalized = parent === "." ? strippedBase : path.join(parent, strippedBase);
-	return { relativePath: normalized, hadLocalSuffix: true };
-}
-
-async function listSkillDirectoriesSafe(root: string): Promise<SkillDirectoryEntry[]> {
-	try {
-		return await listSkillDirectories(root);
-	} catch (error) {
-		const code = (error as NodeJS.ErrnoException).code;
-		if (code === "ENOENT" || code === "ENOTDIR") {
-			return [];
-		}
-		throw error;
-	}
-}
-
-async function resolveLocalOnlySkillPaths(
-	repoRoot: string,
-	agentsDir?: string | null,
-): Promise<string[]> {
-	const skillsRoot = resolveSharedCategoryRoot(repoRoot, "skills", agentsDir);
-	const localSkillsRoot = resolveLocalCategoryRoot(repoRoot, "skills", agentsDir);
-	const sharedEntries = await listSkillDirectoriesSafe(skillsRoot);
-	const localEntries = await listSkillDirectoriesSafe(localSkillsRoot);
-
-	const sharedRelativePaths = new Set<string>();
-	for (const entry of sharedEntries) {
-		if (!entry.sharedSkillFile) {
-			continue;
-		}
-		const resolved = resolveSkillRelativePathForDirectory(skillsRoot, entry.directoryPath);
-		if (!resolved || resolved.hadLocalSuffix) {
-			continue;
-		}
-		sharedRelativePaths.add(normalizeRelativePath(resolved.relativePath));
-	}
-
-	const localOnly = new Map<string, string>();
-	const considerLocal = (relativePath: string | null) => {
-		if (!relativePath) {
-			return;
-		}
-		const normalized = normalizeRelativePath(relativePath);
-		if (sharedRelativePaths.has(normalized) || localOnly.has(normalized)) {
-			return;
-		}
-		localOnly.set(normalized, relativePath);
-	};
-
-	for (const entry of localEntries) {
-		const resolved = resolveSkillRelativePathForDirectory(localSkillsRoot, entry.directoryPath);
-		if (!resolved) {
-			continue;
-		}
-		considerLocal(resolved.relativePath);
-	}
-
-	for (const entry of sharedEntries) {
-		const resolved = resolveSkillRelativePathForDirectory(skillsRoot, entry.directoryPath);
-		if (!resolved) {
-			continue;
-		}
-		if (resolved.hadLocalSuffix || entry.localSkillFile) {
-			considerLocal(resolved.relativePath);
-		}
-	}
-
-	return [...localOnly.values()];
-}
-
-function hasProtectedChildSkill(
-	localRelativePath: string,
-	selectedRelativePaths: string[],
-): boolean {
-	if (!localRelativePath || selectedRelativePaths.length === 0) {
-		return false;
-	}
-	const normalizedLocal = normalizeRelativePath(localRelativePath).replace(/\/+$/, "");
-	const prefix = `${normalizedLocal}/`;
-	for (const selected of selectedRelativePaths) {
-		const normalizedSelected = normalizeRelativePath(selected);
-		if (normalizedSelected.startsWith(prefix)) {
-			return true;
-		}
-	}
-	return false;
-}
-
-async function copySkillDirectory(options: {
-	source: string;
-	destination: string;
-	target: TargetName;
-	validAgents: string[];
-	skillFileName: string;
-	outputFileName: string;
-}): Promise<void> {
-	await mkdir(options.destination, { recursive: true });
-	const entries = await readdir(options.source, { withFileTypes: true });
-	const selectedSkillFile = options.skillFileName.toLowerCase();
-	const outputSkillFile = options.outputFileName;
-
-	for (const entry of entries) {
-		const sourcePath = path.join(options.source, entry.name);
-		const entryLowerName = entry.name.toLowerCase();
-		const isSkillFile = entryLowerName === "skill.md" || entryLowerName === "skill.local.md";
-		if (isSkillFile && entryLowerName !== selectedSkillFile) {
-			continue;
-		}
-		const destinationPath = isSkillFile
-			? path.join(options.destination, outputSkillFile)
-			: path.join(options.destination, entry.name);
-		if (entry.isDirectory()) {
-			await copySkillDirectory({
-				...options,
-				source: sourcePath,
-				destination: path.join(options.destination, entry.name),
-			});
-			continue;
-		}
-		if (!entry.isFile()) {
-			continue;
-		}
-
-		const buffer = await readFile(sourcePath);
-		const decoded = decodeUtf8(buffer);
-		if (decoded === null) {
-			await mkdir(path.dirname(destinationPath), { recursive: true });
-			await writeFile(destinationPath, buffer);
-			continue;
-		}
-
-		const templated = applyAgentTemplating({
-			content: decoded,
-			target: options.target,
-			validAgents: options.validAgents,
-			sourcePath,
-		});
-		const output = isSkillFile
-			? stripFrontmatterFields(templated, TARGET_FRONTMATTER_KEYS)
-			: templated;
-		await mkdir(path.dirname(destinationPath), { recursive: true });
-		await writeFile(destinationPath, output, "utf8");
-	}
 }
 
 function buildInvalidTargetWarnings(skills: SkillDefinition[]): string[] {
@@ -229,22 +73,21 @@ function buildInvalidTargetWarnings(skills: SkillDefinition[]): string[] {
 	return warnings;
 }
 
-function resolveEffectiveTargetsForSkill(
-	skill: SkillDefinition,
-	overrideOnly?: TargetName[] | null,
-	overrideSkip?: TargetName[] | null,
-): TargetName[] {
-	return resolveEffectiveTargets({
-		defaultTargets: skill.targetAgents,
-		overrideOnly: overrideOnly ?? undefined,
-		overrideSkip: overrideSkip ?? undefined,
-		allTargets: ALL_TARGET_NAMES,
-	});
-}
+type SkillOutputCandidate = {
+	target: ResolvedTarget;
+	skill: SkillDefinition;
+	outputPath: string;
+	outputDef: ReturnType<typeof normalizeOutputDefinition>;
+	writer: OutputWriter;
+	converter: ConverterRule | null;
+};
 
 export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary> {
 	const sourcePath = resolveSharedCategoryRoot(request.repoRoot, "skills", request.agentsDir);
-	if (request.targets.length === 0) {
+	const skillTargets = request.targets.filter(
+		(target) => normalizeOutputDefinition(target.outputs.skills) !== null,
+	);
+	if (skillTargets.length === 0) {
 		return buildSummary(sourcePath, [], [], {
 			shared: 0,
 			local: 0,
@@ -255,17 +98,30 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 	const catalog = await loadSkillCatalog(request.repoRoot, {
 		includeLocal: !request.excludeLocal,
 		agentsDir: request.agentsDir,
+		resolveTargetName: request.resolveTargetName,
 	});
 	const warnings = buildInvalidTargetWarnings(catalog.skills);
+	const allTargetIds = request.targets.map((target) => target.id);
+	const targetNames = new Set(skillTargets.map((target) => target.id));
 	const effectiveTargetsBySkill = new Map<SkillDefinition, TargetName[]>();
+	const activeSourcesByTarget = new Map<string, Set<string>>();
 	for (const skill of catalog.skills) {
-		effectiveTargetsBySkill.set(
-			skill,
-			resolveEffectiveTargetsForSkill(skill, request.overrideOnly, request.overrideSkip),
-		);
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: skill.targetAgents,
+			overrideOnly: request.overrideOnly ?? undefined,
+			overrideSkip: request.overrideSkip ?? undefined,
+			allTargets: allTargetIds,
+		});
+		effectiveTargetsBySkill.set(skill, effectiveTargets);
+		for (const targetId of effectiveTargets) {
+			if (!targetNames.has(targetId)) {
+				continue;
+			}
+			const existing = activeSourcesByTarget.get(targetId) ?? new Set<string>();
+			existing.add(skill.relativePath);
+			activeSourcesByTarget.set(targetId, existing);
+		}
 	}
-
-	const targetNames = new Set(request.targets.map((target) => target.name));
 	const sourceCounts: SyncSourceCounts = {
 		shared: 0,
 		local: 0,
@@ -284,55 +140,304 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 	}
 
 	const results: SyncResult[] = [];
+	const agentsDirPath = resolveAgentsDirPath(request.repoRoot, request.agentsDir);
+	const homeDir = os.homedir();
 	const sourceDisplay = formatDisplayPath(request.repoRoot, sourcePath);
 	const removeMissing = request.removeMissing ?? false;
-	const localOnlyPaths =
-		request.excludeLocal && removeMissing
-			? await resolveLocalOnlySkillPaths(request.repoRoot, request.agentsDir)
-			: [];
+	const converterRegistry: ConverterRegistry = new Map();
+	const writerRegistry: WriterRegistry = new Map([[defaultSkillWriter.id, defaultSkillWriter]]);
+	const managedManifest = (await readManagedOutputs(request.repoRoot, homeDir)) ?? { entries: [] };
+	const nextManaged = new Map<string, ManagedOutputRecord>();
+	const activeOutputPaths = new Set<string>();
 
-	for (const target of request.targets) {
-		const destPath = path.join(request.repoRoot, target.relativePath);
-		const destDisplay = formatDisplayPath(request.repoRoot, destPath);
-		const selectedSkills = catalog.skills.filter((skill) => {
-			const effectiveTargets = effectiveTargetsBySkill.get(skill) ?? [];
-			return effectiveTargets.includes(target.name);
+	const outputDefs = new Map<string, NonNullable<ReturnType<typeof normalizeOutputDefinition>>>();
+	for (const target of skillTargets) {
+		const normalized = normalizeOutputDefinition(target.outputs.skills);
+		if (normalized) {
+			outputDefs.set(target.id, normalized);
+		}
+	}
+
+	const targetErrors = new Map<string, string[]>();
+	const recordError = (targetId: string, message: string) => {
+		const existing = targetErrors.get(targetId) ?? [];
+		existing.push(message);
+		targetErrors.set(targetId, existing);
+	};
+	const converterErrorsByTarget = new Map<string, Set<string>>();
+	const formatItemError = (itemLabel: string, message: string) => `${itemLabel}: ${message}`;
+	const recordItemError = (targetId: string, itemLabel: string, message: string) => {
+		recordError(targetId, formatItemError(itemLabel, message));
+	};
+	const recordConverterError = (targetId: string, itemLabel: string, message: string) => {
+		recordItemError(targetId, itemLabel, message);
+		const existing = converterErrorsByTarget.get(targetId) ?? new Set<string>();
+		existing.add(itemLabel);
+		converterErrorsByTarget.set(targetId, existing);
+	};
+
+	const candidatesByPath = new Map<string, SkillOutputCandidate[]>();
+	for (const skill of catalog.skills) {
+		const effectiveTargets = effectiveTargetsBySkill.get(skill) ?? [];
+		if (effectiveTargets.length === 0) {
+			continue;
+		}
+		for (const target of skillTargets) {
+			if (!effectiveTargets.includes(target.id)) {
+				continue;
+			}
+			const outputDef = outputDefs.get(target.id);
+			if (!outputDef) {
+				continue;
+			}
+			const outputPath = resolveOutputPath({
+				template: outputDef.path,
+				context: {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					homeDir,
+					targetId: target.id,
+					itemName: skill.relativePath,
+				},
+				item: skill,
+				baseDir: request.repoRoot,
+			});
+			const key = path.normalize(outputPath).replace(/\\\\/g, "/").toLowerCase();
+			const writer = resolveWriter(outputDef.writer, writerRegistry) ?? defaultSkillWriter;
+			const converter = resolveConverter(outputDef.converter, converterRegistry);
+			const list = candidatesByPath.get(key) ?? [];
+			list.push({ target, skill, outputPath, outputDef, writer, converter });
+			candidatesByPath.set(key, list);
+		}
+	}
+
+	for (const target of skillTargets) {
+		await runSyncHook(request.hooks, "preSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsDirPath,
+			targetId: target.id,
+			outputType: "skills",
 		});
+		await runSyncHook(target.hooks, "preSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsDirPath,
+			targetId: target.id,
+			outputType: "skills",
+		});
+	}
 
+	for (const candidates of candidatesByPath.values()) {
+		if (candidates.length === 0) {
+			continue;
+		}
+		const sorted = [...candidates].sort((left, right) =>
+			left.target.id.localeCompare(right.target.id),
+		);
+		const selected = sorted[0];
+		const useDefaultWriter = sorted.length > 1;
+		const writer = useDefaultWriter ? defaultSkillWriter : selected.writer;
+		const converter = selected.converter;
+		const target = selected.target;
+		const itemLabel = selected.skill.relativePath || selected.skill.name;
+		const recordManagedOutput = (entry: ManagedOutputRecord) => {
+			const key = buildManagedOutputKey(entry);
+			nextManaged.set(key, entry);
+			activeOutputPaths.add(normalizeManagedOutputPath(entry.outputPath));
+		};
+
+		let converterActive = false;
 		try {
-			for (const skill of selectedSkills) {
-				const destinationDir = path.join(destPath, skill.relativePath);
-				await copySkillDirectory({
-					source: skill.directoryPath,
-					destination: destinationDir,
-					target: target.name,
+			if (converter) {
+				converterActive = true;
+				await runConvertHook(request.hooks, "preConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					targetId: target.id,
+					outputType: "skills",
+				});
+				await runConvertHook(target.hooks, "preConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					targetId: target.id,
+					outputType: "skills",
+				});
+				const decision = await converter.convert(selected.skill, {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					homeDir,
+					targetId: target.id,
+					outputType: "skills",
 					validAgents: request.validAgents,
-					skillFileName: skill.skillFileName,
-					outputFileName: skill.outputFileName,
+				});
+				const normalized = normalizeConverterDecision(decision);
+				await runConvertHook(request.hooks, "postConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					targetId: target.id,
+					outputType: "skills",
+				});
+				await runConvertHook(target.hooks, "postConvert", {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					targetId: target.id,
+					outputType: "skills",
+				});
+				if (normalized.error) {
+					recordConverterError(target.id, itemLabel, normalized.error);
+					converterActive = false;
+					continue;
+				}
+				if (normalized.skip) {
+					converterActive = false;
+					continue;
+				}
+				for (const output of normalized.outputs) {
+					const outputPath = path.isAbsolute(output.outputPath)
+						? output.outputPath
+						: path.resolve(request.repoRoot, output.outputPath);
+					const result = await writeFileOutput(outputPath, output.content);
+					const checksum = result.contentHash ?? (await hashOutputPath(outputPath));
+					if (checksum) {
+						recordManagedOutput({
+							targetId: target.id,
+							outputPath,
+							sourceType: "skill",
+							sourceId: selected.skill.relativePath,
+							checksum,
+							lastSyncedAt: new Date().toISOString(),
+						});
+					}
+				}
+				converterActive = false;
+				continue;
+			}
+
+			const item: SkillWriterItem = {
+				directoryPath: selected.skill.directoryPath,
+				skillFileName: selected.skill.skillFileName,
+				outputFileName: selected.skill.outputFileName,
+				sourcePath: selected.skill.sourcePath,
+			};
+			await writer.write({
+				outputPath: selected.outputPath,
+				content: selected.skill.rawContents,
+				item,
+				context: {
+					repoRoot: request.repoRoot,
+					agentsDir: agentsDirPath,
+					homeDir,
+					targetId: target.id,
+					outputType: "skills",
+					validAgents: request.validAgents,
+				},
+			});
+			const checksum = await hashOutputPath(selected.outputPath);
+			if (checksum) {
+				recordManagedOutput({
+					targetId: target.id,
+					outputPath: selected.outputPath,
+					sourceType: "skill",
+					sourceId: selected.skill.relativePath,
+					checksum,
+					lastSyncedAt: new Date().toISOString(),
+					writerId: writer.id,
 				});
 			}
-			if (localOnlyPaths.length > 0) {
-				const protectedPaths = selectedSkills.map((skill) => skill.relativePath);
-				for (const localRelativePath of localOnlyPaths) {
-					if (hasProtectedChildSkill(localRelativePath, protectedPaths)) {
-						continue;
-					}
-					const removePath = path.join(destPath, localRelativePath);
-					await rm(removePath, { recursive: true, force: true });
-				}
-			}
-			results.push({
-				targetName: target.name,
-				status: "synced",
-				message: `Synced ${sourceDisplay} -> ${destDisplay}`,
-			});
 		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
+			const message = error instanceof Error ? error.message : String(error);
+			if (converterActive) {
+				recordConverterError(target.id, itemLabel, message);
+			} else {
+				recordItemError(target.id, itemLabel, message);
+			}
+		}
+	}
+
+	for (const target of skillTargets) {
+		await runSyncHook(request.hooks, "postSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsDirPath,
+			targetId: target.id,
+			outputType: "skills",
+		});
+		await runSyncHook(target.hooks, "postSync", {
+			repoRoot: request.repoRoot,
+			agentsDir: agentsDirPath,
+			targetId: target.id,
+			outputType: "skills",
+		});
+	}
+
+	if (managedManifest.entries.length > 0 || nextManaged.size > 0) {
+		const updatedEntries: ManagedOutputRecord[] = [];
+		const managedTargetIds = new Set(skillTargets.map((target) => target.id));
+		for (const entry of managedManifest.entries) {
+			if (entry.sourceType !== "skill" || !managedTargetIds.has(entry.targetId)) {
+				updatedEntries.push(entry);
+				continue;
+			}
+			const key = buildManagedOutputKey(entry);
+			if (nextManaged.has(key)) {
+				continue;
+			}
+			const activeSources = activeSourcesByTarget.get(entry.targetId);
+			const sourceStillActive = activeSources?.has(entry.sourceId) ?? false;
+			if (!removeMissing || sourceStillActive) {
+				updatedEntries.push(entry);
+				continue;
+			}
+			const outputKey = normalizeManagedOutputPath(entry.outputPath);
+			if (activeOutputPaths.has(outputKey)) {
+				continue;
+			}
+			const existingHash = await hashOutputPath(entry.outputPath);
+			if (!existingHash) {
+				continue;
+			}
+			if (existingHash !== entry.checksum) {
+				const display = formatDisplayPath(request.repoRoot, entry.outputPath);
+				warnings.push(`Output modified since last sync; skipping removal of ${display}.`);
+				updatedEntries.push(entry);
+				continue;
+			}
+			try {
+				await rm(entry.outputPath, { recursive: true, force: true });
+			} catch (error) {
+				const display = formatDisplayPath(request.repoRoot, entry.outputPath);
+				warnings.push(`Failed to remove ${display}: ${String(error)}`);
+				updatedEntries.push(entry);
+			}
+		}
+		for (const entry of nextManaged.values()) {
+			updatedEntries.push(entry);
+		}
+		await writeManagedOutputs(request.repoRoot, { entries: updatedEntries }, homeDir);
+	}
+
+	for (const target of skillTargets) {
+		const items = converterErrorsByTarget.get(target.id);
+		if (items && items.size > 0) {
+			warnings.push(
+				`Converter errors in skills for ${target.displayName}: ${[...items].sort().join(", ")}.`,
+			);
+		}
+	}
+
+	for (const target of skillTargets) {
+		const errors = targetErrors.get(target.id);
+		if (errors && errors.length > 0) {
+			const combined = errors.join("; ");
 			results.push({
-				targetName: target.name,
+				targetName: target.id,
 				status: "failed",
-				message: `Failed ${sourceDisplay} -> ${destDisplay}: ${errorMessage}`,
-				error: errorMessage,
+				message: `Failed ${sourceDisplay} for ${target.displayName}: ${combined}`,
+				error: combined,
+			});
+		} else {
+			results.push({
+				targetName: target.id,
+				status: "synced",
+				message: `Synced ${sourceDisplay} for ${target.displayName}.`,
 			});
 		}
 	}

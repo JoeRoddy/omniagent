@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { resolveAgentsDirRelativePath } from "../agents-dir.js";
+import { resolveAgentsDirPath, resolveAgentsDirRelativePath } from "../agents-dir.js";
 import {
 	buildSourceMetadata,
 	detectLocalMarkerFromPath,
@@ -8,6 +9,13 @@ import {
 	type SourceType,
 	stripLocalSuffix,
 } from "../local-sources.js";
+import type { TargetOutputs } from "../targets/config-types.js";
+import {
+	normalizeCommandOutputDefinition,
+	normalizeOutputDefinition,
+	resolveCommandOutputPath,
+	resolveOutputPath,
+} from "../targets/output-resolver.js";
 
 export type RepoInstructionFile = {
 	sourcePath: string;
@@ -16,17 +24,12 @@ export type RepoInstructionFile = {
 	isLocalFallback: boolean;
 };
 
-const DEFAULT_SKIP_DIRS = new Set([
-	".git",
-	"node_modules",
-	"dist",
-	".claude",
-	".codex",
-	".gemini",
-	".github",
-	".omniagent",
-	"coverage",
-]);
+export type InstructionScanTarget = {
+	id: string;
+	outputs?: TargetOutputs;
+};
+
+const DEFAULT_SKIP_DIRS = new Set([".git", "node_modules", "dist", ".omniagent", "coverage"]);
 
 type IgnoreRule = {
 	negated: boolean;
@@ -134,9 +137,92 @@ function buildIgnoreMatcher(rules: IgnoreRule[]): (relPath: string, isDir: boole
 	};
 }
 
-function hasSkippedSegment(relPath: string): boolean {
+function addSkipDirForPath(skipDirs: Set<string>, repoRoot: string, absolutePath: string): void {
+	const relative = path.relative(repoRoot, absolutePath);
+	if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+		return;
+	}
+	const normalized = normalizePath(relative);
+	const [segment] = normalized.split("/");
+	if (segment) {
+		skipDirs.add(segment);
+	}
+}
+
+function buildSkipDirs(options: {
+	repoRoot: string;
+	agentsDir?: string | null;
+	targets?: InstructionScanTarget[];
+}): Set<string> {
+	const skipDirs = new Set(DEFAULT_SKIP_DIRS);
+	const targets = options.targets ?? [];
+	if (targets.length === 0) {
+		return skipDirs;
+	}
+	const homeDir = os.homedir();
+	const agentsDirPath = resolveAgentsDirPath(options.repoRoot, options.agentsDir);
+	const placeholder = { name: "__placeholder__" };
+	for (const target of targets) {
+		const outputs = target.outputs;
+		if (!outputs) {
+			continue;
+		}
+		const skillsDef = normalizeOutputDefinition(outputs.skills);
+		if (skillsDef) {
+			const resolved = resolveOutputPath({
+				template: skillsDef.path,
+				context: {
+					repoRoot: options.repoRoot,
+					agentsDir: agentsDirPath,
+					homeDir,
+					targetId: target.id,
+					itemName: "__placeholder__",
+				},
+				item: placeholder,
+				baseDir: options.repoRoot,
+			});
+			addSkipDirForPath(skipDirs, options.repoRoot, resolved);
+		}
+		const subagentDef = normalizeOutputDefinition(outputs.subagents);
+		if (subagentDef) {
+			const resolved = resolveOutputPath({
+				template: subagentDef.path,
+				context: {
+					repoRoot: options.repoRoot,
+					agentsDir: agentsDirPath,
+					homeDir,
+					targetId: target.id,
+					itemName: "__placeholder__",
+				},
+				item: placeholder,
+				baseDir: options.repoRoot,
+			});
+			addSkipDirForPath(skipDirs, options.repoRoot, resolved);
+		}
+		const commandDef = normalizeCommandOutputDefinition(outputs.commands);
+		if (commandDef?.projectPath) {
+			const resolved = resolveCommandOutputPath({
+				template: commandDef.projectPath,
+				context: {
+					repoRoot: options.repoRoot,
+					agentsDir: agentsDirPath,
+					homeDir,
+					targetId: target.id,
+					itemName: "__placeholder__",
+					commandLocation: "project",
+				},
+				item: placeholder,
+				baseDir: options.repoRoot,
+			});
+			addSkipDirForPath(skipDirs, options.repoRoot, resolved);
+		}
+	}
+	return skipDirs;
+}
+
+function hasSkippedSegment(relPath: string, skipDirs: Set<string>): boolean {
 	const segments = relPath.split("/");
-	return segments.some((segment) => DEFAULT_SKIP_DIRS.has(segment));
+	return segments.some((segment) => skipDirs.has(segment));
 }
 
 function detectLocalMarker(filePath: string): LocalMarkerType | null {
@@ -165,10 +251,16 @@ export async function scanRepoInstructionSources(options: {
 	repoRoot: string;
 	includeLocal?: boolean;
 	agentsDir?: string | null;
+	targets?: InstructionScanTarget[];
 }): Promise<RepoInstructionFile[]> {
 	const includeLocal = options.includeLocal ?? true;
 	const rules = await loadIgnoreRules(options.repoRoot);
 	const shouldIgnore = buildIgnoreMatcher(rules);
+	const skipDirs = buildSkipDirs({
+		repoRoot: options.repoRoot,
+		agentsDir: options.agentsDir,
+		targets: options.targets,
+	});
 	const sources: RepoInstructionFile[] = [];
 	const relativeAgentsDir = resolveAgentsDirRelativePath(options.repoRoot, options.agentsDir);
 	const normalizedAgentsDir = relativeAgentsDir
@@ -196,7 +288,7 @@ export async function scanRepoInstructionSources(options: {
 			if (isWithinAgentsDir(normalizedRelative)) {
 				continue;
 			}
-			if (hasSkippedSegment(normalizedRelative)) {
+			if (hasSkippedSegment(normalizedRelative, skipDirs)) {
 				continue;
 			}
 			if (shouldIgnore(normalizedRelative, entry.isDirectory())) {

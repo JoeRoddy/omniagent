@@ -8,6 +8,8 @@ import {
 	type SourceType,
 	stripLocalSuffix,
 } from "../local-sources.js";
+import { createTargetNameResolver } from "../sync-targets.js";
+import { BUILTIN_TARGETS } from "../targets/builtins.js";
 import { parseInstructionFrontmatter } from "./frontmatter.js";
 import type { InstructionTemplateSource } from "./types.js";
 
@@ -127,10 +129,13 @@ export async function loadInstructionTemplateCatalog(options: {
 	repoRoot: string;
 	includeLocal?: boolean;
 	agentsDir?: string | null;
+	resolveTargetName?: (value: string) => string | null;
 }): Promise<InstructionTemplateCatalog> {
 	const templatesRoot = resolveAgentsDirPath(options.repoRoot, options.agentsDir);
 	const localTemplatesRoot = path.join(templatesRoot, ".local");
 	const entries = await scanInstructionTemplateSources(options);
+	const fallbackResolver = createTargetNameResolver(BUILTIN_TARGETS).resolveTargetName;
+	const resolveTargetName = options.resolveTargetName ?? fallbackResolver;
 
 	const templates: InstructionTemplateSource[] = [];
 	for (const entry of entries) {
@@ -139,6 +144,7 @@ export async function loadInstructionTemplateCatalog(options: {
 			contents: rawContents,
 			sourcePath: entry.sourcePath,
 			repoRoot: options.repoRoot,
+			resolveTargetName,
 		});
 
 		const rootTemplate = isRootTemplate(entry.sourcePath, options.repoRoot, options.agentsDir);

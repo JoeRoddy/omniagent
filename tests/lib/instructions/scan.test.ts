@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { scanRepoInstructionSources } from "../../../src/lib/instructions/scan.js";
+import { BUILTIN_TARGETS } from "../../../src/lib/targets/builtins.js";
 
 async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> {
 	const root = await mkdtemp(path.join(os.tmpdir(), "omniagent-instructions-scan-"));
@@ -29,7 +30,11 @@ describe("instruction repo scanning", () => {
 			await writeAgents(root, path.join("ignored", "AGENTS.md"));
 			await writeFile(path.join(root, ".gitignore"), "ignored/\n", "utf8");
 
-			const sources = await scanRepoInstructionSources({ repoRoot: root, includeLocal: true });
+			const sources = await scanRepoInstructionSources({
+				repoRoot: root,
+				includeLocal: true,
+				targets: BUILTIN_TARGETS,
+			});
 			const relative = sources.map((source) => path.relative(root, source.sourcePath)).sort();
 
 			expect(relative).toEqual(["AGENTS.md", path.join("docs", "AGENTS.md")]);
@@ -55,7 +60,11 @@ describe("instruction repo scanning", () => {
 				await writeAgents(root, path.join(dir, "AGENTS.md"));
 			}
 
-			const sources = await scanRepoInstructionSources({ repoRoot: root, includeLocal: true });
+			const sources = await scanRepoInstructionSources({
+				repoRoot: root,
+				includeLocal: true,
+				targets: BUILTIN_TARGETS,
+			});
 			const relative = sources.map((source) => path.relative(root, source.sourcePath)).sort();
 
 			expect(relative).toEqual(["AGENTS.md", path.join("docs", "AGENTS.md")]);
@@ -67,7 +76,11 @@ describe("instruction repo scanning", () => {
 			const suffixPath = await writeAgents(root, path.join("docs", "AGENTS.local.md"));
 			const pathMarker = await writeAgents(root, path.join("docs.local", "AGENTS.md"));
 
-			const sources = await scanRepoInstructionSources({ repoRoot: root, includeLocal: true });
+			const sources = await scanRepoInstructionSources({
+				repoRoot: root,
+				includeLocal: true,
+				targets: BUILTIN_TARGETS,
+			});
 			const suffixEntry = sources.find((source) => source.sourcePath === suffixPath);
 			const pathEntry = sources.find((source) => source.sourcePath === pathMarker);
 
@@ -88,7 +101,11 @@ describe("instruction repo scanning", () => {
 				"utf8",
 			);
 
-			const sources = await scanRepoInstructionSources({ repoRoot: root, includeLocal: true });
+			const sources = await scanRepoInstructionSources({
+				repoRoot: root,
+				includeLocal: true,
+				targets: BUILTIN_TARGETS,
+			});
 			const relative = sources.map((source) => path.relative(root, source.sourcePath)).sort();
 
 			expect(relative).toEqual([path.join("important", "AGENTS.md")]);
@@ -100,7 +117,11 @@ describe("instruction repo scanning", () => {
 			await writeAgents(root, "AGENTS.md");
 			await writeAgents(root, "AGENTS.local.md");
 
-			const sources = await scanRepoInstructionSources({ repoRoot: root, includeLocal: false });
+			const sources = await scanRepoInstructionSources({
+				repoRoot: root,
+				includeLocal: false,
+				targets: BUILTIN_TARGETS,
+			});
 			const relative = sources.map((source) => path.relative(root, source.sourcePath));
 
 			expect(relative).toEqual(["AGENTS.md"]);
@@ -116,6 +137,7 @@ describe("instruction repo scanning", () => {
 				repoRoot: root,
 				includeLocal: true,
 				agentsDir: "custom-agents",
+				targets: BUILTIN_TARGETS,
 			});
 			const relative = sources.map((source) => path.relative(root, source.sourcePath)).sort();
 

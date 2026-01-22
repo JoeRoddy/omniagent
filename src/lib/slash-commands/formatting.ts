@@ -100,30 +100,26 @@ function renderYamlFrontmatter(
 	return lines.join("\n");
 }
 
-const GEMINI_RESERVED_KEYS = new Set(["prompt", "targets", "targetagents"]);
+const TOML_RESERVED_KEYS = new Set(["prompt", "targets", "targetagents"]);
 
-export function renderClaudeCommand(command: SlashCommandDefinition): string {
+export function renderMarkdownCommand(command: SlashCommandDefinition): string {
 	return stripFrontmatterFields(command.rawContents, TARGET_FRONTMATTER_KEYS);
 }
 
-export function renderGeminiCommand(command: SlashCommandDefinition): string {
+export function renderTomlCommand(command: SlashCommandDefinition): string {
 	const lines: string[] = [];
 	for (const [key, value] of Object.entries(command.frontmatter)) {
 		const normalizedKey = key.trim();
 		if (!normalizedKey) {
 			continue;
 		}
-		if (GEMINI_RESERVED_KEYS.has(normalizedKey.toLowerCase())) {
+		if (TOML_RESERVED_KEYS.has(normalizedKey.toLowerCase())) {
 			continue;
 		}
 		lines.push(`${normalizedKey} = ${formatTomlValue(value)}`);
 	}
 	lines.push(`prompt = ${formatTomlString(command.prompt)}`);
 	return ensureTrailingNewline(lines.join("\n"));
-}
-
-export function renderCodexPrompt(command: SlashCommandDefinition): string {
-	return stripFrontmatterFields(command.rawContents, TARGET_FRONTMATTER_KEYS);
 }
 
 export function renderSkillFromCommand(command: SlashCommandDefinition): string {
