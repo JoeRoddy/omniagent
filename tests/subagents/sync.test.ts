@@ -55,6 +55,158 @@ async function writeLocalSkill(root: string, name: string, body: string): Promis
 }
 
 describe.sequential("subagent sync", () => {
+	it("syncs subagents to Claude output paths", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSubagent(root, "helper", "Subagent body");
+
+			const plan = await planSubagentSync({
+				repoRoot: root,
+				targets: ["claude"],
+				removeMissing: true,
+			});
+			await applySubagentSync(plan);
+
+			const destination = path.join(root, ".claude", "agents", "helper.md");
+			expect(await pathExists(destination)).toBe(true);
+			const output = await readFile(destination, "utf8");
+			expect(output).toContain("Subagent body");
+		});
+	});
+
+	it("includes subagent counts in sync summaries", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSubagent(root, "reporter", "Subagent body");
+
+			const plan = await planSubagentSync({
+				repoRoot: root,
+				targets: ["claude"],
+				removeMissing: true,
+			});
+			const summary = await applySubagentSync(plan);
+
+			expect(summary.results[0]?.message).toContain("created 1");
+		});
+	});
+
+	it("respects override filters when planning subagent sync", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSubagent(root, "filter", "Subagent body");
+
+			const plan = await planSubagentSync({
+				repoRoot: root,
+				targets: ["claude", "codex"],
+				overrideOnly: ["claude"],
+				removeMissing: true,
+			});
+
+			const claudePlan = plan.targetPlans.find((target) => target.targetName === "claude");
+			const codexPlan = plan.targetPlans.find((target) => target.targetName === "codex");
+
+			expect(claudePlan?.summary.created).toBe(1);
+			expect(codexPlan?.summary.created).toBe(0);
+			expect(codexPlan?.summary.converted).toBe(0);
+		});
+	});
+
+	it("warns when converting subagents for unsupported targets", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSubagent(root, "converter", "Subagent body");
+
+			const plan = await planSubagentSync({
+				repoRoot: root,
+				targets: ["codex"],
+				removeMissing: true,
+			});
+
+			const warning = plan.targetPlans[0]?.warnings.find((entry) =>
+				entry.includes("does not support native subagents"),
+			);
+			expect(warning).toBeTruthy();
+		});
+	});
+
+	it("skips conflicting unmanaged subagent outputs with a warning", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSubagent(root, "conflict", "Subagent body");
+			const destinationDir = path.join(root, ".claude", "agents");
+			await mkdir(destinationDir, { recursive: true });
+			const existingPath = path.join(destinationDir, "conflict.md");
+			await writeFile(existingPath, "Existing content", "utf8");
+
+			const plan = await planSubagentSync({
+				repoRoot: root,
+				targets: ["claude"],
+				removeMissing: true,
+			});
+			const summary = await applySubagentSync(plan);
+
+			expect(await readFile(existingPath, "utf8")).toBe("Existing content");
+			expect(summary.warnings.some((warning) => warning.includes("unmanaged file exists"))).toBe(
+				true,
+			);
+		});
+	});
+
+	it("removes managed subagent outputs when the catalog entry is removed", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSubagent(root, "obsolete", "Subagent body");
+
+			const initialPlan = await planSubagentSync({
+				repoRoot: root,
+				targets: ["claude"],
+				removeMissing: true,
+			});
+			await applySubagentSync(initialPlan);
+
+			const destination = path.join(root, ".claude", "agents", "obsolete.md");
+			expect(await pathExists(destination)).toBe(true);
+
+			await rm(path.join(root, "agents", "agents", "obsolete.md"));
+
+			const removalPlan = await planSubagentSync({
+				repoRoot: root,
+				targets: ["claude"],
+				removeMissing: true,
+			});
+			await applySubagentSync(removalPlan);
+
+			expect(await pathExists(destination)).toBe(false);
+		});
+	});
+
+	it("treats a missing catalog as empty and removes managed outputs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSubagent(root, "orphan", "Subagent body");
+
+			const initialPlan = await planSubagentSync({
+				repoRoot: root,
+				targets: ["claude"],
+				removeMissing: true,
+			});
+			await applySubagentSync(initialPlan);
+
+			const destination = path.join(root, ".claude", "agents", "orphan.md");
+			expect(await pathExists(destination)).toBe(true);
+
+			await rm(path.join(root, "agents", "agents"), { recursive: true, force: true });
+
+			const removalPlan = await planSubagentSync({
+				repoRoot: root,
+				targets: ["claude"],
+				removeMissing: true,
+			});
+			await applySubagentSync(removalPlan);
+
+			expect(await pathExists(destination)).toBe(false);
+		});
+	});
 	it("skips conversion when a canonical skill exists", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);

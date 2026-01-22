@@ -25,6 +25,18 @@ describe("agent templating", () => {
 		expect(output).toBe("Hello!");
 	});
 
+	it("supports multiple scoped blocks in a single document", () => {
+		const content =
+			"A<agents claude>1</agents>B<agents codex>2</agents>C<agents claude>3</agents>D";
+		const output = applyAgentTemplating({
+			content,
+			target: "claude",
+			validAgents,
+		});
+
+		expect(output).toBe("A1BC3D");
+	});
+
 	it("supports not: exclusions and case-insensitive matching", () => {
 		const content = "A<agents not:claude,gemini> skip</agents>B<agents ClAuDe> keep</agents>C";
 		const claudeOutput = applyAgentTemplating({

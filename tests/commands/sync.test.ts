@@ -122,12 +122,14 @@ describe.sequential("sync command", () => {
 		logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 		errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+		process.exitCode = undefined;
 	});
 
 	afterEach(() => {
 		logSpy.mockRestore();
 		errorSpy.mockRestore();
 		exitSpy.mockRestore();
+		process.exitCode = undefined;
 	});
 
 	it("syncs all targets from the repo root", async () => {
@@ -391,6 +393,23 @@ describe.sequential("sync command", () => {
 		});
 	});
 
+	it("surfaces command support and conversion notices in non-interactive runs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalCommands(root);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude,copilot", "--yes"]);
+			});
+
+			const output = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
+			expect(output).toContain(
+				"Claude Code commands will be written to project and user locations.",
+			);
+			expect(output).toContain("GitHub Copilot CLI commands are configured to convert to skills.");
+		});
+	});
+
 	it("applies templating consistently across skills, commands, and subagents", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
@@ -472,6 +491,234 @@ describe.sequential("sync command", () => {
 			expect(exitSpy).toHaveBeenCalledWith(1);
 			expect(await pathExists(path.join(root, ".claude", "commands"))).toBe(false);
 			expect(await pathExists(path.join(root, ".claude", "skills"))).toBe(false);
+		});
+	});
+
+	it("skips targets listed in --skip", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalSkills(root);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--skip", "claude"]);
+			});
+
+			expect(await pathExists(path.join(root, ".claude", "skills"))).toBe(false);
+			expect(await pathExists(path.join(root, ".codex", "skills", "example", "SKILL.md"))).toBe(
+				true,
+			);
+			expect(await pathExists(path.join(root, ".gemini", "skills", "example", "SKILL.md"))).toBe(
+				true,
+			);
+		});
+	});
+
+	it("errors when no targets remain after filtering", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalSkills(root);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--skip", "claude"]);
+			});
+
+			expect(errorSpy).toHaveBeenCalledWith("Error: No targets selected after applying filters.");
+			expect(exitSpy).toHaveBeenCalledWith(1);
+		});
+	});
+
+	it("includes supported targets in sync help output", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--help"]);
+			});
+
+			const output = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
+			expect(output).toContain("omniagent sync");
+			expect(output).toContain("Options");
+			expect(output).toContain("Supported targets:");
+			expect(output).toContain("claude");
+			expect(output).toContain("codex");
+			expect(output).toContain("gemini");
+			expect(output).toContain("copilot");
+		});
+	});
+
+	it("prints per-target sync outcomes", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalSkills(root);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude,codex"]);
+			});
+
+			const output = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
+			expect(output).toContain("Synced agents/skills for Claude Code.");
+			expect(output).toContain("Synced agents/skills for OpenAI Codex.");
+		});
+	});
+
+	it("preserves extra destination files during sync", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalSkills(root);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude"]);
+			});
+
+			const extraPath = path.join(root, ".claude", "skills", "example", "extra.txt");
+			await writeFile(extraPath, "extra file", "utf8");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude"]);
+			});
+
+			expect(await readFile(extraPath, "utf8")).toBe("extra file");
+		});
+	});
+
+	it("syncs from a repo subdirectory", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalSkills(root);
+			await createCanonicalCommands(root);
+			const subdir = path.join(root, "nested");
+			await mkdir(subdir, { recursive: true });
+
+			await withCwd(subdir, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude"]);
+			});
+
+			expect(await pathExists(path.join(root, ".claude", "skills", "example", "SKILL.md"))).toBe(
+				true,
+			);
+			expect(await pathExists(path.join(root, ".claude", "commands", "example.md"))).toBe(true);
+		});
+	});
+
+	it("does not rely on external sync tools", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalSkills(root);
+			const originalPath = process.env.PATH;
+			process.env.PATH = "";
+
+			try {
+				await withCwd(root, async () => {
+					await runCli(["node", "omniagent", "sync", "--only", "claude"]);
+				});
+			} finally {
+				process.env.PATH = originalPath;
+			}
+
+			expect(await pathExists(path.join(root, ".claude", "skills", "example", "SKILL.md"))).toBe(
+				true,
+			);
+		});
+	});
+
+	it("continues after a per-target failure and exits non-zero", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalSkills(root);
+			await writeFile(path.join(root, ".claude"), "not a directory", "utf8");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude,codex", "--yes"]);
+			});
+
+			expect(await pathExists(path.join(root, ".codex", "skills", "example", "SKILL.md"))).toBe(
+				true,
+			);
+			expect(process.exitCode).toBe(1);
+		});
+	});
+
+	it("honors frontmatter targets and strips target metadata in outputs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeCanonicalSkillFile(
+				root,
+				"targeted.txt",
+				["---", "targets:", "  - ClAuDe", "  - codex", "  - CLAUDE", "---", "Skill body"].join(
+					"\n",
+				),
+			);
+			await writeSubagentWithFrontmatter(
+				root,
+				"router",
+				["name: router", "targetAgents: gemini"],
+				"Route the request.",
+			);
+			await writeSubagentWithFrontmatter(
+				root,
+				"generalist",
+				["name: generalist"],
+				"Handle general tasks.",
+			);
+			await writeCanonicalCommand(
+				root,
+				"targeted",
+				["---", "targets:", "  - claude", "  - gemini", "---", "Run it."].join("\n"),
+			);
+			await writeCanonicalCommand(root, "global", "Run everywhere.");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--yes"]);
+			});
+
+			const claudeSkill = path.join(root, ".claude", "skills", "targeted", "SKILL.md");
+			const codexSkill = path.join(root, ".codex", "skills", "targeted", "SKILL.md");
+			const geminiSkill = path.join(root, ".gemini", "skills", "targeted", "SKILL.md");
+			const copilotSkill = path.join(root, ".github", "skills", "targeted", "SKILL.md");
+
+			expect(await pathExists(claudeSkill)).toBe(true);
+			expect(await pathExists(codexSkill)).toBe(true);
+			expect(await pathExists(geminiSkill)).toBe(false);
+			expect(await pathExists(copilotSkill)).toBe(false);
+
+			const skillOutput = await readFile(claudeSkill, "utf8");
+			expect(skillOutput).not.toContain("targets:");
+			expect(skillOutput).not.toContain("targetAgents");
+
+			const geminiSubagent = path.join(root, ".gemini", "skills", "router", "SKILL.md");
+			expect(await pathExists(geminiSubagent)).toBe(true);
+			expect(await pathExists(path.join(root, ".claude", "agents", "router.md"))).toBe(false);
+			const subagentOutput = await readFile(geminiSubagent, "utf8");
+			expect(subagentOutput).not.toContain("targets:");
+			expect(subagentOutput).not.toContain("targetAgents");
+
+			expect(await pathExists(path.join(root, ".claude", "agents", "generalist.md"))).toBe(true);
+			expect(await pathExists(path.join(root, ".codex", "skills", "generalist", "SKILL.md"))).toBe(
+				true,
+			);
+
+			const claudeCommand = path.join(root, ".claude", "commands", "targeted.md");
+			const geminiCommand = path.join(root, ".gemini", "commands", "targeted.toml");
+			const codexCommand = path.join(root, "home", ".codex", "prompts", "targeted.md");
+			const copilotCommand = path.join(root, ".github", "skills", "targeted", "SKILL.md");
+			expect(await pathExists(claudeCommand)).toBe(true);
+			expect(await pathExists(geminiCommand)).toBe(true);
+			expect(await pathExists(codexCommand)).toBe(false);
+			expect(await pathExists(copilotCommand)).toBe(false);
+
+			const claudeCommandOutput = await readFile(claudeCommand, "utf8");
+			expect(claudeCommandOutput).not.toContain("targets:");
+			expect(claudeCommandOutput).not.toContain("targetAgents");
+
+			const globalClaude = path.join(root, ".claude", "commands", "global.md");
+			const globalGemini = path.join(root, ".gemini", "commands", "global.toml");
+			const globalCodex = path.join(root, "home", ".codex", "prompts", "global.md");
+			const globalCopilot = path.join(root, ".github", "skills", "global", "SKILL.md");
+
+			expect(await pathExists(globalClaude)).toBe(true);
+			expect(await pathExists(globalGemini)).toBe(true);
+			expect(await pathExists(globalCodex)).toBe(true);
+			expect(await pathExists(globalCopilot)).toBe(true);
 		});
 	});
 });

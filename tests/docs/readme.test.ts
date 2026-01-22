@@ -9,4 +9,11 @@ describe("README", () => {
 		expect(contents).toContain("--agentsDir");
 		expect(contents).toContain("agents/");
 	});
+
+	it("documents agent-scoped templating", async () => {
+		const contents = await readFile(README_PATH, "utf8");
+
+		expect(contents).toContain("Agent-scoped templating");
+		expect(contents).toContain("<agents");
+	});
 });

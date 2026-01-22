@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { runCli } from "../../src/cli/index.js";
@@ -56,6 +56,52 @@ async function writeLocalInstruction(
 	const filePath = path.join(root, baseDir, fileName);
 	await mkdir(path.dirname(filePath), { recursive: true });
 	await writeFile(filePath, "Instruction", "utf8");
+}
+
+async function writeSkill(
+	root: string,
+	baseDir: string,
+	name: string,
+	body: string,
+): Promise<void> {
+	const dir = path.join(root, baseDir, "skills", name);
+	await mkdir(dir, { recursive: true });
+	await writeFile(path.join(dir, "SKILL.md"), body, "utf8");
+}
+
+async function writeCommand(
+	root: string,
+	baseDir: string,
+	name: string,
+	body: string,
+): Promise<void> {
+	const dir = path.join(root, baseDir, "commands");
+	await mkdir(dir, { recursive: true });
+	await writeFile(path.join(dir, `${name}.md`), body, "utf8");
+}
+
+async function writeSubagent(
+	root: string,
+	baseDir: string,
+	fileName: string,
+	name: string,
+	body: string,
+): Promise<void> {
+	const dir = path.join(root, baseDir, "agents");
+	await mkdir(dir, { recursive: true });
+	const contents = `---\nname: ${name}\n---\n${body}\n`;
+	await writeFile(path.join(dir, `${fileName}.md`), contents, "utf8");
+}
+
+async function writeInstructionTemplate(
+	root: string,
+	baseDir: string,
+	fileName: string,
+	body: string,
+): Promise<void> {
+	const filePath = path.join(root, baseDir, fileName);
+	await mkdir(path.dirname(filePath), { recursive: true });
+	await writeFile(filePath, body, "utf8");
 }
 
 type LocalListEntry = { name: string; sourcePath: string; markerType: string };
@@ -129,6 +175,44 @@ describe.sequential("sync command agentsDir override", () => {
 			expect(output.instructions.map((entry) => entry.name)).toEqual([
 				path.join("agents", "AGENTS.local.md"),
 			]);
+		});
+	});
+
+	it("uses the default agents directory for sync outputs across categories", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "agents", "default-skill", "Default skill");
+			await writeCommand(root, "agents", "default-command", "Default command");
+			await writeSubagent(root, "agents", "default-agent", "default-agent", "Default subagent");
+			await writeInstructionTemplate(root, "agents", "AGENTS.md", "Default instruction");
+
+			await writeSkill(root, "custom-agents", "custom-skill", "Custom skill");
+			await writeCommand(root, "custom-agents", "custom-command", "Custom command");
+			await writeSubagent(root, "custom-agents", "custom-agent", "custom-agent", "Custom subagent");
+			await writeInstructionTemplate(root, "custom-agents", "AGENTS.md", "Custom instruction");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			const skillOutput = await readFile(
+				path.join(root, ".claude", "skills", "default-skill", "SKILL.md"),
+				"utf8",
+			);
+			const commandOutput = await readFile(
+				path.join(root, ".claude", "commands", "default-command.md"),
+				"utf8",
+			);
+			const subagentOutput = await readFile(
+				path.join(root, ".claude", "agents", "default-agent.md"),
+				"utf8",
+			);
+			const instructionOutput = await readFile(path.join(root, "CLAUDE.md"), "utf8");
+
+			expect(skillOutput).toBe("Default skill");
+			expect(commandOutput).toBe("Default command");
+			expect(subagentOutput).toContain("Default subagent");
+			expect(instructionOutput).toBe("Default instruction");
 		});
 	});
 

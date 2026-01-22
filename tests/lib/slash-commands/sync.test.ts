@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -16,6 +16,15 @@ async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> 
 	} finally {
 		homeSpy.mockRestore();
 		await rm(root, { recursive: true, force: true });
+	}
+}
+
+async function pathExists(candidate: string): Promise<boolean> {
+	try {
+		await stat(candidate);
+		return true;
+	} catch {
+		return false;
 	}
 }
 
@@ -83,6 +92,82 @@ async function createTemplatedCommand(root: string, name = "templated"): Promise
 }
 
 describe("slash command sync planning", () => {
+	it("syncs only the selected targets", async () => {
+		await withTempRepo(async (root) => {
+			await createCanonicalCommand(root);
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["claude"],
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+
+			await applySlashCommandSync(plan);
+
+			expect(await pathExists(path.join(root, ".claude", "commands", "example.md"))).toBe(true);
+			expect(await pathExists(path.join(root, ".gemini", "commands", "example.toml"))).toBe(false);
+			expect(await pathExists(path.join(root, ".github", "skills", "example", "SKILL.md"))).toBe(
+				false,
+			);
+		});
+	});
+
+	it("defaults to project scope for Claude and Gemini", async () => {
+		await withTempRepo(async (root) => {
+			await createCanonicalCommand(root);
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["claude", "gemini"],
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+
+			const claudePlan = plan.targetPlans.find((target) => target.targetName === "claude");
+			const geminiPlan = plan.targetPlans.find((target) => target.targetName === "gemini");
+
+			expect(claudePlan?.scope).toBe("project");
+			expect(geminiPlan?.scope).toBe("project");
+		});
+	});
+
+	it("defaults Codex command scope to global", async () => {
+		await withTempRepo(async (root) => {
+			await createCanonicalCommand(root);
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["codex"],
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+
+			expect(plan.targetPlans[0]?.scope).toBe("global");
+		});
+	});
+
+	it("reports per-target command/skill actions in the plan summary", async () => {
+		await withTempRepo(async (root) => {
+			await createCanonicalCommand(root);
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["claude", "copilot"],
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+
+			const claudePlan = plan.targetPlans.find((target) => target.targetName === "claude");
+			const copilotPlan = plan.targetPlans.find((target) => target.targetName === "copilot");
+
+			expect(claudePlan?.mode).toBe("commands");
+			expect(claudePlan?.summary.create).toBe(1);
+			expect(copilotPlan?.mode).toBe("skills");
+			expect(copilotPlan?.summary.convert).toBe(1);
+		});
+	});
+
 	it("converts commands to project skills for unsupported targets", async () => {
 		await withTempRepo(async (root) => {
 			await createCanonicalCommand(root);
@@ -305,6 +390,113 @@ describe("slash command sync planning", () => {
 					removeMissing: true,
 				}),
 			).rejects.toThrow(/Agent templating error/);
+		});
+	});
+
+	it.each([
+		{ resolution: "skip", expectBackup: false, expectOverwrite: false },
+		{ resolution: "rename", expectBackup: true, expectOverwrite: true },
+		{ resolution: "overwrite", expectBackup: false, expectOverwrite: true },
+	] as const)("supports %s conflict resolution for existing commands", async ({
+		resolution,
+		expectBackup,
+		expectOverwrite,
+	}) => {
+		await withTempRepo(async (root) => {
+			await createCanonicalCommand(root, "conflict");
+			const destinationDir = path.join(root, ".claude", "commands");
+			await mkdir(destinationDir, { recursive: true });
+			const existingPath = path.join(destinationDir, "conflict.md");
+			await writeFile(existingPath, "Existing command", "utf8");
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["claude"],
+				conflictResolution: resolution,
+				removeMissing: true,
+			});
+			await applySlashCommandSync(plan);
+
+			const output = await readFile(existingPath, "utf8");
+			if (expectOverwrite) {
+				expect(output).toContain("Say hello.");
+			} else {
+				expect(output).toBe("Existing command");
+			}
+
+			const backupPath = path.join(destinationDir, "conflict-backup.md");
+			expect(await pathExists(backupPath)).toBe(expectBackup);
+			if (expectBackup) {
+				expect(await readFile(backupPath, "utf8")).toBe("Existing command");
+			}
+		});
+	});
+
+	it("removes managed commands missing from the catalog", async () => {
+		await withTempRepo(async (root) => {
+			await createCanonicalCommand(root, "obsolete");
+
+			const initialPlan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["claude"],
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+			await applySlashCommandSync(initialPlan);
+
+			const destinationDir = path.join(root, ".claude", "commands");
+			const obsoletePath = path.join(destinationDir, "obsolete.md");
+			await writeFile(path.join(destinationDir, "manual.md"), "Manual file", "utf8");
+
+			expect(await pathExists(obsoletePath)).toBe(true);
+
+			await rm(path.join(root, "agents", "commands", "obsolete.md"));
+
+			const removalPlan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["claude"],
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+			await applySlashCommandSync(removalPlan);
+
+			expect(await pathExists(obsoletePath)).toBe(false);
+			expect(await readFile(path.join(destinationDir, "manual.md"), "utf8")).toBe("Manual file");
+		});
+	});
+
+	it("uses the canonical command definition for other target formats", async () => {
+		await withTempRepo(async (root) => {
+			const commandsDir = path.join(root, "agents", "commands");
+			await mkdir(commandsDir, { recursive: true });
+			const contents = [
+				"---",
+				'description: "Do the thing"',
+				"---",
+				"Run the canonical prompt.",
+			].join("\n");
+			await writeFile(path.join(commandsDir, "canonical.md"), contents, "utf8");
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["gemini", "copilot"],
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+			await applySlashCommandSync(plan);
+
+			const geminiOutput = await readFile(
+				path.join(root, ".gemini", "commands", "canonical.toml"),
+				"utf8",
+			);
+			expect(geminiOutput).toContain('description = "Do the thing"');
+			expect(geminiOutput).toContain('prompt = "Run the canonical prompt."');
+
+			const copilotOutput = await readFile(
+				path.join(root, ".github", "skills", "canonical", "SKILL.md"),
+				"utf8",
+			);
+			expect(copilotOutput).toContain("Run the canonical prompt.");
 		});
 	});
 });

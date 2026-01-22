@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { readManifest } from "../../../src/lib/instructions/manifest.js";
 import { syncInstructions } from "../../../src/lib/instructions/sync.js";
 import { SUPPORTED_AGENT_NAMES } from "../../../src/lib/supported-targets.js";
 
@@ -433,6 +434,25 @@ describe("instruction sync", () => {
 			const output = await readFile(path.join(root, "AGENTS.md"), "utf8");
 			expect(output).toContain("Hello Codex");
 			expect(output).not.toContain("Copilot");
+		});
+	});
+
+	it("records instruction outputs in the instruction manifest", async () => {
+		await withTempRepo(async (root) => {
+			await writeInstruction(root, path.join("agents", "AGENTS.md"), "Managed instructions");
+
+			await syncInstructions({
+				repoRoot: root,
+				targets: ["claude"],
+				validAgents: VALID_AGENTS,
+				nonInteractive: true,
+			});
+
+			const manifest = await readManifest(root);
+			const recorded = manifest?.entries.find((entry) =>
+				entry.outputPath.endsWith("CLAUDE.md"),
+			);
+			expect(recorded).toBeTruthy();
 		});
 	});
 });
