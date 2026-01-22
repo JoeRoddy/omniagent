@@ -30,10 +30,16 @@ import { loadSkillCatalog } from "../../lib/skills/catalog.js";
 import { syncSkills as syncSkillTargets } from "../../lib/skills/sync.js";
 import { loadCommandCatalog } from "../../lib/slash-commands/catalog.js";
 import {
+	applySlashCommandSync,
+	type CodexConversionScope,
+	type CodexOption,
 	type SyncRequestV2 as CommandSyncRequestV2,
+	type SyncPlanDetails,
 	type SyncSummary as CommandSyncSummary,
 	type ConflictResolution,
+	formatPlanSummary,
 	formatSyncSummary as formatCommandSummary,
+	planSlashCommandSync,
 	syncSlashCommands as syncSlashCommandsV2,
 	type UnsupportedFallback,
 } from "../../lib/slash-commands/sync.js";
@@ -46,7 +52,10 @@ import {
 } from "../../lib/slash-commands/targets.js";
 import { loadSubagentCatalog } from "../../lib/subagents/catalog.js";
 import {
+	applySubagentSync,
 	formatSubagentSummary,
+	planSubagentSync,
+	type SubagentSyncPlanDetails,
 	type SubagentSyncRequestV2,
 	type SubagentSyncSummary,
 	syncSubagents as syncSubagentsV2,

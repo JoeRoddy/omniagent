@@ -56,7 +56,7 @@ export async function loadTargetConfig(options: {
 	if (!createJiti) {
 		throw new Error("Failed to initialize config loader.");
 	}
-	const jiti = createJiti(import.meta.url, { interopDefault: true, esmResolve: true });
+	const jiti = createJiti(import.meta.url, { interopDefault: true });
 	const loaded = await jiti(configPath);
 	const resolved = resolveConfigExport(loaded);
 	return {

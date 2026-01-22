@@ -414,11 +414,13 @@ function resolveTargetCommands(
 	});
 }
 
+type SourceCountRequest = Pick<SyncRequest, "overrideOnly" | "overrideSkip" | "excludeLocal">;
+
 function buildSourceCounts(
 	commands: SlashCommandDefinition[],
 	targets: TargetName[],
 	allTargets: string[],
-	request: SyncRequest,
+	request: SourceCountRequest,
 ): SyncSourceCounts {
 	const targetSet = new Set(targets.map((target) => normalizeName(target)));
 	const counts: SyncSourceCounts = {
@@ -1705,9 +1707,7 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 		const items = converterErrorsByTarget.get(target.id);
 		if (items && items.size > 0) {
 			warnings.push(
-				`Converter errors in commands for ${target.displayName}: ${[...items]
-					.sort()
-					.join(", ")}.`,
+				`Converter errors in commands for ${target.displayName}: ${[...items].sort().join(", ")}.`,
 			);
 		}
 	}

@@ -96,7 +96,7 @@ type InstructionTargetSelection = {
 	target: ResolvedTarget;
 	group: InstructionTargetGroup;
 	primary: boolean;
-	definition: ReturnType<typeof normalizeInstructionOutputDefinition>;
+	definition: NonNullable<ReturnType<typeof normalizeInstructionOutputDefinition>>;
 };
 
 function hashContent(value: string | Buffer): string {

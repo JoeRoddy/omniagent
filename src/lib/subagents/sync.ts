@@ -193,11 +193,16 @@ function formatDisplayPath(repoRoot: string, absolutePath: string): string {
 	return isWithinRepo ? relative : absolutePath;
 }
 
+type SourceCountRequest = Pick<
+	SubagentSyncRequest,
+	"overrideOnly" | "overrideSkip" | "excludeLocal"
+>;
+
 function buildSourceCounts(
 	subagents: SubagentDefinition[],
 	targets: SubagentTargetName[],
 	allTargets: string[],
-	request: SubagentSyncRequest,
+	request: SourceCountRequest,
 ): SyncSourceCounts {
 	const targetSet = new Set(targets.map((target) => target.toLowerCase()));
 	const counts: SyncSourceCounts = {
@@ -1275,9 +1280,7 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 		const items = converterErrorsByTarget.get(target.id);
 		if (items && items.size > 0) {
 			warnings.push(
-				`Converter errors in subagents for ${target.displayName}: ${[...items]
-					.sort()
-					.join(", ")}.`,
+				`Converter errors in subagents for ${target.displayName}: ${[...items].sort().join(", ")}.`,
 			);
 		}
 	}
