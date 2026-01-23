@@ -3,6 +3,7 @@ export * from "./config-loader.js";
 export * from "./config-types.js";
 export * from "./config-validate.js";
 export * from "./converters.js";
+export * from "./default-agent.js";
 export * from "./hooks.js";
 export * from "./managed-outputs.js";
 export * from "./output-resolver.js";

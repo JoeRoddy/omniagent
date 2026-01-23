@@ -113,6 +113,19 @@ describe("target config validation", () => {
 			]),
 		);
 	});
+
+	it("rejects invalid defaultAgent values", () => {
+		const config: OmniagentConfig = {
+			defaultAgent: "unknown" as OmniagentConfig["defaultAgent"],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(false);
+		expect(validation.errors).toContain(
+			"defaultAgent must be one of: claude, codex, gemini, copilot.",
+		);
+	});
 });
 
 describe("target resolution", () => {

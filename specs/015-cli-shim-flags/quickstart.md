@@ -52,6 +52,7 @@ Notes:
 - `--yolo` defaults `--sandbox` to `off` unless `--sandbox` is explicitly provided.
 - `--web` enables web access but the agent may still choose not to use it.
 - Unsupported shared flags for the selected agent emit a warning and are ignored (no-op).
+- Agent output is always passed through unmodified, even for JSON output modes.
 
 ## 5) Pass agent-specific flags through
 

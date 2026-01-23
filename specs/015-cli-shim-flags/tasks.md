@@ -27,8 +27,8 @@ description: "Task list template for feature implementation"
 
 **Purpose**: Project initialization and shim module scaffolding
 
-- [ ] T001 Create shim entrypoint and exports in `src/cli/shim/index.ts`
-- [ ] T002 [P] Define shim domain types/constants in `src/cli/shim/types.ts`
+- [X] T001 Create shim entrypoint and exports in `src/cli/shim/index.ts`
+- [X] T002 [P] Define shim domain types/constants in `src/cli/shim/types.ts`
 
 ---
 
@@ -38,15 +38,15 @@ description: "Task list template for feature implementation"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T003 Add `defaultAgent?: AgentId` to config types and export `AgentId` in `src/lib/targets/config-types.ts`
-- [ ] T004 Validate `defaultAgent` against supported agent IDs in `src/lib/targets/config-validate.ts`
-- [ ] T005 [P] Implement default-agent resolver (id, source, configPath) in `src/lib/targets/default-agent.ts`
-- [ ] T006 [P] Add shim error + exit-code helpers (0/1/2/3 mapping) in `src/cli/shim/errors.ts`
-- [ ] T007 Implement shared flag parsing + normalization (approval/sandbox/output/web/model aliases, last-output wins, sandboxExplicit) in `src/cli/shim/flags.ts`
-- [ ] T008 [P] Define per-agent capability matrix and flag mappings in `src/cli/shim/agent-capabilities.ts`
-- [ ] T009 Implement invocation resolution core (mode selection, prompt precedence, agent selection, delimiter validation) in `src/cli/shim/resolve-invocation.ts`
-- [ ] T010 Implement shim-to-agent argument builder with capability gating + unsupported-flag warnings in `src/cli/shim/build-args.ts`
-- [ ] T011 Implement agent execution wrapper with warning emission + output passthrough (stdio inherit, exit code mapping) in `src/cli/shim/execute.ts`
+- [X] T003 Add `defaultAgent?: AgentId` to config types and export `AgentId` in `src/lib/targets/config-types.ts`
+- [X] T004 Validate `defaultAgent` against supported agent IDs in `src/lib/targets/config-validate.ts`
+- [X] T005 [P] Implement default-agent resolver (id, source, configPath) in `src/lib/targets/default-agent.ts`
+- [X] T006 [P] Add shim error + exit-code helpers (0/1/2/3 mapping) in `src/cli/shim/errors.ts`
+- [X] T007 Implement shared flag parsing + normalization (approval/sandbox/output/web/model aliases, last-output wins, sandboxExplicit) in `src/cli/shim/flags.ts`
+- [X] T008 [P] Define per-agent capability matrix and flag mappings in `src/cli/shim/agent-capabilities.ts`
+- [X] T009 Implement invocation resolution core (mode selection, prompt precedence, agent selection, delimiter validation) in `src/cli/shim/resolve-invocation.ts`
+- [X] T010 Implement shim-to-agent argument builder with capability gating + unsupported-flag warnings in `src/cli/shim/build-args.ts`
+- [X] T011 Implement agent execution wrapper with warning emission + output passthrough (stdio inherit, exit code mapping) in `src/cli/shim/execute.ts`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -60,13 +60,13 @@ description: "Task list template for feature implementation"
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T012 [P] [US1] Add interactive shim tests for default mode and shared flags in `tests/commands/cli-shim-interactive.test.ts`
+- [X] T012 [P] [US1] Add interactive shim tests for default mode and shared flags in `tests/commands/cli-shim-interactive.test.ts`
 
 ### Implementation for User Story 1
 
-- [ ] T013 [US1] Implement interactive mode resolution rules (TTY + no prompt) in `src/cli/shim/resolve-invocation.ts`
-- [ ] T014 [P] [US1] Wire root CLI to shim execution while preserving subcommands/help/version in `src/cli/index.ts`
-- [ ] T015 [P] [US1] Ensure interactive execution passes agent output unmodified in `src/cli/shim/execute.ts`
+- [X] T013 [US1] Implement interactive mode resolution rules (TTY + no prompt) in `src/cli/shim/resolve-invocation.ts`
+- [X] T014 [P] [US1] Wire root CLI to shim execution while preserving subcommands/help/version in `src/cli/index.ts`
+- [X] T015 [P] [US1] Ensure interactive execution passes agent output unmodified in `src/cli/shim/execute.ts`
 
 **Checkpoint**: User Story 1 should be fully functional and testable independently
 
@@ -80,13 +80,13 @@ description: "Task list template for feature implementation"
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T016 [P] [US2] Add one-shot tests for `--prompt` and piped stdin in `tests/commands/cli-shim-oneshot.test.ts`
+- [X] T016 [P] [US2] Add one-shot tests for `--prompt` and piped stdin in `tests/commands/cli-shim-oneshot.test.ts`
 
 ### Implementation for User Story 2
 
-- [ ] T017 [US2] Implement one-shot prompt resolution (stdin non-TTY, `--prompt` wins) in `src/cli/shim/resolve-invocation.ts`
-- [ ] T018 [P] [US2] Add `-p/--prompt` flag wiring and shared-flag support in `src/cli/shim/flags.ts`
-- [ ] T019 [P] [US2] Implement one-shot execution path (send prompt, no REPL) in `src/cli/shim/execute.ts`
+- [X] T017 [US2] Implement one-shot prompt resolution (stdin non-TTY, `--prompt` wins) in `src/cli/shim/resolve-invocation.ts`
+- [X] T018 [P] [US2] Add `-p/--prompt` flag wiring and shared-flag support in `src/cli/shim/flags.ts`
+- [X] T019 [P] [US2] Implement one-shot execution path (send prompt, no REPL) in `src/cli/shim/execute.ts`
 
 **Checkpoint**: User Story 2 should be fully functional and testable independently
 
@@ -100,13 +100,13 @@ description: "Task list template for feature implementation"
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T020 [P] [US3] Add passthrough/unknown-flag tests in `tests/commands/cli-shim-passthrough.test.ts`
+- [X] T020 [P] [US3] Add passthrough/unknown-flag tests in `tests/commands/cli-shim-passthrough.test.ts`
 
 ### Implementation for User Story 3
 
-- [ ] T021 [P] [US3] Configure yargs `populate--` + strict parsing in `src/cli/index.ts`
-- [ ] T022 [US3] Enforce passthrough validation rules (delimiter requires agent) in `src/cli/shim/resolve-invocation.ts`
-- [ ] T023 [P] [US3] Ensure passthrough args are appended verbatim after shim args in `src/cli/shim/build-args.ts`
+- [X] T021 [P] [US3] Configure yargs `populate--` + strict parsing in `src/cli/index.ts`
+- [X] T022 [US3] Enforce passthrough validation rules (delimiter requires agent) in `src/cli/shim/resolve-invocation.ts`
+- [X] T023 [P] [US3] Ensure passthrough args are appended verbatim after shim args in `src/cli/shim/build-args.ts`
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -116,10 +116,10 @@ description: "Task list template for feature implementation"
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T024 [P] Add CLI usage/examples and capability notes for shim flags in `src/cli/index.ts`
-- [ ] T025 [P] Update CLI documentation and capability matrix in `README.md`
-- [ ] T026 [P] Add unsupported-flag warning tests in `tests/commands/cli-shim-capabilities.test.ts`
-- [ ] T027 [P] Validate quickstart scenarios and update notes in `specs/015-cli-shim-flags/quickstart.md`
+- [X] T024 [P] Add CLI usage/examples and capability notes for shim flags in `src/cli/index.ts`
+- [X] T025 [P] Update CLI documentation and capability matrix in `README.md`
+- [X] T026 [P] Add unsupported-flag warning tests in `tests/commands/cli-shim-capabilities.test.ts`
+- [X] T027 [P] Validate quickstart scenarios and update notes in `specs/015-cli-shim-flags/quickstart.md`
 
 ---
 

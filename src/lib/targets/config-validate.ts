@@ -8,6 +8,7 @@ import type {
 	TargetDefinition,
 	TargetOutputs,
 } from "./config-types.js";
+import { AGENT_IDS } from "./config-types.js";
 import { type PlaceholderKey, validatePlaceholders } from "./placeholders.js";
 
 export type ConfigValidationResult = {
@@ -184,6 +185,15 @@ export function validateTargetConfig(options: {
 			errors: ["Config must export an object."],
 			config: null,
 		};
+	}
+
+	if (config.defaultAgent !== undefined) {
+		const normalized = normalizeString(config.defaultAgent);
+		if (!normalized) {
+			errors.push("defaultAgent must be a non-empty string when provided.");
+		} else if (!AGENT_IDS.includes(normalized as (typeof AGENT_IDS)[number])) {
+			errors.push(`defaultAgent must be one of: ${AGENT_IDS.join(", ")}.`);
+		}
 	}
 
 	const builtInIds = new Set(options.builtIns.map((target) => normalizeLower(target.id)));

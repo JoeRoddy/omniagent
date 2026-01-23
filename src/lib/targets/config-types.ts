@@ -1,3 +1,6 @@
+export const AGENT_IDS = ["claude", "codex", "gemini", "copilot"] as const;
+export type AgentId = (typeof AGENT_IDS)[number];
+
 export type CommandLocation = "project" | "user";
 export type OutputType = "skills" | "commands" | "subagents" | "instructions";
 
@@ -140,6 +143,7 @@ export type TargetDefinition = {
 };
 
 export type OmniagentConfig = {
+	defaultAgent?: AgentId;
 	targets?: TargetDefinition[];
 	disableTargets?: string[];
 	hooks?: SyncHooks;

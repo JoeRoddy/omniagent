@@ -6,8 +6,18 @@ import { echoCommand } from "./commands/echo.js";
 import { greetCommand } from "./commands/greet.js";
 import { helloCommand } from "./commands/hello.js";
 import { syncCommand } from "./commands/sync.js";
+import { runShim } from "./shim/index.js";
 
 const VERSION = "0.1.0";
+const KNOWN_COMMANDS = new Set(["hello", "greet", "echo", "sync"]);
+const SHIM_CAPABILITIES = [
+	"Capabilities by agent:",
+	"  codex: approval, sandbox, output, model, web",
+	"  claude: approval, model",
+	"  gemini: approval, model, web",
+	"  copilot: approval",
+	"Unsupported shared flags for a selected agent emit a warning and are ignored.",
+].join("\n");
 
 function formatError(message: string, args: string[]) {
 	if (message.startsWith("Unknown command:")) {
@@ -37,7 +47,16 @@ function formatError(message: string, args: string[]) {
 	return `Error: ${message}`;
 }
 
-export function runCli(argv = process.argv) {
+type RunCliOptions = {
+	shim?: Parameters<typeof runShim>[1];
+};
+
+function isCommandInvocation(args: string[]): boolean {
+	const command = args.find((arg) => !arg.startsWith("-"));
+	return !!command && KNOWN_COMMANDS.has(command);
+}
+
+export function runCli(argv = process.argv, options: RunCliOptions = {}) {
 	const args = hideBin(argv);
 	let handledFailure = false;
 
@@ -47,6 +66,7 @@ export function runCli(argv = process.argv) {
 		.help()
 		.strict()
 		.strictCommands()
+		.parserConfiguration({ "populate--": true })
 		.exitProcess(false)
 		.fail((msg, err) => {
 			if (handledFailure) {
@@ -56,7 +76,8 @@ export function runCli(argv = process.argv) {
 			handledFailure = true;
 			const message = msg || err?.message || "Unknown error";
 			console.error(formatError(message, args));
-			process.exit(1);
+			const exitCode = isCommandInvocation(args) ? 1 : 2;
+			process.exit(exitCode);
 		})
 		.command(helloCommand)
 		.command(greetCommand)
@@ -65,9 +86,64 @@ export function runCli(argv = process.argv) {
 		.command(
 			"$0",
 			"omniagent CLI",
-			() => {},
-			() => {
-				console.log("Hello from omniagent!");
+			(yargsInstance) =>
+				yargsInstance
+					.usage("omniagent [flags] --agent <claude|codex|gemini|copilot> [-- <agent flags>]")
+					.example("omniagent --agent codex", "Start an interactive session (default mode).")
+					.example('omniagent -p "Summarize the repo" --agent codex', "Run a one-shot prompt.")
+					.example("omniagent --agent codex -- --some-flag", "Pass through agent-specific flags.")
+					.option("prompt", {
+						alias: "p",
+						type: "string",
+						describe: "Run a one-shot prompt (non-interactive).",
+					})
+					.option("approval", {
+						type: "string",
+						describe: "Approval policy (prompt, auto-edit, yolo).",
+					})
+					.option("auto-edit", {
+						type: "boolean",
+						describe: "Alias for --approval auto-edit.",
+					})
+					.option("yolo", {
+						type: "boolean",
+						describe: "Alias for --approval yolo.",
+					})
+					.option("sandbox", {
+						type: "string",
+						describe: "Sandbox mode (workspace-write, off).",
+					})
+					.option("output", {
+						type: "string",
+						describe: "Output format (text, json, stream-json).",
+					})
+					.option("json", {
+						type: "boolean",
+						describe: "Alias for --output json.",
+					})
+					.option("stream-json", {
+						type: "boolean",
+						describe: "Alias for --output stream-json.",
+					})
+					.option("model", {
+						alias: "m",
+						type: "string",
+						describe: "Model name to use when supported by the agent.",
+					})
+					.option("web", {
+						type: "string",
+						describe: "Enable or disable web access (on/off/true/false/1/0).",
+					})
+					.option("agent", {
+						type: "string",
+						describe: "Select the agent (claude, codex, gemini, copilot).",
+					})
+					.epilog(SHIM_CAPABILITIES),
+			async () => {
+				const exitCode = await runShim(args, options.shim);
+				if (exitCode !== 0) {
+					process.exit(exitCode);
+				}
 			},
 		)
 		.parseAsync();
