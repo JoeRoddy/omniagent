@@ -1,3 +1,4 @@
+import type { StdioOptions } from "node:child_process";
 import { findRepoRoot } from "../../lib/repo-root.js";
 import { exitCodeFor, ShimError } from "./errors.js";
 import { type ExecuteOptions, executeInvocation } from "./execute.js";
@@ -45,6 +46,10 @@ export async function runShim(argv: string[], runtime: ShimRuntime = {}): Promis
 				return exitCodeFor("execution-error");
 			}
 		}
+		const stdio: StdioOptions =
+			!stdinIsTTY && flags.promptExplicit
+				? (["ignore", "inherit", "inherit"] as StdioOptions)
+				: "inherit";
 
 		const invocation = await resolveInvocationFromFlags({
 			flags,
@@ -56,6 +61,7 @@ export async function runShim(argv: string[], runtime: ShimRuntime = {}): Promis
 		const result = await executeInvocation(invocation, {
 			spawn: runtime.spawn,
 			stderr,
+			stdio,
 		});
 		return result.exitCode;
 	} catch (error) {

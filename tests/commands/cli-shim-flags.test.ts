@@ -1,3 +1,4 @@
+import type { StdioOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
 import {
 	buildAgentArgs,
@@ -12,7 +13,7 @@ type InvocationOptions = {
 };
 
 function createSpawnStub(exitCode = 0) {
-	return vi.fn((_command: string, _args: string[], _options: { stdio: string }) => {
+	return vi.fn((_command: string, _args: string[], _options: { stdio: StdioOptions }) => {
 		const emitter = new EventEmitter();
 		process.nextTick(() => {
 			emitter.emit("exit", exitCode);

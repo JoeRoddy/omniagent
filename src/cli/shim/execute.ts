@@ -1,4 +1,4 @@
-import { spawn as defaultSpawn } from "node:child_process";
+import { spawn as defaultSpawn, type StdioOptions } from "node:child_process";
 import { buildAgentArgs } from "./build-args.js";
 import type { ExitCodeReason } from "./errors.js";
 import type { ResolvedInvocation } from "./types.js";
@@ -13,6 +13,7 @@ export type ExecuteResult = {
 export type ExecuteOptions = {
 	spawn?: SpawnFn;
 	stderr?: NodeJS.WriteStream;
+	stdio?: StdioOptions;
 };
 
 export async function executeInvocation(
@@ -27,9 +28,10 @@ export async function executeInvocation(
 	}
 
 	const spawn = options.spawn ?? defaultSpawn;
+	const stdio = options.stdio ?? "inherit";
 
 	return await new Promise<ExecuteResult>((resolve) => {
-		const child = spawn(command, args, { stdio: "inherit" });
+		const child = spawn(command, args, { stdio });
 
 		child.on("error", (error) => {
 			stderr.write(`Error: ${error.message}\n`);

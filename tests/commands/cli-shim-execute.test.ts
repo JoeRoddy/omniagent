@@ -1,9 +1,10 @@
+import type { StdioOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { executeInvocation } from "../../src/cli/shim/execute.js";
 import { parseShimFlags } from "../../src/cli/shim/flags.js";
 import { resolveInvocationFromFlags } from "../../src/cli/shim/resolve-invocation.js";
 
-type SpawnCall = [string, string[], { stdio: string }];
+type SpawnCall = [string, string[], { stdio: StdioOptions }];
 
 type InvocationOptions = {
 	stdinIsTTY?: boolean;
@@ -11,7 +12,7 @@ type InvocationOptions = {
 };
 
 function createSpawnStub(exitCode = 0) {
-	return vi.fn((_command: string, _args: string[], _options: { stdio: string }) => {
+	return vi.fn((_command: string, _args: string[], _options: { stdio: StdioOptions }) => {
 		const emitter = new EventEmitter();
 		process.nextTick(() => {
 			emitter.emit("exit", exitCode);
@@ -67,7 +68,7 @@ describe("CLI shim execution", () => {
 
 	it("returns execution error when spawn emits error", async () => {
 		const invocation = await buildInvocation(["--agent", "codex"]);
-		const spawn = vi.fn((_command: string, _args: string[], _options: { stdio: string }) => {
+		const spawn = vi.fn((_command: string, _args: string[], _options: { stdio: StdioOptions }) => {
 			const emitter = new EventEmitter();
 			process.nextTick(() => {
 				emitter.emit("error", new Error("boom"));

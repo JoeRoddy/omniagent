@@ -1,10 +1,11 @@
+import type { StdioOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { runCli } from "../../src/cli/index.js";
 
-type SpawnCall = [string, string[], { stdio: string }];
+type SpawnCall = [string, string[], { stdio: StdioOptions }];
 
 function createSpawnStub(exitCode = 0) {
-	return vi.fn((_command: string, _args: string[], _options: { stdio: string }) => {
+	return vi.fn((_command: string, _args: string[], _options: { stdio: StdioOptions }) => {
 		const emitter = new EventEmitter();
 		process.nextTick(() => {
 			emitter.emit("exit", exitCode);
@@ -64,6 +65,20 @@ describe("CLI shim one-shot mode", () => {
 
 		const [, args] = spawn.mock.calls[0] as SpawnCall;
 		expect(args).toEqual(["-p", "Flag wins"]);
+	});
+
+	it("ignores piped stdin when --prompt is explicit", async () => {
+		const spawn = createSpawnStub(0);
+		await runCli(["node", "omniagent", "--prompt", "Use prompt", "--agent", "codex"], {
+			shim: {
+				stdinIsTTY: false,
+				stdinText: "Piped text",
+				spawn,
+			},
+		});
+
+		const [, , options] = spawn.mock.calls[0] as SpawnCall;
+		expect(options).toEqual({ stdio: ["ignore", "inherit", "inherit"] });
 	});
 
 	it("applies shared flags in one-shot mode and warns on unsupported ones", async () => {

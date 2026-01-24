@@ -1,13 +1,14 @@
+import type { StdioOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { runCli } from "../../src/cli/index.js";
 
-type SpawnCall = [string, string[], { stdio: string }];
+type SpawnCall = [string, string[], { stdio: StdioOptions }];
 
 function createSpawnStub(exitCode = 0) {
-	const spawn = vi.fn((_command: string, _args: string[], _options: { stdio: string }) => {
+	const spawn = vi.fn((_command: string, _args: string[], _options: { stdio: StdioOptions }) => {
 		const emitter = new EventEmitter();
 		process.nextTick(() => {
 			emitter.emit("exit", exitCode);
