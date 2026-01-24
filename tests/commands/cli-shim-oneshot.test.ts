@@ -158,6 +158,6 @@ describe("CLI shim one-shot mode", () => {
 		});
 
 		const [, args] = spawn.mock.calls[0] as SpawnCall;
-		expect(args).toEqual(["exec", "--yolo", "--sandbox", "off", "No prompts"]);
+		expect(args).toEqual(["exec", "--yolo", "--sandbox", "danger-full-access", "No prompts"]);
 	});
 });

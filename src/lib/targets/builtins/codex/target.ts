@@ -21,7 +21,7 @@ export const codexTarget: TargetDefinition = {
 			sandbox: {
 				values: {
 					"workspace-write": ["--sandbox", "workspace-write"],
-					off: ["--sandbox", "off"],
+					off: ["--sandbox", "danger-full-access"],
 				},
 			},
 			output: {
