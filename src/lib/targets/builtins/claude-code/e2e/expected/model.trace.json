@@ -1,0 +1,9 @@
+{
+  "command": "claude",
+  "args": [
+    "--model",
+    "opus",
+    "-p",
+    "marco"
+  ]
+}

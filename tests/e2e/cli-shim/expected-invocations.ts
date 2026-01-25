@@ -219,7 +219,7 @@ function buildCopilot(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation
 			if (!agent.model) {
 				return null;
 			}
-			warnings.push(formatWarning(agent.agentId, "--model", agent.model));
+			flags = ["--model", agent.model];
 			break;
 		case "passthrough":
 			break;

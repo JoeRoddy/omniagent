@@ -6,6 +6,13 @@
 - Support interactive vs one-shot command shapes and prompt placement.
 - Validate and test real argv translation, not just flag parsing.
 
+## Status (2026-01-25)
+- Baseline E2E harness + expected invocations in place; compare runs passing per agent.
+- Model baselines recorded with envs: claude=opus, gemini=gemini-2.5-flash,
+  copilot=gpt-5.2.
+- Copilot CLI target mapping now includes `--model`.
+- Optional follow-ups: record all agents in one go; document record/compare commands.
+
 ## Decisions (locked)
 - `--agent` accepts any resolved target id/alias from config (not just preconfigured ids).
 - If a user defines a target with the same id and **no** `inherits`, the user definition replaces the preconfigured target entirely.

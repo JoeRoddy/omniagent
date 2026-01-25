@@ -17,6 +17,7 @@ export const copilotTarget: TargetDefinition = {
 					yolo: ["--allow-all-tools"],
 				},
 			},
+			model: { flag: ["--model"] },
 		},
 	},
 	outputs: {

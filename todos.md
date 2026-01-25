@@ -19,8 +19,9 @@
 - [x] Record baselines for codex/claude/gemini/copilot (real CLI)
 - [x] Normalize codex/claude/gemini output comparison for nondeterministic stdout/stderr
 - [x] Bump gemini E2E timeout to accommodate slow runs
-- [ ] Capture model values for model test cases (set OA_E2E_*_MODEL for claude/gemini/copilot)
-- [ ] Verify passthrough flags per agent (update agent.config.ts if needed)
+- [x] Capture model values for model test cases (OA_E2E_CLAUDE_MODEL=opus,
+  OA_E2E_GEMINI_MODEL=gemini-2.5-flash, OA_E2E_COPILOT_MODEL=gpt-5.2)
+- [x] Verify passthrough flags per agent (update agent.config.ts if needed)
 - [x] Compare shim to baselines: OA_E2E=1 OA_E2E_AGENT=codex OA_E2E_CODEX_MODEL=... npm test -- tests/e2e/cli-shim/cli-shim.e2e.test.ts
 - [x] Compare shim to baselines for claude/gemini/copilot
 - [ ] (Optional) Record all agents baselines in one go (real CLI): OA_E2E_RECORD_BASELINE=1 npm test -- tests/e2e/cli-shim/cli-shim.e2e.test.ts

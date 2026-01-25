@@ -1,5 +1,5 @@
 {
-  "session_id": "33274f87-6134-478f-8f53-2be4e68bed0d",
+  "session_id": "ff392b25-892e-4145-9022-cd8ab7e32aa9",
   "response": "Okay, I'm ready for your first command.",
   "stats": {
     "models": {
@@ -7,7 +7,7 @@
         "api": {
           "totalRequests": 1,
           "totalErrors": 0,
-          "totalLatencyMs": 1539
+          "totalLatencyMs": 1335
         },
         "tokens": {
           "input": 338,
@@ -23,7 +23,7 @@
         "api": {
           "totalRequests": 1,
           "totalErrors": 0,
-          "totalLatencyMs": 1687
+          "totalLatencyMs": 1803
         },
         "tokens": {
           "input": 521,

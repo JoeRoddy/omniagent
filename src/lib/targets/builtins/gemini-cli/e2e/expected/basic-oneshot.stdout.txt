@@ -1,5 +1,1 @@
 Okay, I'm ready for your first command.
-Ready. I understand this is a TypeScript project using Vite, Biome for linting/formatting, and Vitest for testing. The CLI entry is `dist/cli.js`. What's next?
-Oops, wrong tool. I'll use `list_directory` to see what's in `src/`.
-`src/` contains `cli/`, `lib/`, and `index.ts`. This structure aligns with a CLI project, likely `index.ts` as the entry, `cli/` for command logic, and `lib/` for shared utilities. I'm ready for your command.
-Okay, added "understand user request" to my to-do list. Waiting for your request; I'll mark it in-progress then.

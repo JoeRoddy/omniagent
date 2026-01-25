@@ -1,0 +1,9 @@
+{
+  "command": "gemini",
+  "args": [
+    "--model",
+    "gemini-2.5-flash",
+    "-p",
+    "marco"
+  ]
+}
