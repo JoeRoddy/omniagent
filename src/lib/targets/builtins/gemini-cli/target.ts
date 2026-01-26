@@ -37,14 +37,14 @@ export const geminiTarget: TargetDefinition = {
 		},
 	},
 	outputs: {
-		skills: "{repoRoot}/.omniagent/skills/{itemName}",
+		skills: "{repoRoot}/.gemini/skills/{itemName}",
 		subagents: {
-			path: "{repoRoot}/.omniagent/subagents/{itemName}",
+			path: "{repoRoot}/.gemini/skills/{itemName}",
 			fallback: { mode: "convert", targetType: "skills" },
 		},
 		commands: {
-			projectPath: "{repoRoot}/.omniagent/commands/{itemName}.toml",
-			userPath: "{homeDir}/.omniagent/commands/{itemName}.toml",
+			projectPath: "{repoRoot}/.gemini/commands/{itemName}.toml",
+			userPath: "{homeDir}/.gemini/commands/{itemName}.toml",
 		},
 		instructions: {
 			filename: "GEMINI.md",

@@ -29,7 +29,17 @@ export type InstructionScanTarget = {
 	outputs?: TargetOutputs;
 };
 
-const DEFAULT_SKIP_DIRS = new Set([".git", "node_modules", "dist", ".omniagent", "coverage"]);
+const DEFAULT_SKIP_DIRS = new Set([
+	".git",
+	"node_modules",
+	"dist",
+	".claude",
+	".codex",
+	".gemini",
+	".github",
+	".omniagent",
+	"coverage",
+]);
 
 type IgnoreRule = {
 	negated: boolean;

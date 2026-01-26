@@ -22,7 +22,7 @@ export const claudeTarget: TargetDefinition = {
 					"one-shot": {
 						text: [],
 						json: ["--output-format", "json"],
-						"stream-json": ["--output-format", "stream-json", "--verbose"],
+						"stream-json": ["--output-format", "stream-json"],
 					},
 				},
 			},
@@ -30,11 +30,11 @@ export const claudeTarget: TargetDefinition = {
 		},
 	},
 	outputs: {
-		skills: "{repoRoot}/.omniagent/skills/{itemName}",
-		subagents: "{repoRoot}/.omniagent/subagents/{itemName}.md",
+		skills: "{repoRoot}/.claude/skills/{itemName}",
+		subagents: "{repoRoot}/.claude/agents/{itemName}.md",
 		commands: {
-			projectPath: "{repoRoot}/.omniagent/commands/{itemName}.md",
-			userPath: "{homeDir}/.omniagent/commands/{itemName}.md",
+			projectPath: "{repoRoot}/.claude/commands/{itemName}.md",
+			userPath: "{homeDir}/.claude/commands/{itemName}.md",
 		},
 		instructions: {
 			filename: "CLAUDE.md",

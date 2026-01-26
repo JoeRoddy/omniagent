@@ -17,17 +17,16 @@ export const copilotTarget: TargetDefinition = {
 					yolo: ["--allow-all-tools"],
 				},
 			},
-			model: { flag: ["--model"] },
 		},
 	},
 	outputs: {
-		skills: "{repoRoot}/.omniagent/skills/{itemName}",
+		skills: "{repoRoot}/.github/skills/{itemName}",
 		subagents: {
-			path: "{repoRoot}/.omniagent/subagents/{itemName}",
+			path: "{repoRoot}/.github/skills/{itemName}",
 			fallback: { mode: "convert", targetType: "skills" },
 		},
 		commands: {
-			projectPath: "{repoRoot}/.omniagent/commands/{itemName}",
+			projectPath: "{repoRoot}/.github/skills/{itemName}",
 			fallback: { mode: "convert", targetType: "skills" },
 		},
 		instructions: {
