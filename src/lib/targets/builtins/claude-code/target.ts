@@ -22,7 +22,7 @@ export const claudeTarget: TargetDefinition = {
 					"one-shot": {
 						text: [],
 						json: ["--output-format", "json"],
-						"stream-json": ["--output-format", "stream-json"],
+						"stream-json": ["--output-format", "stream-json", "--verbose"],
 					},
 				},
 			},

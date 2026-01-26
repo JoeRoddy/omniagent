@@ -19,7 +19,7 @@ export const codexTarget: TargetDefinition = {
 						yolo: ["--yolo"],
 					},
 					"one-shot": {
-						prompt: ["--full-auto"],
+						prompt: null,
 						"auto-edit": ["--full-auto"],
 						yolo: ["--yolo"],
 					},

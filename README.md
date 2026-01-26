@@ -78,14 +78,18 @@ Notes:
 - `--` passthrough is only valid after `--agent`.
 - Unsupported shared flags emit a warning and are ignored.
 - Agent output is passed through unmodified for all output formats.
+- Some approval values are agent-specific (for example, Claude ignores `--approval auto-edit`
+  and warns).
+- Output formats are only supported in one-shot mode for agents that expose them; interactive runs
+  warn when explicitly set.
 
 ### Shared-flag capability matrix
 
 | Agent   | Approval | Sandbox | Output | Model | Web |
 |---------|----------|---------|--------|-------|-----|
 | codex   | ✓        | ✓       | ✓      | ✓     | ✓   |
-| claude  | ✓        | ✗       | ✗      | ✓     | ✗   |
-| gemini  | ✓        | ✗       | ✗      | ✓     | ✓   |
+| claude  | ✓        | ✗       | ✓      | ✓     | ✗   |
+| gemini  | ✓        | ✓       | ✓      | ✓     | ✓   |
 | copilot | ✓        | ✗       | ✗      | ✗     | ✗   |
 
 ## What you can sync

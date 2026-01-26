@@ -94,9 +94,9 @@ function buildCodex(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation |
 	const flags: string[] = [];
 	const prefixFlags: string[] = caseId === "web-on" ? ["--search"] : [];
 
-	if (approval === "prompt" || approval === "auto-edit") {
+	if (approval === "auto-edit") {
 		flags.push("--full-auto");
-	} else {
+	} else if (approval === "yolo") {
 		flags.push("--yolo");
 	}
 
@@ -279,7 +279,7 @@ function buildCopilot(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation
 			if (!agent.model) {
 				return null;
 			}
-			flags = ["--model", agent.model];
+			warnings.push(formatWarning(agent.agentId, "--model", agent.model));
 			break;
 		case "passthrough":
 			break;

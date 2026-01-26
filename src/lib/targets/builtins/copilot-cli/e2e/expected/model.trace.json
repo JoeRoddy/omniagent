@@ -1,8 +1,6 @@
 {
   "command": "copilot",
   "args": [
-    "--model",
-    "gpt-5.2",
     "-p",
     "marco",
     "--silent"

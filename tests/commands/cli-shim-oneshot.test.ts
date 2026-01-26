@@ -37,7 +37,6 @@ describe("CLI shim one-shot mode", () => {
 		const [, args] = spawn.mock.calls[0] as SpawnCall;
 		expect(args).toEqual([
 			"exec",
-			"--full-auto",
 			"--sandbox",
 			"workspace-write",
 			"--disable",
@@ -60,7 +59,6 @@ describe("CLI shim one-shot mode", () => {
 		const [, args] = spawn.mock.calls[0] as SpawnCall;
 		expect(args).toEqual([
 			"exec",
-			"--full-auto",
 			"--sandbox",
 			"workspace-write",
 			"--disable",
@@ -82,7 +80,6 @@ describe("CLI shim one-shot mode", () => {
 		const [, args] = spawn.mock.calls[0] as SpawnCall;
 		expect(args).toEqual([
 			"exec",
-			"--full-auto",
 			"--sandbox",
 			"workspace-write",
 			"--disable",
@@ -140,6 +137,7 @@ describe("CLI shim one-shot mode", () => {
 		expect(args).toEqual([
 			"--output-format",
 			"stream-json",
+			"--verbose",
 			"--model",
 			"claude-3-opus",
 			"-p",
