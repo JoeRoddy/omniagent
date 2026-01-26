@@ -53,7 +53,6 @@ describe("CLI shim execution", () => {
 		expect(command).toBe("codex");
 		expect(args).toEqual([
 			"exec",
-			"--full-auto",
 			"--sandbox",
 			"workspace-write",
 			"--json",
@@ -175,7 +174,6 @@ describe("CLI shim execution", () => {
 		expect(payload.command).toBe("codex");
 		expect(payload.args).toEqual([
 			"exec",
-			"--full-auto",
 			"--sandbox",
 			"workspace-write",
 			"--json",
