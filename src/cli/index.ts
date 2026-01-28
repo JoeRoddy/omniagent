@@ -15,7 +15,7 @@ const SHIM_CAPABILITIES = [
 	"  codex: approval, sandbox, output, model, web",
 	"  claude: approval, output, model",
 	"  gemini: approval, sandbox, output, model, web",
-	"  copilot: approval",
+	"  copilot: approval, model",
 	"Unsupported shared flags for a selected agent emit a warning and are ignored.",
 ].join("\n");
 

@@ -179,4 +179,5 @@ export const codexTarget: TargetDefinition = {
   no native web (warn on `--web`).
 - Gemini: `gemini` interactive; one-shot uses `-p` (or exec flag);
   output via `--output-format`; web supported.
-- Copilot: one-shot `-p`; no model/web; map `yolo` to `--allow-all-tools` and warn for others.
+- Copilot: one-shot `-p`; model supported via `--model`; no web; map `yolo` to
+  `--allow-all-tools` and warn for others.

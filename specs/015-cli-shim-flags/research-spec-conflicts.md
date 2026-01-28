@@ -12,8 +12,9 @@ Discussed each conflict with the user and recorded the agreed resolutions.
 ## Conflicts
 
 - **Model selection is not universal**: The spec requires a shared `--model`
-  flag (FR-011), but the research states Copilot CLI does not allow model
-  selection via a flag. This makes `--model` incompatible with `--agent copilot`.
+  flag (FR-011). Earlier research stated Copilot CLI did not allow model
+  selection via a flag. Update (2026-01-28): Copilot CLI now supports `--model`,
+  so this conflict is resolved for Copilot.
 - **Web access flag is not universal**: The spec defines `--web` to enable web
   search; research says Claude Code and Copilot CLI have no native web search,
   Codex uses `--search` (not `--web`), and Gemini’s web access is tool-enabled

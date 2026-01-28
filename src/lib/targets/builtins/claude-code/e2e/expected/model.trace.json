@@ -2,7 +2,7 @@
   "command": "claude",
   "args": [
     "--model",
-    "opus",
+    "haiku",
     "-p",
     "marco"
   ]

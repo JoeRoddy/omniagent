@@ -90,7 +90,7 @@ Notes:
 | codex   | ✓        | ✓       | ✓      | ✓     | ✓   |
 | claude  | ✓        | ✗       | ✓      | ✓     | ✗   |
 | gemini  | ✓        | ✓       | ✓      | ✓     | ✓   |
-| copilot | ✓        | ✗       | ✗      | ✗     | ✗   |
+| copilot | ✓        | ✗       | ✗      | ✓     | ✗   |
 
 ## What you can sync
 

@@ -62,7 +62,7 @@ describe("CLI shim capability warnings", () => {
 		expect(exitSpy).not.toHaveBeenCalled();
 	});
 
-	it("warns when model is requested for an agent without model support", async () => {
+	it("passes model flags for agents that support them", async () => {
 		const spawn = createSpawnStub(0);
 		await runCli(["node", "omniagent", "--agent", "copilot", "--model", "gpt-5"], {
 			shim: {
@@ -72,10 +72,10 @@ describe("CLI shim capability warnings", () => {
 		});
 
 		const output = stderrSpy.mock.calls.map(([chunk]) => String(chunk)).join("");
-		expect(output).toContain("does not support --model (gpt-5)");
+		expect(output).not.toContain("does not support --model");
 
 		const [, args] = spawn.mock.calls[0] as SpawnCall;
-		expect(args).toEqual([]);
+		expect(args).toEqual(["--model", "gpt-5"]);
 		expect(spawn).toHaveBeenCalledTimes(1);
 	});
 
