@@ -1,1 +1,1 @@
-codex-cli-exec 0.92.0
+codex-cli-exec 0.89.0

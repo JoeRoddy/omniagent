@@ -1,33 +1,105 @@
-import { InvalidUsageError } from "../../lib/agents/errors.js";
+import { BUILTIN_TARGETS } from "../targets/builtins.js";
+import { loadTargetConfig } from "../targets/config-loader.js";
+import { validateTargetConfig } from "../targets/config-validate.js";
+import { resolveTargets } from "../targets/resolve-targets.js";
+import type { ResolvedTarget } from "../targets/config-types.js";
 import {
-	type AgentSelection,
-	type FlagRequests,
-	type ResolvedInvocation,
-	type SessionConfiguration,
-	buildRequests,
-	buildSession,
-	resolveAgentSelection,
-} from "../../lib/agents/switch.js";
+	APPROVAL_POLICIES,
+	type ApprovalPolicy,
+	type InvocationMode,
+	OUTPUT_FORMATS,
+	type OutputFormat,
+	SANDBOX_MODES,
+	type SandboxMode,
+} from "../targets/config-types.js";
+import { InvalidUsageError } from "./errors.js";
+
+// Re-exporting types from cli/shim/types.ts that are critical for agent switching
+export {
+	APPROVAL_POLICIES,
+	type ApprovalPolicy,
+	OUTPUT_FORMATS,
+	type OutputFormat,
+	SANDBOX_MODES,
+	type SandboxMode,
+};
+
+export type FlagSource = "default" | "flag" | "alias" | "derived";
+
+export type FlagValue<T> = {
+	value: T;
+	source: FlagSource;
+	explicit: boolean;
+};
+
+export type ParsedShimFlags = {
+	prompt: string | null;
+	promptExplicit: boolean;
+	approval: ApprovalPolicy;
+	approvalExplicit: boolean;
+	sandbox: SandboxMode;
+	sandboxExplicit: boolean;
+	output: OutputFormat;
+	outputExplicit: boolean;
+	model: string | null;
+	modelExplicit: boolean;
+	web: boolean;
+	webExplicit: boolean;
+	agent: string | null;
+	agentExplicit: boolean;
+	traceTranslate: boolean;
+	help: boolean;
+	version: boolean;
+	hasDelimiter: boolean;
+	passthroughArgs: string[];
+};
+
+export type SessionConfiguration = {
+	approvalPolicy: ApprovalPolicy;
+	sandbox: SandboxMode;
+	outputFormat: OutputFormat;
+	model: string | null;
+	webEnabled: boolean;
+	approvalExplicit: boolean;
+	sandboxExplicit: boolean;
+	outputExplicit: boolean;
+	modelExplicit: boolean;
+	webExplicit: boolean;
+};
+
+export type AgentSelection = {
+	id: string;
+	source: "flag" | "config";
+	configPath: string | null;
+};
+
+export type AgentPassthrough = {
+	hasDelimiter: boolean;
+	args: string[];
+};
+
+export type FlagRequests = {
+	approval: ApprovalPolicy;
+	sandbox: SandboxMode;
+	output: OutputFormat;
+	model?: string;
+	web: boolean;
+};
+
+export type ResolvedInvocation = {
+	mode: InvocationMode;
+	prompt: string | null;
+	usesPipedStdin: boolean;
+	agent: AgentSelection;
+	target: ResolvedTarget;
+	session: SessionConfiguration;
+	requests: FlagRequests;
+	passthrough: AgentPassthrough;
+};
 
 type AgentResolution = {
 	selection: AgentSelection;
 	targetId: string;
-};
-
-type ResolveInvocationOptions = {
-	argv: string[];
-	stdinIsTTY: boolean;
-	stdinText: string | null;
-	repoRoot: string;
-	agentsDir?: string | null;
-};
-
-type ResolveFromFlagsOptions = {
-	flags: ParsedShimFlags;
-	stdinIsTTY: boolean;
-	stdinText: string | null;
-	repoRoot: string;
-	agentsDir?: string | null;
 };
 
 function buildRequests(flags: ParsedShimFlags): FlagRequests {
@@ -64,7 +136,7 @@ function normalizeKey(value: string): string {
 	return value.trim().toLowerCase();
 }
 
-async function resolveAgentSelection(
+export async function resolveAgentSelection(
 	flags: ParsedShimFlags,
 	repoRoot: string,
 	agentsDir?: string | null,
@@ -138,46 +210,4 @@ async function resolveAgentSelection(
 	return { resolution: { selection, targetId: resolvedId }, targetMap };
 }
 
-export async function resolveInvocation(
-	options: ResolveInvocationOptions,
-): Promise<ResolvedInvocation> {
-	const flags = parseShimFlags(options.argv);
-	return resolveInvocationFromFlags({ ...options, flags });
-}
-
-export async function resolveInvocationFromFlags(
-	options: ResolveFromFlagsOptions,
-): Promise<ResolvedInvocation> {
-	const { flags, stdinIsTTY, stdinText } = options;
-	const usesPipedStdin = !stdinIsTTY;
-	const prompt = flags.promptExplicit ? flags.prompt : usesPipedStdin ? (stdinText ?? "") : null;
-	const mode = flags.promptExplicit || usesPipedStdin ? "one-shot" : "interactive";
-
-	const { resolution, targetMap } = await resolveAgentSelection(
-		flags,
-		options.repoRoot,
-		options.agentsDir,
-	);
-	const target = targetMap.byId.get(normalizeKey(resolution.targetId));
-	if (!target) {
-		throw new InvalidUsageError(`Unknown or disabled target: ${resolution.targetId}.`);
-	}
-
-	const agent = resolution.selection;
-	const session = buildSession(flags);
-	const requests = buildRequests(flags);
-
-	return {
-		mode,
-		prompt,
-		usesPipedStdin,
-		agent,
-		target,
-		session,
-		requests,
-		passthrough: {
-			hasDelimiter: flags.hasDelimiter,
-			args: flags.passthroughArgs,
-		},
-	};
-}
+export { buildRequests, buildSession };

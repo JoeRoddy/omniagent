@@ -1,23 +1,21 @@
-OpenAI Codex v0.92.0 (research preview)
+OpenAI Codex v0.89.0 (research preview)
 --------
 workdir: /Users/joeroddy/Documents/dev/projects/open-source/omniagent
-model: gpt-5.2-codex
+model: gpt-5.1-codex-mini
 provider: openai
 approval: never
 sandbox: workspace-write [workdir, /tmp, $TMPDIR]
 reasoning effort: high
 reasoning summaries: auto
-session id: 019c0af3-4b6d-7c83-8663-f0dce01ccd28
+session id: 019c14bd-b04a-7220-8507-e3cf9d65c983
 --------
 user
 Output exactly: 5
 mcp startup: no servers
 
 thinking
-**Producing exact output**
-
-I'll produce the exact output "5" as requested, without any additional text or tools.
+**Generating simple output**
 codex
 5
 tokens used
-2,602
+58

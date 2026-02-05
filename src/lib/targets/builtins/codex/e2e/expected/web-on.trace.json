@@ -5,6 +5,8 @@
     "exec",
     "--sandbox",
     "workspace-write",
+    "-m",
+    "gpt-5.1-codex-mini",
     "-c",
     "model_reasoning_effort=\"high\"",
     "Output exactly: 5"
