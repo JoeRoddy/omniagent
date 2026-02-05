@@ -1,1 +1,1 @@
-export { InvalidUsageError } from "../../cli/shim/errors.js";
+export { InvalidUsageError } from "../errors.js";
