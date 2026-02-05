@@ -1,3 +1,17 @@
+export const AGENT_IDS = ["claude", "codex", "gemini", "copilot"] as const;
+export type AgentId = (typeof AGENT_IDS)[number];
+
+export const APPROVAL_POLICIES = ["prompt", "auto-edit", "yolo"] as const;
+export type ApprovalPolicy = (typeof APPROVAL_POLICIES)[number];
+
+export const SANDBOX_MODES = ["workspace-write", "off"] as const;
+export type SandboxMode = (typeof SANDBOX_MODES)[number];
+
+export const OUTPUT_FORMATS = ["text", "json", "stream-json"] as const;
+export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
+
+export type InvocationMode = "interactive" | "one-shot";
+
 export type CommandLocation = "project" | "user";
 export type OutputType = "skills" | "commands" | "subagents" | "instructions";
 
@@ -111,6 +125,73 @@ export type TargetOutputs = {
 	instructions?: InstructionOutputDefinition;
 };
 
+export type ModeCommand = {
+	command: string;
+	args?: string[];
+};
+
+export type PromptSpec =
+	| { type: "flag"; flag: string[] }
+	| { type: "positional"; position?: "last" | "first" };
+
+export type FlagMap<T extends string> = {
+	values?: Partial<Record<T, string[] | null>>;
+	byMode?: Partial<Record<InvocationMode, Partial<Record<T, string[] | null>>>>;
+};
+
+export type TargetCliDefinition = {
+	modes: {
+		interactive: ModeCommand;
+		oneShot: ModeCommand;
+	};
+	prompt?: PromptSpec;
+	flags?: {
+		approval?: FlagMap<ApprovalPolicy>;
+		sandbox?: FlagMap<SandboxMode>;
+		output?: FlagMap<OutputFormat>;
+		model?: { flag: string[]; modes?: InvocationMode[] };
+		web?: { on?: string[] | null; off?: string[] | null; modes?: InvocationMode[] };
+	};
+	passthrough?: { position?: "after" | "before-prompt" };
+	translate?: (invocation: TranslationInvocation) => TranslationResult;
+};
+
+export type TranslationInvocation = {
+	mode: InvocationMode;
+	prompt: string | null;
+	usesPipedStdin: boolean;
+	agent: {
+		id: string;
+		source: "flag" | "config";
+		configPath: string | null;
+	};
+	session: {
+		approvalPolicy: ApprovalPolicy;
+		sandbox: SandboxMode;
+		outputFormat: OutputFormat;
+		model: string | null;
+		webEnabled: boolean;
+		sandboxExplicit: boolean;
+	};
+	requests: {
+		approval?: ApprovalPolicy;
+		sandbox?: SandboxMode;
+		output?: OutputFormat;
+		model?: string;
+		web?: boolean;
+	};
+	passthrough: {
+		hasDelimiter: boolean;
+		args: string[];
+	};
+};
+
+export type TranslationResult = {
+	command: string;
+	args: string[];
+	warnings: string[];
+};
+
 export type HookContext = {
 	repoRoot: string;
 	agentsDir: string;
@@ -136,10 +217,12 @@ export type TargetDefinition = {
 	inherits?: string;
 	override?: boolean;
 	outputs?: TargetOutputs;
+	cli?: TargetCliDefinition;
 	hooks?: TargetHooks;
 };
 
 export type OmniagentConfig = {
+	defaultAgent?: string;
 	targets?: TargetDefinition[];
 	disableTargets?: string[];
 	hooks?: SyncHooks;
@@ -150,6 +233,7 @@ export type ResolvedTarget = {
 	displayName: string;
 	aliases: string[];
 	outputs: TargetOutputs;
+	cli?: TargetCliDefinition;
 	hooks?: TargetHooks;
 	isBuiltIn: boolean;
 	isCustomized: boolean;

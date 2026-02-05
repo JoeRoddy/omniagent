@@ -1,0 +1,10 @@
+{
+  "command": "copilot",
+  "args": [
+    "--model",
+    "gpt-5-mini",
+    "-p",
+    "Output exactly: 5",
+    "--silent"
+  ]
+}

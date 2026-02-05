@@ -1,0 +1,8 @@
+{
+  "command": "gemini",
+  "args": [
+    "--yolo",
+    "-p",
+    "Output exactly: 5"
+  ]
+}

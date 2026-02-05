@@ -1,0 +1,10 @@
+{
+  "command": "claude",
+  "args": [
+    "-p",
+    "Output exactly: 5"
+  ],
+  "warnings": [
+    "Warning: claude does not support --approval (auto-edit); ignoring."
+  ]
+}

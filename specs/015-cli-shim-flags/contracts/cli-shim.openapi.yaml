@@ -1,0 +1,215 @@
+openapi: 3.1.0
+info:
+  title: Omniagent CLI Shim Contract
+  version: 0.1.0
+  description: |
+    Conceptual API contract describing how the omniagent CLI shim parses arguments,
+    resolves session configuration, and dispatches to an agent CLI. This does not
+    imply a server implementation.
+servers:
+  - url: http://localhost
+paths:
+  /shim/resolve:
+    post:
+      summary: Resolve a CLI invocation into a session configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvocationRequest"
+      responses:
+        "200":
+          description: Resolved invocation plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolvedInvocation"
+        "400":
+          description: Invalid usage (unknown flags, invalid values, missing agent)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvalidUsageError"
+  /shim/execute:
+    post:
+      summary: Execute a resolved invocation via the selected agent CLI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecutionRequest"
+      responses:
+        "200":
+          description: Execution completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecutionResult"
+        "403":
+          description: Blocked by approval policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecutionResult"
+        "500":
+          description: Agent execution error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecutionResult"
+components:
+  schemas:
+    InvocationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - argv
+        - stdinIsTTY
+      properties:
+        argv:
+          type: array
+          items:
+            type: string
+          description: CLI arguments after the node+script entries (equivalent to hideBin).
+        stdinIsTTY:
+          type: boolean
+        stdinText:
+          type: string
+          nullable: true
+        config:
+          $ref: "#/components/schemas/AgentConfig"
+        agentsDir:
+          type: string
+          description: Absolute path to the agents directory used for config discovery.
+    ResolvedInvocation:
+      type: object
+      additionalProperties: false
+      required:
+        - mode
+        - agent
+        - session
+        - passthroughArgs
+      properties:
+        mode:
+          $ref: "#/components/schemas/InvocationMode"
+        prompt:
+          type: string
+          nullable: true
+        usesPipedStdin:
+          type: boolean
+        agent:
+          $ref: "#/components/schemas/AgentSelection"
+        session:
+          $ref: "#/components/schemas/SessionConfiguration"
+        shimArgs:
+          type: array
+          items:
+            type: string
+          description: Shim-translated args passed to the agent CLI.
+        passthroughArgs:
+          type: array
+          items:
+            type: string
+          description: Verbatim args after the `--` delimiter.
+        shortcut:
+          type: string
+          enum: [help, version, none]
+    ExecutionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - invocation
+      properties:
+        invocation:
+          $ref: "#/components/schemas/ResolvedInvocation"
+    ExecutionResult:
+      type: object
+      additionalProperties: false
+      required:
+        - exitCode
+        - reason
+      properties:
+        exitCode:
+          type: integer
+          enum: [0, 1, 2, 3]
+        reason:
+          type: string
+          enum: [success, execution-error, invalid-usage, blocked]
+        message:
+          type: string
+          nullable: true
+    AgentConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        defaultAgent:
+          $ref: "#/components/schemas/AgentId"
+    AgentSelection:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - source
+      properties:
+        id:
+          $ref: "#/components/schemas/AgentId"
+        source:
+          type: string
+          enum: [flag, config]
+        configPath:
+          type: string
+          nullable: true
+    SessionConfiguration:
+      type: object
+      additionalProperties: false
+      required:
+        - approvalPolicy
+        - sandbox
+        - outputFormat
+        - webEnabled
+      properties:
+        approvalPolicy:
+          $ref: "#/components/schemas/ApprovalPolicy"
+        sandbox:
+          $ref: "#/components/schemas/SandboxMode"
+        outputFormat:
+          $ref: "#/components/schemas/OutputFormat"
+        model:
+          type: string
+          nullable: true
+        webEnabled:
+          type: boolean
+        sandboxExplicit:
+          type: boolean
+    InvalidUsageError:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+        - errorCode
+      properties:
+        error:
+          type: string
+        errorCode:
+          type: string
+          enum: [invalidUsage]
+        remediation:
+          type: string
+          nullable: true
+    InvocationMode:
+      type: string
+      enum: [interactive, one-shot]
+    AgentId:
+      type: string
+      enum: [claude, codex, gemini, copilot]
+    ApprovalPolicy:
+      type: string
+      enum: [prompt, auto-edit, yolo]
+    SandboxMode:
+      type: string
+      enum: [workspace-write, off]
+    OutputFormat:
+      type: string
+      enum: [text, json, stream-json]

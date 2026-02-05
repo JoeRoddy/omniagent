@@ -1,0 +1,9 @@
+{
+  "command": "claude",
+  "args": [
+    "--output-format",
+    "json",
+    "-p",
+    "Output exactly: 5"
+  ]
+}

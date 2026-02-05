@@ -1,0 +1,8 @@
+{
+  "command": "claude",
+  "args": [
+    "--dangerously-skip-permissions",
+    "-p",
+    "Output exactly: 5"
+  ]
+}

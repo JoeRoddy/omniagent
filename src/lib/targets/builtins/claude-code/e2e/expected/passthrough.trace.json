@@ -1,0 +1,8 @@
+{
+  "command": "claude",
+  "args": [
+    "-p",
+    "Output exactly: 5",
+    "--version"
+  ]
+}

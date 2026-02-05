@@ -1,0 +1,14 @@
+{
+  "command": "codex",
+  "args": [
+    "exec",
+    "--yolo",
+    "--sandbox",
+    "danger-full-access",
+    "--disable",
+    "web_search_request",
+    "-c",
+    "model_reasoning_effort=\"high\"",
+    "Output exactly: 5"
+  ]
+}

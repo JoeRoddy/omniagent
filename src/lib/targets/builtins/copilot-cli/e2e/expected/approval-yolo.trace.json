@@ -1,0 +1,9 @@
+{
+  "command": "copilot",
+  "args": [
+    "--allow-all-tools",
+    "-p",
+    "Output exactly: 5",
+    "--silent"
+  ]
+}

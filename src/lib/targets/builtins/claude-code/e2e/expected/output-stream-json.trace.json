@@ -1,0 +1,10 @@
+{
+  "command": "claude",
+  "args": [
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "-p",
+    "Output exactly: 5"
+  ]
+}

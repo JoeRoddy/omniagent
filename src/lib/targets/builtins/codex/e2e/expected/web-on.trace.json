@@ -1,0 +1,12 @@
+{
+  "command": "codex",
+  "args": [
+    "--search",
+    "exec",
+    "--sandbox",
+    "workspace-write",
+    "-c",
+    "model_reasoning_effort=\"high\"",
+    "Output exactly: 5"
+  ]
+}

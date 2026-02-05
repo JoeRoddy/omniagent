@@ -1,0 +1,11 @@
+{
+  "command": "copilot",
+  "args": [
+    "-p",
+    "Output exactly: 5",
+    "--silent"
+  ],
+  "warnings": [
+    "Warning: copilot does not support --web (on); ignoring."
+  ]
+}

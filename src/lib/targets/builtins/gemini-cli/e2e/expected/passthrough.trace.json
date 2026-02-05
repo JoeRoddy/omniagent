@@ -1,0 +1,11 @@
+{
+  "command": "gemini",
+  "args": [
+    "--approval-mode",
+    "default",
+    "--sandbox",
+    "-p",
+    "Output exactly: 5",
+    "--version"
+  ]
+}

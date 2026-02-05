@@ -1,0 +1,9 @@
+{
+  "command": "claude",
+  "args": [
+    "--model",
+    "haiku",
+    "-p",
+    "Output exactly: 5"
+  ]
+}

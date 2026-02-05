@@ -5,9 +5,11 @@ import type {
 	OmniagentConfig,
 	OutputDefinition,
 	OutputTemplateValue,
+	TargetCliDefinition,
 	TargetDefinition,
 	TargetOutputs,
 } from "./config-types.js";
+import { APPROVAL_POLICIES, OUTPUT_FORMATS, SANDBOX_MODES } from "./config-types.js";
 import { type PlaceholderKey, validatePlaceholders } from "./placeholders.js";
 
 export type ConfigValidationResult = {
@@ -35,6 +37,205 @@ function normalizeString(value: unknown): string | null {
 	}
 	const trimmed = value.trim();
 	return trimmed.length > 0 ? trimmed : null;
+}
+
+const INVOCATION_MODES = ["interactive", "one-shot"] as const;
+
+function validateStringArray(
+	value: unknown,
+	label: string,
+	errors: string[],
+	options: { allowEmpty?: boolean } = {},
+): void {
+	if (!Array.isArray(value)) {
+		errors.push(`${label} must be an array of strings.`);
+		return;
+	}
+	const allowEmpty = options.allowEmpty ?? false;
+	if (!allowEmpty && value.length === 0) {
+		errors.push(`${label} must include at least one entry.`);
+		return;
+	}
+	for (const [index, entry] of value.entries()) {
+		const normalized = normalizeString(entry);
+		if (!normalized) {
+			errors.push(`${label}[${index}] must be a non-empty string.`);
+		}
+	}
+}
+
+function validateFlagMapValues(
+	value: unknown,
+	label: string,
+	allowedValues: readonly string[],
+	errors: string[],
+): void {
+	if (!isPlainObject(value)) {
+		errors.push(`${label} must be an object.`);
+		return;
+	}
+	for (const [key, entry] of Object.entries(value)) {
+		if (!allowedValues.includes(key)) {
+			errors.push(`${label} has unsupported key "${key}".`);
+			continue;
+		}
+		if (entry === null) {
+			continue;
+		}
+		validateStringArray(entry, `${label}.${key}`, errors, { allowEmpty: true });
+	}
+}
+
+function validateFlagMap(
+	value: unknown,
+	label: string,
+	allowedValues: readonly string[],
+	errors: string[],
+): void {
+	if (!isPlainObject(value)) {
+		errors.push(`${label} must be an object.`);
+		return;
+	}
+	if (value.values !== undefined) {
+		validateFlagMapValues(value.values, `${label}.values`, allowedValues, errors);
+	}
+	if (value.byMode !== undefined) {
+		if (!isPlainObject(value.byMode)) {
+			errors.push(`${label}.byMode must be an object.`);
+		} else {
+			for (const [mode, entries] of Object.entries(value.byMode)) {
+				if (!INVOCATION_MODES.includes(mode as (typeof INVOCATION_MODES)[number])) {
+					errors.push(`${label}.byMode has unsupported mode "${mode}".`);
+					continue;
+				}
+				validateFlagMapValues(entries, `${label}.byMode.${mode}`, allowedValues, errors);
+			}
+		}
+	}
+}
+
+function validateModeCommand(value: unknown, label: string, errors: string[]): void {
+	if (!isPlainObject(value)) {
+		errors.push(`${label} must be an object.`);
+		return;
+	}
+	const command = normalizeString(value.command);
+	if (!command) {
+		errors.push(`${label}.command is required.`);
+	}
+	if (value.args !== undefined) {
+		validateStringArray(value.args, `${label}.args`, errors, { allowEmpty: true });
+	}
+}
+
+function validatePromptSpec(value: unknown, label: string, errors: string[]): void {
+	if (!isPlainObject(value)) {
+		errors.push(`${label} must be an object.`);
+		return;
+	}
+	if (value.type === "flag") {
+		validateStringArray(value.flag, `${label}.flag`, errors);
+		return;
+	}
+	if (value.type === "positional") {
+		if (value.position !== undefined && value.position !== "first" && value.position !== "last") {
+			errors.push(`${label}.position must be "first" or "last" when provided.`);
+		}
+		return;
+	}
+	errors.push(`${label}.type must be "flag" or "positional".`);
+}
+
+function validateCliDefinition(
+	cli: TargetCliDefinition | undefined,
+	label: string,
+	errors: string[],
+): void {
+	if (!cli) {
+		return;
+	}
+	if (!isPlainObject(cli)) {
+		errors.push(`${label} must be an object.`);
+		return;
+	}
+	if (!isPlainObject(cli.modes)) {
+		errors.push(`${label}.modes is required.`);
+		return;
+	}
+	validateModeCommand(cli.modes.interactive, `${label}.modes.interactive`, errors);
+	validateModeCommand(cli.modes.oneShot, `${label}.modes.oneShot`, errors);
+
+	if (cli.prompt !== undefined) {
+		validatePromptSpec(cli.prompt, `${label}.prompt`, errors);
+	}
+	if (cli.flags !== undefined) {
+		if (!isPlainObject(cli.flags)) {
+			errors.push(`${label}.flags must be an object.`);
+		} else {
+			if (cli.flags.approval !== undefined) {
+				validateFlagMap(cli.flags.approval, `${label}.flags.approval`, APPROVAL_POLICIES, errors);
+			}
+			if (cli.flags.sandbox !== undefined) {
+				validateFlagMap(cli.flags.sandbox, `${label}.flags.sandbox`, SANDBOX_MODES, errors);
+			}
+			if (cli.flags.output !== undefined) {
+				validateFlagMap(cli.flags.output, `${label}.flags.output`, OUTPUT_FORMATS, errors);
+			}
+			if (cli.flags.model !== undefined) {
+				if (!isPlainObject(cli.flags.model)) {
+					errors.push(`${label}.flags.model must be an object.`);
+				} else {
+					validateStringArray(cli.flags.model.flag, `${label}.flags.model.flag`, errors);
+					if (cli.flags.model.modes !== undefined) {
+						validateStringArray(cli.flags.model.modes, `${label}.flags.model.modes`, errors);
+						for (const mode of cli.flags.model.modes ?? []) {
+							if (!INVOCATION_MODES.includes(mode as (typeof INVOCATION_MODES)[number])) {
+								errors.push(`${label}.flags.model.modes has unsupported mode "${mode}".`);
+							}
+						}
+					}
+				}
+			}
+			if (cli.flags.web !== undefined) {
+				if (!isPlainObject(cli.flags.web)) {
+					errors.push(`${label}.flags.web must be an object.`);
+				} else {
+					if (cli.flags.web.on !== undefined && cli.flags.web.on !== null) {
+						validateStringArray(cli.flags.web.on, `${label}.flags.web.on`, errors, {
+							allowEmpty: true,
+						});
+					}
+					if (cli.flags.web.off !== undefined && cli.flags.web.off !== null) {
+						validateStringArray(cli.flags.web.off, `${label}.flags.web.off`, errors, {
+							allowEmpty: true,
+						});
+					}
+					if (cli.flags.web.modes !== undefined) {
+						validateStringArray(cli.flags.web.modes, `${label}.flags.web.modes`, errors);
+						for (const mode of cli.flags.web.modes ?? []) {
+							if (!INVOCATION_MODES.includes(mode as (typeof INVOCATION_MODES)[number])) {
+								errors.push(`${label}.flags.web.modes has unsupported mode "${mode}".`);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if (cli.passthrough !== undefined) {
+		if (!isPlainObject(cli.passthrough)) {
+			errors.push(`${label}.passthrough must be an object.`);
+		} else if (
+			cli.passthrough.position !== undefined &&
+			cli.passthrough.position !== "after" &&
+			cli.passthrough.position !== "before-prompt"
+		) {
+			errors.push(`${label}.passthrough.position must be "after" or "before-prompt".`);
+		}
+	}
+	if (cli.translate !== undefined && typeof cli.translate !== "function") {
+		errors.push(`${label}.translate must be a function when provided.`);
+	}
 }
 
 function validateTemplate(
@@ -186,6 +387,13 @@ export function validateTargetConfig(options: {
 		};
 	}
 
+	if (config.defaultAgent !== undefined) {
+		const normalized = normalizeString(config.defaultAgent);
+		if (!normalized) {
+			errors.push("defaultAgent must be a non-empty string when provided.");
+		}
+	}
+
 	const builtInIds = new Set(options.builtIns.map((target) => normalizeLower(target.id)));
 	const builtInAliasSet = new Set<string>();
 	for (const target of options.builtIns) {
@@ -196,7 +404,7 @@ export function validateTargetConfig(options: {
 
 	const seenIds = new Set<string>();
 	const seenAliases = new Set<string>();
-	const overrideIds = new Set<string>();
+	const customBuiltInIds = new Set<string>();
 
 	if (config.disableTargets !== undefined) {
 		if (!Array.isArray(config.disableTargets)) {
@@ -267,16 +475,11 @@ export function validateTargetConfig(options: {
 
 				const isBuiltInId = builtInIds.has(idKey);
 				const hasOverride = entry.override === true;
-				if (isBuiltInId && !hasOverride && !inherits) {
-					errors.push(
-						`${label} collides with built-in target "${id}" without override or inherits.`,
-					);
-				}
 				if (hasOverride && !isBuiltInId) {
 					errors.push(`${label}.override requires a matching built-in target (${id}).`);
 				}
-				if (hasOverride || inherits) {
-					overrideIds.add(idKey);
+				if (isBuiltInId) {
+					customBuiltInIds.add(idKey);
 				}
 
 				if (entry.aliases !== undefined) {
@@ -314,6 +517,7 @@ export function validateTargetConfig(options: {
 				}
 
 				validateOutputs(entry.outputs, `${label}.outputs`, errors);
+				validateCliDefinition(entry.cli, `${label}.cli`, errors);
 			}
 		}
 	}
@@ -321,7 +525,7 @@ export function validateTargetConfig(options: {
 	if (config.disableTargets && Array.isArray(config.disableTargets)) {
 		for (const targetId of config.disableTargets) {
 			const normalized = normalizeLower(targetId);
-			if (overrideIds.has(normalized)) {
+			if (customBuiltInIds.has(normalized)) {
 				errors.push(`disableTargets cannot include overridden/inherited target (${targetId}).`);
 			}
 		}

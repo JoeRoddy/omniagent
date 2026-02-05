@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"019c0af3-845b-7e92-a1c9-9d4ed01209da"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"**Confirming output limit**"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"5"}}
+{"type":"turn.completed","usage":{"input_tokens":9238,"cached_input_tokens":6656,"output_tokens":20}}

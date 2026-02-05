@@ -1,0 +1,10 @@
+{
+  "command": "gemini",
+  "args": [
+    "--approval-mode",
+    "auto_edit",
+    "--sandbox",
+    "-p",
+    "Output exactly: 5"
+  ]
+}

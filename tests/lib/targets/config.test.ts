@@ -73,17 +73,15 @@ describe("target config discovery", () => {
 });
 
 describe("target config validation", () => {
-	it("rejects built-in collisions without override or inherits", () => {
+	it("allows built-in overrides without inherits", () => {
 		const config: OmniagentConfig = {
 			targets: [{ id: "claude" }],
 		};
 
 		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
 
-		expect(validation.valid).toBe(false);
-		expect(validation.errors).toContain(
-			'targets[0] collides with built-in target "claude" without override or inherits.',
-		);
+		expect(validation.valid).toBe(true);
+		expect(validation.errors).toEqual([]);
 	});
 
 	it("aggregates schema errors with actionable messages", () => {
@@ -113,6 +111,17 @@ describe("target config validation", () => {
 			]),
 		);
 	});
+
+	it("rejects empty defaultAgent values", () => {
+		const config: OmniagentConfig = {
+			defaultAgent: " " as OmniagentConfig["defaultAgent"],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(false);
+		expect(validation.errors).toContain("defaultAgent must be a non-empty string when provided.");
+	});
 });
 
 describe("target resolution", () => {
@@ -122,7 +131,7 @@ describe("target resolution", () => {
 			targets: [
 				{
 					id: "claude",
-					override: true,
+					inherits: "claude",
 					outputs: {
 						instructions: "CLAUDE_OVERRIDE.md",
 					},
@@ -155,7 +164,7 @@ describe("target resolution", () => {
 		expect(acme?.outputs.skills).toEqual(builtinClaude?.outputs?.skills);
 		expect(acme?.displayName).toBe("Acme Agent");
 		expect(resolved.aliasToId.get("acme-ai")).toBe("acme");
-		expect(resolved.configSourceById.get("claude")).toBe("override");
+		expect(resolved.configSourceById.get("claude")).toBe("inherits");
 		expect(resolved.configSourceById.get("acme")).toBe("inherits");
 	});
 

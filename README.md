@@ -45,6 +45,53 @@ Outputs:
 
 Only Claude supports native subagents. Other targets receive converted skills so they still work.
 
+## CLI shim (interactive + one-shot)
+
+`omniagent` without a subcommand acts as a shim to agent CLIs. Select an agent explicitly with
+`--agent` or set a `defaultAgent` in `agents/omniagent.config.*`.
+
+```bash
+# Interactive (default)
+omniagent --agent codex
+
+# One-shot prompt
+omniagent -p "Summarize the repo" --agent codex --output json
+
+# Piped stdin
+echo "Summarize the repo" | omniagent --agent codex
+
+# Passthrough to agent CLI
+omniagent --agent codex -- --some-agent-flag --model gpt-5
+```
+
+Shared flags:
+
+- `--approval <prompt|auto-edit|yolo>` (aliases: `--auto-edit`, `--yolo`)
+- `--sandbox <workspace-write|off>` (defaults to `off` when `--yolo` is set and `--sandbox` is
+  not explicit)
+- `--output <text|json|stream-json>` (aliases: `--json`, `--stream-json`)
+- `--model <name>`
+- `--web <on|off|true|false|1|0>` (bare `--web` enables)
+
+Notes:
+
+- `--` passthrough is only valid after `--agent`.
+- Unsupported shared flags emit a warning and are ignored.
+- Agent output is passed through unmodified for all output formats.
+- Some approval values are agent-specific (for example, Claude ignores `--approval auto-edit`
+  and warns).
+- Output formats are only supported in one-shot mode for agents that expose them; interactive runs
+  warn when explicitly set.
+
+### Shared-flag capability matrix
+
+| Agent   | Approval | Sandbox | Output | Model | Web |
+|---------|----------|---------|--------|-------|-----|
+| codex   | ✓        | ✓       | ✓      | ✓     | ✓   |
+| claude  | ✓        | ✗       | ✓      | ✓     | ✗   |
+| gemini  | ✓        | ✓       | ✓      | ✓     | ✓   |
+| copilot | ✓        | ✗       | ✗      | ✓     | ✗   |
+
 ## What you can sync
 
 ### Subagents (Claude format → converted skills elsewhere)

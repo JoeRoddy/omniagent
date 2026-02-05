@@ -21,14 +21,6 @@ describe("CLI root command", () => {
 		process.exitCode = undefined;
 	});
 
-	it("prints the default greeting", async () => {
-		await runCli(["node", "omniagent"]);
-
-		expect(logSpy).toHaveBeenCalledWith("Hello from omniagent!");
-		expect(errorSpy).not.toHaveBeenCalled();
-		expect(exitSpy).not.toHaveBeenCalled();
-	});
-
 	it("supports --help output at the root level", async () => {
 		await runCli(["node", "omniagent", "--help"]);
 
@@ -36,6 +28,8 @@ describe("CLI root command", () => {
 		expect(output).toContain("omniagent CLI");
 		expect(output).toContain("Commands:");
 		expect(output).toContain("Options:");
+		expect(output).toContain("Capabilities by agent:");
+		expect(output).toContain("Unsupported shared flags for a selected agent emit a warning");
 		expect(exitSpy).not.toHaveBeenCalled();
 	});
 

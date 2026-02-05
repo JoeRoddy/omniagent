@@ -1,0 +1,14 @@
+{
+  "command": "codex",
+  "args": [
+    "exec",
+    "--sandbox",
+    "workspace-write",
+    "--disable",
+    "web_search_request",
+    "-c",
+    "model_reasoning_effort=\"high\"",
+    "--version",
+    "Output exactly: 5"
+  ]
+}

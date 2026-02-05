@@ -280,7 +280,7 @@ describe("slash command sync planning", () => {
 					targets: [
 						{
 							id: "codex",
-							override: true,
+							inherits: "codex",
 							outputs: {
 								commands: {
 									userPath: "{homeDir}/.codex/prompts/{itemName}.md",

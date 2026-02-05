@@ -1,0 +1,7 @@
+{
+  "command": "claude",
+  "args": [
+    "-p",
+    "Output exactly: 5"
+  ]
+}

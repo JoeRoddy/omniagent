@@ -2,6 +2,7 @@ import { BUILTIN_TARGETS } from "./builtins.js";
 import type {
 	OmniagentConfig,
 	ResolvedTarget,
+	TargetCliDefinition,
 	TargetDefinition,
 	TargetOutputs,
 } from "./config-types.js";
@@ -12,6 +13,10 @@ function normalizeKey(value: string): string {
 
 function cloneOutputs(outputs: TargetOutputs | undefined): TargetOutputs {
 	return outputs ? { ...outputs } : {};
+}
+
+function cloneCli(cli: TargetCliDefinition | undefined): TargetCliDefinition | undefined {
+	return cli ? { ...cli } : undefined;
 }
 
 function mergeOutputs(
@@ -86,13 +91,14 @@ export function resolveTargets(options: {
 		if (disableSet.has(idKey)) {
 			continue;
 		}
-		const overrideTarget = customTargets.find((target) => normalizeKey(target.id) === idKey);
-		if (!overrideTarget) {
+		const customTarget = customTargets.find((target) => normalizeKey(target.id) === idKey);
+		if (!customTarget) {
 			resolvedTargets.push({
 				id: builtIn.id,
 				displayName: builtIn.displayName ?? builtIn.id,
 				aliases: builtIn.aliases ?? [],
 				outputs: cloneOutputs(builtIn.outputs),
+				cli: cloneCli(builtIn.cli),
 				hooks: builtIn.hooks,
 				isBuiltIn: true,
 				isCustomized: false,
@@ -100,18 +106,35 @@ export function resolveTargets(options: {
 			configSourceById.set(idKey, "builtin");
 			continue;
 		}
-
-		const mergedOutputs = mergeOutputs(builtIn.outputs, overrideTarget.outputs);
-		resolvedTargets.push({
-			id: overrideTarget.id,
-			displayName: overrideTarget.displayName ?? builtIn.displayName ?? overrideTarget.id,
-			aliases: overrideTarget.aliases ?? builtIn.aliases ?? [],
-			outputs: mergedOutputs,
-			hooks: overrideTarget.hooks ?? builtIn.hooks,
-			isBuiltIn: true,
-			isCustomized: true,
-		});
-		configSourceById.set(idKey, overrideTarget.override ? "override" : "inherits");
+		if (customTarget.inherits) {
+			const inherited =
+				resolveInheritTarget(builtIns, customTarget.inherits) ??
+				resolveInheritTarget(builtIns, builtIn.id);
+			const mergedOutputs = mergeOutputs(inherited?.outputs, customTarget.outputs);
+			resolvedTargets.push({
+				id: customTarget.id,
+				displayName: customTarget.displayName ?? inherited?.displayName ?? customTarget.id,
+				aliases: customTarget.aliases ?? inherited?.aliases ?? [],
+				outputs: mergedOutputs,
+				cli: customTarget.cli ?? inherited?.cli,
+				hooks: customTarget.hooks ?? inherited?.hooks,
+				isBuiltIn: true,
+				isCustomized: true,
+			});
+			configSourceById.set(idKey, "inherits");
+		} else {
+			resolvedTargets.push({
+				id: customTarget.id,
+				displayName: customTarget.displayName ?? customTarget.id,
+				aliases: customTarget.aliases ?? [],
+				outputs: cloneOutputs(customTarget.outputs),
+				cli: cloneCli(customTarget.cli),
+				hooks: customTarget.hooks,
+				isBuiltIn: true,
+				isCustomized: true,
+			});
+			configSourceById.set(idKey, "override");
+		}
 	}
 
 	for (const target of customTargets) {
@@ -128,6 +151,7 @@ export function resolveTargets(options: {
 			displayName: target.displayName ?? inherited?.displayName ?? target.id,
 			aliases: target.aliases ?? inherited?.aliases ?? [],
 			outputs: mergedOutputs,
+			cli: target.cli ?? inherited?.cli,
 			hooks: target.hooks ?? inherited?.hooks,
 			isBuiltIn: false,
 			isCustomized: true,
