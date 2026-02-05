@@ -15,3 +15,11 @@ export {
 	SANDBOX_MODES,
 	type SandboxMode,
 };
+
+export type {
+	AgentSelection,
+	FlagRequests,
+	ParsedShimFlags,
+	ResolvedInvocation,
+	SessionConfiguration,
+} from "../../lib/agents/switch.js";

@@ -1,17 +1,17 @@
 import { BUILTIN_TARGETS } from "../targets/builtins.js";
 import { loadTargetConfig } from "../targets/config-loader.js";
-import { validateTargetConfig } from "../targets/config-validate.js";
-import { resolveTargets } from "../targets/resolve-targets.js";
-import type { ResolvedTarget } from "../targets/config-types.js";
 import {
 	APPROVAL_POLICIES,
 	type ApprovalPolicy,
 	type InvocationMode,
 	OUTPUT_FORMATS,
 	type OutputFormat,
+	type ResolvedTarget,
 	SANDBOX_MODES,
 	type SandboxMode,
 } from "../targets/config-types.js";
+import { validateTargetConfig } from "../targets/config-validate.js";
+import { resolveTargets } from "../targets/resolve-targets.js";
 import { InvalidUsageError } from "./errors.js";
 
 // Re-exporting types from cli/shim/types.ts that are critical for agent switching

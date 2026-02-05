@@ -23,6 +23,12 @@ export class ShimError extends Error {
 	}
 }
 
+export class InvalidUsageError extends ShimError {
+	constructor(message: string) {
+		super("invalid-usage", message);
+	}
+}
+
 export class BlockedError extends ShimError {
 	constructor(message: string) {
 		super("blocked", message);
