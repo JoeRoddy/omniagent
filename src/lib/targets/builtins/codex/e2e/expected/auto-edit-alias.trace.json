@@ -5,6 +5,8 @@
     "--full-auto",
     "--sandbox",
     "workspace-write",
+    "-m",
+    "gpt-5.1-codex-mini",
     "--disable",
     "web_search_request",
     "-c",
