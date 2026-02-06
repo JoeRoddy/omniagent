@@ -39,8 +39,8 @@ import {
 import { loadSubagentCatalog } from "../../lib/subagents/catalog.js";
 import {
 	formatSubagentSummary,
-	type SubagentSyncSummary,
 	type SubagentSyncRequestV2,
+	type SubagentSyncSummary,
 	syncSubagents as syncSubagentsV2,
 } from "../../lib/subagents/sync.js";
 import {
@@ -814,9 +814,7 @@ function buildAvailabilityWarnings(skips: AvailabilitySkip[]): string[] {
 	return warnings;
 }
 
-function buildAvailabilityCommandResults(
-	skips: AvailabilitySkip[],
-): CommandSyncSummary["results"] {
+function buildAvailabilityCommandResults(skips: AvailabilitySkip[]): CommandSyncSummary["results"] {
 	return skips.map((skip) => ({
 		targetName: skip.target.id,
 		status: "skipped",
@@ -895,9 +893,7 @@ function emitSyncSummary(options: {
 		}
 		if (combined.missingIgnoreRules) {
 			const warningRules = ignoreRules ?? buildAgentsIgnoreRules(repoRoot, agentsDir);
-			outputs.push(
-				`Warning: Missing ignore rules for local sources (${warningRules.join(", ")}).`,
-			);
+			outputs.push(`Warning: Missing ignore rules for local sources (${warningRules.join(", ")}).`);
 		}
 		if (outputs.length > 0) {
 			console.log(outputs.join("\n"));
@@ -970,10 +966,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				`Supported targets: ${DEFAULT_SUPPORTED_TARGETS}\n` +
 					"Config: auto-discovered as omniagent.config.(ts|mts|cts|js|mjs|cjs) in the agents directory.",
 			)
-			.example(
-				"omniagent sync",
-				"Sync available targets (auto-detects agent CLIs on PATH)",
-			)
+			.example("omniagent sync", "Sync available targets (auto-detects agent CLIs on PATH)")
 			.example("omniagent sync --skip <target>", "Skip a target")
 			.example("omniagent sync --only <target>", "Sync only one target")
 			.example("omniagent sync --agentsDir ./my-custom-agents", "Use a custom agents directory")
@@ -1111,7 +1104,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 
 			const explicitOnly = resolvedOnly.ids.length > 0;
 			let selectedTargets = filteredTargets;
-			let availabilitySkips: AvailabilitySkip[] = [];
+			const availabilitySkips: AvailabilitySkip[] = [];
 			let availabilityWarnings: string[] = [];
 			if (!explicitOnly) {
 				const availabilityResults = await Promise.all(
@@ -1143,9 +1136,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				(target) => target.outputs.instructions,
 			);
 
-			const availabilitySkillSkips = availabilitySkips.filter(
-				(skip) => skip.target.outputs.skills,
-			);
+			const availabilitySkillSkips = availabilitySkips.filter((skip) => skip.target.outputs.skills);
 			const availabilityCommandSkips = availabilitySkips.filter(
 				(skip) => skip.target.outputs.commands,
 			);
@@ -1226,8 +1217,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					},
 				};
 				if (availabilityInstructionSkips.length > 0) {
-					const availabilityInstructionResults =
-						buildAvailabilityInstructionResults(availabilityInstructionSkips);
+					const availabilityInstructionResults = buildAvailabilityInstructionResults(
+						availabilityInstructionSkips,
+					);
 					instructionsSummary = {
 						...instructionsSummary,
 						results: [...instructionsSummary.results, ...availabilityInstructionResults],
@@ -1414,7 +1406,8 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			}
 
 			if (availabilityCommandSkips.length > 0) {
-				const availabilityCommandResults = buildAvailabilityCommandResults(availabilityCommandSkips);
+				const availabilityCommandResults =
+					buildAvailabilityCommandResults(availabilityCommandSkips);
 				commandsSummary = {
 					...commandsSummary,
 					results: [...commandsSummary.results, ...availabilityCommandResults],
@@ -1502,8 +1495,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			}
 
 			if (availabilityInstructionSkips.length > 0) {
-				const availabilityInstructionResults =
-					buildAvailabilityInstructionResults(availabilityInstructionSkips);
+				const availabilityInstructionResults = buildAvailabilityInstructionResults(
+					availabilityInstructionSkips,
+				);
 				instructionsSummary = {
 					...instructionsSummary,
 					results: [...instructionsSummary.results, ...availabilityInstructionResults],

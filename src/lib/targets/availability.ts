@@ -40,7 +40,7 @@ function normalizePathEntry(entry: string): string | null {
 		return null;
 	}
 	if (
-		(trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+		(trimmed.startsWith('"') && trimmed.endsWith('"')) ||
 		(trimmed.startsWith("'") && trimmed.endsWith("'"))
 	) {
 		const unquoted = trimmed.slice(1, -1).trim();
@@ -69,9 +69,7 @@ function normalizePathExt(value: string): string {
 
 function parsePathExt(value: string | undefined): string[] {
 	const raw = value?.split(";") ?? DEFAULT_PATHEXT;
-	const normalized = raw
-		.map(normalizePathExt)
-		.filter((entry) => entry.length > 0);
+	const normalized = raw.map(normalizePathExt).filter((entry) => entry.length > 0);
 	const unique = new Set<string>();
 	const result: string[] = [];
 	for (const entry of normalized) {
