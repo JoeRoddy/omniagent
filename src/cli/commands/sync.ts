@@ -40,6 +40,7 @@ import { loadSubagentCatalog } from "../../lib/subagents/catalog.js";
 import {
 	formatSubagentSummary,
 	type SubagentSyncRequestV2,
+	type SubagentSyncSummary,
 	syncSubagents as syncSubagentsV2,
 } from "../../lib/subagents/sync.js";
 import {
@@ -58,6 +59,7 @@ import {
 } from "../../lib/sync-targets.js";
 import {
 	BUILTIN_TARGETS,
+	checkTargetAvailability,
 	loadTargetConfig,
 	type ResolvedTarget,
 	resolveTargets,
@@ -769,6 +771,140 @@ function buildInstructionsSummary(
 	};
 }
 
+type AvailabilitySkip = {
+	target: ResolvedTarget;
+	reason: string;
+	warnings: string[];
+};
+
+type CombinedSyncSummary = {
+	instructions: InstructionSyncSummary;
+	skills: SyncSummary;
+	subagents: SubagentSyncSummary;
+	commands: CommandSyncSummary;
+	hadFailures: boolean;
+	missingIgnoreRules: boolean;
+};
+
+function mergeWarnings(existing: string[], additions: string[]): string[] {
+	if (additions.length === 0) {
+		return existing;
+	}
+	const seen = new Set(existing);
+	const output = [...existing];
+	for (const warning of additions) {
+		if (seen.has(warning)) {
+			continue;
+		}
+		seen.add(warning);
+		output.push(warning);
+	}
+	return output;
+}
+
+function buildAvailabilityWarnings(skips: AvailabilitySkip[]): string[] {
+	const warnings: string[] = [];
+	for (const skip of skips) {
+		for (const warning of skip.warnings) {
+			if (!warnings.includes(warning)) {
+				warnings.push(warning);
+			}
+		}
+	}
+	return warnings;
+}
+
+function buildAvailabilityCommandResults(skips: AvailabilitySkip[]): CommandSyncSummary["results"] {
+	return skips.map((skip) => ({
+		targetName: skip.target.id,
+		status: "skipped",
+		message: `Skipped ${skip.target.displayName}: ${skip.reason}`,
+		error: skip.reason,
+		counts: emptyCommandCounts(),
+	}));
+}
+
+function buildAvailabilitySkillResults(
+	repoRoot: string,
+	sourcePath: string,
+	skips: AvailabilitySkip[],
+): SyncResult[] {
+	const sourceDisplay = formatDisplayPath(repoRoot, sourcePath);
+	return skips.map((skip) => ({
+		targetName: skip.target.id,
+		status: "skipped",
+		message: `Skipped ${sourceDisplay} for ${skip.target.displayName}: ${skip.reason}`,
+		error: skip.reason,
+	}));
+}
+
+function buildAvailabilityInstructionResults(
+	skips: AvailabilitySkip[],
+): InstructionSyncSummary["results"] {
+	return skips.map((skip) => {
+		const counts = emptyOutputCounts();
+		return {
+			targetName: skip.target.id,
+			status: "skipped",
+			message: buildInstructionResultMessage({
+				targetName: skip.target.id,
+				status: "skipped",
+				counts,
+				error: skip.reason,
+			}),
+			counts,
+			warnings: skip.warnings,
+			error: skip.reason,
+		};
+	});
+}
+
+function buildAvailabilitySubagentWarnings(skips: AvailabilitySkip[]): string[] {
+	return skips.map((skip) => `Skipped ${skip.target.displayName} subagents: ${skip.reason}`);
+}
+
+function emitSyncSummary(options: {
+	combined: CombinedSyncSummary;
+	jsonOutput: boolean;
+	repoRoot: string;
+	agentsDir: string;
+	ignoreRules: string[] | null;
+}): void {
+	const { combined, jsonOutput, repoRoot, agentsDir, ignoreRules } = options;
+	if (jsonOutput) {
+		console.log(JSON.stringify(combined, null, 2));
+	} else {
+		const outputs: string[] = [];
+		const instructionOutput = formatInstructionSummary(combined.instructions, false);
+		if (instructionOutput.length > 0) {
+			outputs.push(instructionOutput);
+		}
+		const skillsOutput = formatSummary(combined.skills, false);
+		if (skillsOutput.length > 0) {
+			outputs.push(skillsOutput);
+		}
+		const subagentOutput = formatSubagentSummary(combined.subagents, false);
+		if (subagentOutput.length > 0) {
+			outputs.push(subagentOutput);
+		}
+		const commandOutput = formatCommandSummary(combined.commands, false);
+		if (commandOutput.length > 0) {
+			outputs.push(commandOutput);
+		}
+		if (combined.missingIgnoreRules) {
+			const warningRules = ignoreRules ?? buildAgentsIgnoreRules(repoRoot, agentsDir);
+			outputs.push(`Warning: Missing ignore rules for local sources (${warningRules.join(", ")}).`);
+		}
+		if (outputs.length > 0) {
+			console.log(outputs.join("\n"));
+		}
+	}
+
+	if (combined.hadFailures) {
+		process.exitCode = 1;
+	}
+}
+
 export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 	command: "sync",
 	describe: "Sync skills, subagents, slash commands, and instruction files to targets",
@@ -781,7 +917,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			})
 			.option("only", {
 				type: "string",
-				describe: `Comma-separated targets to sync (${DEFAULT_SUPPORTED_TARGETS})`,
+				describe: `Comma-separated targets to sync (${DEFAULT_SUPPORTED_TARGETS}); overrides availability`,
 			})
 			.option("agentsDir", {
 				type: "string",
@@ -830,10 +966,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				`Supported targets: ${DEFAULT_SUPPORTED_TARGETS}\n` +
 					"Config: auto-discovered as omniagent.config.(ts|mts|cts|js|mjs|cjs) in the agents directory.",
 			)
-			.example(
-				"omniagent sync",
-				"Sync all targets (auto-discovers omniagent.config.* in the agents directory)",
-			)
+			.example("omniagent sync", "Sync available targets (auto-detects agent CLIs on PATH)")
 			.example("omniagent sync --skip <target>", "Skip a target")
 			.example("omniagent sync --only <target>", "Sync only one target")
 			.example("omniagent sync --agentsDir ./my-custom-agents", "Use a custom agents directory")
@@ -939,7 +1072,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 
 			const skipSet = new Set(resolvedSkip.ids);
 			const onlySet = new Set(resolvedOnly.ids);
-			const selectedTargets = resolved.targets.filter((target) => {
+			const filteredTargets = resolved.targets.filter((target) => {
 				if (onlySet.size > 0 && !onlySet.has(target.id)) {
 					return false;
 				}
@@ -952,7 +1085,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const overrideSkip = resolvedSkip.ids.length > 0 ? resolvedSkip.ids : undefined;
 			const validAgents = buildSupportedAgentNames(resolved.targets);
 
-			if (selectedTargets.length === 0 && !listLocal) {
+			if (filteredTargets.length === 0 && !listLocal) {
 				console.error("Error: No targets selected after applying filters.");
 				process.exit(1);
 				return;
@@ -969,14 +1102,49 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				return;
 			}
 
-			const nonInteractive = yes || !process.stdin.isTTY;
-			const hasLocalItems = await hasLocalSources(repoRoot, agentsDir, resolved.targets);
+			const explicitOnly = resolvedOnly.ids.length > 0;
+			let selectedTargets = filteredTargets;
+			const availabilitySkips: AvailabilitySkip[] = [];
+			let availabilityWarnings: string[] = [];
+			if (!explicitOnly) {
+				const availabilityResults = await Promise.all(
+					filteredTargets.map(async (target) => ({
+						target,
+						availability: await checkTargetAvailability(target),
+					})),
+				);
+				const availableTargets: ResolvedTarget[] = [];
+				for (const { target, availability } of availabilityResults) {
+					if (availability.status === "available") {
+						availableTargets.push(target);
+						continue;
+					}
+					availabilitySkips.push({
+						target,
+						reason: availability.reason ?? "CLI not found on PATH.",
+						warnings: availability.warnings,
+					});
+				}
+				selectedTargets = availableTargets;
+				availabilityWarnings = buildAvailabilityWarnings(availabilitySkips);
+			}
 
 			const selectedSkillTargets = selectedTargets.filter((target) => target.outputs.skills);
 			const selectedCommandTargets = selectedTargets.filter((target) => target.outputs.commands);
 			const selectedSubagentTargets = selectedTargets.filter((target) => target.outputs.subagents);
 			const selectedInstructionTargets = selectedTargets.filter(
 				(target) => target.outputs.instructions,
+			);
+
+			const availabilitySkillSkips = availabilitySkips.filter((skip) => skip.target.outputs.skills);
+			const availabilityCommandSkips = availabilitySkips.filter(
+				(skip) => skip.target.outputs.commands,
+			);
+			const availabilitySubagentSkips = availabilitySkips.filter(
+				(skip) => skip.target.outputs.subagents,
+			);
+			const availabilityInstructionSkips = availabilitySkips.filter(
+				(skip) => skip.target.outputs.instructions,
 			);
 
 			const includeLocalSkills = !excludeLocalSkills;
@@ -986,6 +1154,124 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 
 			const skillsSourcePath = resolveSharedCategoryRoot(repoRoot, "skills", agentsDir);
 			const localSkillsPath = resolveLocalCategoryRoot(repoRoot, "skills", agentsDir);
+			const commandsSourcePath = resolveSharedCategoryRoot(repoRoot, "commands", agentsDir);
+			const subagentsSourcePath = resolveSharedCategoryRoot(repoRoot, "agents", agentsDir);
+
+			const noAvailableTargets = !explicitOnly && selectedTargets.length === 0;
+			if (noAvailableTargets) {
+				const noAvailableMessage =
+					"No available targets detected. Install a supported agent CLI or run " +
+					'"omniagent sync --only <target>" to sync explicitly.';
+
+				let commandsSummary: CommandSyncSummary = {
+					sourcePath: commandsSourcePath,
+					results: [],
+					warnings: [],
+					hadFailures: false,
+					sourceCounts: {
+						shared: 0,
+						local: 0,
+						excludedLocal: excludeLocalCommands,
+					},
+				};
+				if (availabilityCommandSkips.length > 0) {
+					const availabilityCommandResults =
+						buildAvailabilityCommandResults(availabilityCommandSkips);
+					commandsSummary = {
+						...commandsSummary,
+						results: [...commandsSummary.results, ...availabilityCommandResults],
+					};
+				}
+
+				let subagentSummary: SubagentSyncSummary = {
+					sourcePath: subagentsSourcePath,
+					results: [],
+					warnings: [],
+					hadFailures: false,
+					sourceCounts: {
+						shared: 0,
+						local: 0,
+						excludedLocal: excludeLocalAgents,
+					},
+				};
+				if (availabilitySubagentSkips.length > 0) {
+					const subagentWarnings = mergeWarnings(
+						buildAvailabilitySubagentWarnings(availabilitySubagentSkips),
+						buildAvailabilityWarnings(availabilitySubagentSkips),
+					);
+					subagentSummary = {
+						...subagentSummary,
+						warnings: mergeWarnings(subagentSummary.warnings, subagentWarnings),
+					};
+				}
+
+				let instructionsSummary: InstructionSyncSummary = {
+					sourcePath: repoRoot,
+					results: [],
+					warnings: [],
+					hadFailures: false,
+					sourceCounts: {
+						shared: 0,
+						local: 0,
+						excludedLocal: excludeLocalInstructions,
+					},
+				};
+				if (availabilityInstructionSkips.length > 0) {
+					const availabilityInstructionResults = buildAvailabilityInstructionResults(
+						availabilityInstructionSkips,
+					);
+					instructionsSummary = {
+						...instructionsSummary,
+						results: [...instructionsSummary.results, ...availabilityInstructionResults],
+					};
+				}
+				instructionsSummary = {
+					...instructionsSummary,
+					warnings: mergeWarnings(
+						instructionsSummary.warnings,
+						mergeWarnings(availabilityWarnings, [noAvailableMessage]),
+					),
+				};
+
+				let skillsSummary = buildSummary(skillsSourcePath, [], [], {
+					shared: 0,
+					local: 0,
+					excludedLocal: excludeLocalSkills,
+				});
+				if (availabilitySkillSkips.length > 0) {
+					const availabilitySkillResults = buildAvailabilitySkillResults(
+						repoRoot,
+						skillsSourcePath,
+						availabilitySkillSkips,
+					);
+					skillsSummary = {
+						...skillsSummary,
+						results: [...skillsSummary.results, ...availabilitySkillResults],
+					};
+				}
+
+				const combined: CombinedSyncSummary = {
+					instructions: instructionsSummary,
+					skills: skillsSummary,
+					subagents: subagentSummary,
+					commands: commandsSummary,
+					hadFailures: false,
+					missingIgnoreRules: false,
+				};
+
+				emitSyncSummary({
+					combined,
+					jsonOutput,
+					repoRoot,
+					agentsDir,
+					ignoreRules: null,
+				});
+				return;
+			}
+
+			const nonInteractive = yes || !process.stdin.isTTY;
+			const hasLocalItems = await hasLocalSources(repoRoot, agentsDir, resolved.targets);
+
 			const sharedSkillsAvailable = await assertSourceDirectory(skillsSourcePath);
 			const localSkillsAvailable = includeLocalSkills
 				? await assertSourceDirectory(localSkillsPath)
@@ -1077,7 +1363,6 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				}
 			}
 
-			const commandsSourcePath = resolveSharedCategoryRoot(repoRoot, "commands", agentsDir);
 			let commandsSummary: CommandSyncSummary;
 			if (selectedCommandTargets.length === 0) {
 				commandsSummary = {
@@ -1120,7 +1405,16 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				} satisfies CommandSyncRequestV2);
 			}
 
-			const subagentSummary = await syncSubagentsV2({
+			if (availabilityCommandSkips.length > 0) {
+				const availabilityCommandResults =
+					buildAvailabilityCommandResults(availabilityCommandSkips);
+				commandsSummary = {
+					...commandsSummary,
+					results: [...commandsSummary.results, ...availabilityCommandResults],
+				};
+			}
+
+			let subagentSummary = await syncSubagentsV2({
 				repoRoot,
 				agentsDir,
 				targets: selectedSubagentTargets,
@@ -1133,6 +1427,17 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				resolveTargetName,
 				hooks: globalHooks,
 			} satisfies SubagentSyncRequestV2);
+
+			if (availabilitySubagentSkips.length > 0) {
+				const subagentWarnings = mergeWarnings(
+					buildAvailabilitySubagentWarnings(availabilitySubagentSkips),
+					buildAvailabilityWarnings(availabilitySubagentSkips),
+				);
+				subagentSummary = {
+					...subagentSummary,
+					warnings: mergeWarnings(subagentSummary.warnings, subagentWarnings),
+				};
+			}
 
 			let instructionsSummary: InstructionSyncSummary;
 			if (selectedInstructionTargets.length === 0) {
@@ -1189,6 +1494,22 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				}
 			}
 
+			if (availabilityInstructionSkips.length > 0) {
+				const availabilityInstructionResults = buildAvailabilityInstructionResults(
+					availabilityInstructionSkips,
+				);
+				instructionsSummary = {
+					...instructionsSummary,
+					results: [...instructionsSummary.results, ...availabilityInstructionResults],
+				};
+			}
+			if (availabilityWarnings.length > 0) {
+				instructionsSummary = {
+					...instructionsSummary,
+					warnings: mergeWarnings(instructionsSummary.warnings, availabilityWarnings),
+				};
+			}
+
 			// Sync conversions before copying canonical skills.
 			let skillsSummary: SyncSummary;
 			if (selectedSkillTargets.length === 0) {
@@ -1222,6 +1543,18 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				});
 			}
 
+			if (availabilitySkillSkips.length > 0) {
+				const availabilitySkillResults = buildAvailabilitySkillResults(
+					repoRoot,
+					skillsSourcePath,
+					availabilitySkillSkips,
+				);
+				skillsSummary = {
+					...skillsSummary,
+					results: [...skillsSummary.results, ...availabilitySkillResults],
+				};
+			}
+
 			const combined = {
 				instructions: instructionsSummary,
 				skills: skillsSummary,
@@ -1235,40 +1568,13 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				missingIgnoreRules,
 			};
 
-			if (jsonOutput) {
-				console.log(JSON.stringify(combined, null, 2));
-			} else {
-				const outputs: string[] = [];
-				const instructionOutput = formatInstructionSummary(instructionsSummary, false);
-				if (instructionOutput.length > 0) {
-					outputs.push(instructionOutput);
-				}
-				const skillsOutput = formatSummary(skillsSummary, false);
-				if (skillsOutput.length > 0) {
-					outputs.push(skillsOutput);
-				}
-				const subagentOutput = formatSubagentSummary(subagentSummary, false);
-				if (subagentOutput.length > 0) {
-					outputs.push(subagentOutput);
-				}
-				const commandOutput = formatCommandSummary(commandsSummary, false);
-				if (commandOutput.length > 0) {
-					outputs.push(commandOutput);
-				}
-				if (missingIgnoreRules) {
-					const warningRules = ignoreRules ?? buildAgentsIgnoreRules(repoRoot, agentsDir);
-					outputs.push(
-						`Warning: Missing ignore rules for local sources (${warningRules.join(", ")}).`,
-					);
-				}
-				if (outputs.length > 0) {
-					console.log(outputs.join("\n"));
-				}
-			}
-
-			if (combined.hadFailures) {
-				process.exitCode = 1;
-			}
+			emitSyncSummary({
+				combined,
+				jsonOutput,
+				repoRoot,
+				agentsDir,
+				ignoreRules,
+			});
 		} catch (error) {
 			if (error instanceof InvalidFrontmatterTargetsError) {
 				console.error(`Error: ${error.message}`);

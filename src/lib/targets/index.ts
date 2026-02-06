@@ -1,3 +1,4 @@
+export * from "./availability.js";
 export * from "./builtins.js";
 export * from "./config-loader.js";
 export * from "./config-types.js";
