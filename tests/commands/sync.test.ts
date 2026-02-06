@@ -1,16 +1,39 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { runCli } from "../../src/cli/index.js";
+
+const DEFAULT_CLI_COMMANDS = ["codex", "claude", "gemini", "copilot"];
+
+async function createFakeCliBin(root: string): Promise<string> {
+	const binDir = path.join(root, "bin");
+	await mkdir(binDir, { recursive: true });
+	const isWindows = process.platform === "win32";
+	for (const command of DEFAULT_CLI_COMMANDS) {
+		const basePath = path.join(binDir, command);
+		const contents = isWindows ? "@echo off\r\n" : "#!/usr/bin/env sh\nexit 0\n";
+		await writeFile(basePath, contents, "utf8");
+		await chmod(basePath, 0o755);
+		if (isWindows) {
+			const cmdPath = path.join(binDir, `${command}.cmd`);
+			await writeFile(cmdPath, "@echo off\r\n", "utf8");
+		}
+	}
+	return binDir;
+}
 
 async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> {
 	const root = await mkdtemp(path.join(os.tmpdir(), "omniagent-sync-"));
 	const homeDir = path.join(root, "home");
 	await mkdir(homeDir, { recursive: true });
 	const homeSpy = vi.spyOn(os, "homedir").mockReturnValue(homeDir);
+	const originalPath = process.env.PATH;
 	try {
+		const binDir = await createFakeCliBin(root);
+		process.env.PATH = [binDir, originalPath].filter(Boolean).join(path.delimiter);
 		await fn(root);
 	} finally {
+		process.env.PATH = originalPath;
 		homeSpy.mockRestore();
 		await rm(root, { recursive: true, force: true });
 	}
@@ -314,6 +337,29 @@ describe.sequential("sync command", () => {
 			);
 			expect(errorSpy).not.toHaveBeenCalled();
 			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	it("exits successfully with guidance when no targets are available", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalSkills(root);
+
+			const originalPath = process.env.PATH;
+			process.env.PATH = "";
+			try {
+				await withCwd(root, async () => {
+					await runCli(["node", "omniagent", "sync"]);
+				});
+			} finally {
+				process.env.PATH = originalPath;
+			}
+
+			const output = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
+			expect(output).toContain("No available targets detected.");
+			expect(errorSpy).not.toHaveBeenCalled();
+			expect(exitSpy).not.toHaveBeenCalled();
+			expect(await pathExists(path.join(root, ".codex", "skills"))).toBe(false);
 		});
 	});
 
