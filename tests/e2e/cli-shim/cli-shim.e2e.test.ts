@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { AGENT_MODULES } from "./agents.js";
-import { SHARED_CASES } from "./cases.js";
+import { type AgentE2EConfig, SHARED_CASES } from "./cases.js";
 import { type ExpectedInvocation, getExpectedInvocation } from "./expected-invocations.js";
 
 type TracePayload = {
@@ -248,6 +248,20 @@ function normalizeStderr(agentId: string, stderr: string): string {
 	return stderr;
 }
 
+function ensureCodexModel(agent: AgentE2EConfig, args: string[]): string[] {
+	if (agent.agentId !== "codex" || !agent.model) {
+		return args;
+	}
+	if (args.includes("--model")) {
+		return args;
+	}
+	const promptIndex = args.indexOf("-p");
+	if (promptIndex < 0) {
+		return [...args, "--model", agent.model];
+	}
+	return [...args.slice(0, promptIndex), "--model", agent.model, ...args.slice(promptIndex)];
+}
+
 SUITE("CLI shim e2e", () => {
 	if (!ENABLE_E2E || !CLI_EXISTS) {
 		return;
@@ -324,7 +338,7 @@ SUITE("CLI shim e2e", () => {
 							return;
 						}
 
-						const args = testCase.buildArgs(agent);
+						const args = ensureCodexModel(agent, testCase.buildArgs(agent));
 						const passthrough = [
 							...(agent.passthroughDefaults ?? []),
 							...(testCase.buildPassthrough?.(agent) ?? []),

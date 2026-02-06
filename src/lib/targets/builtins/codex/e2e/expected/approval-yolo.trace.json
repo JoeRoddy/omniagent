@@ -5,6 +5,8 @@
     "--yolo",
     "--sandbox",
     "danger-full-access",
+    "-m",
+    "gpt-5.1-codex-mini",
     "--disable",
     "web_search_request",
     "-c",

@@ -117,6 +117,10 @@ function buildCodex(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation |
 		flags.push("-m", agent.model);
 	}
 
+	if (agent.model && !flags.includes("-m")) {
+		flags.push("-m", agent.model);
+	}
+
 	if (caseId !== "web-on") {
 		flags.push("--disable", "web_search_request");
 	}
