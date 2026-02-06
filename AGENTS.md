@@ -19,6 +19,8 @@ Auto-generated from all feature plans. Last updated: 2026-01-10
 - Filesystem (repo-local directories and user home state under `~/.omniagent/state/`) (014-add-custom-targets)
 - TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js `fs/promises` + `path`, `jiti`, Vite, Vitest, Biome, @typescript/native-preview (tsgo) (015-cli-shim-flags)
 - Filesystem (repo-local agents directory and user home state under `~/.omniagent/state/`) (015-cli-shim-flags)
+- TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js `fs/promises` + `path`, Vitest, Vite, Biome (016-sync-default-agents)
+- Filesystem (repo-local outputs and user home state under `~/.omniagent/state/`) (016-sync-default-agents)
 
 - TypeScript 5.x, ES2022 target + yargs (CLI parsing), Vitest (testing), Vite (build), Biome (formatting/linting) (003-biome-integration)
 
@@ -47,6 +49,7 @@ TypeScript 5.x, Node.js 18+: Enforced by Biome (formatting and linting)
 - Run `npm run format` before committing
 
 ## Recent Changes
+- 016-sync-default-agents: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js `fs/promises` + `path`, Vitest, Vite, Biome
 - 015-cli-shim-flags: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js `fs/promises` + `path`, `jiti`, Vite, Vitest, Biome, @typescript/native-preview (tsgo)
 - 014-add-custom-targets: Added TypeScript 5.9 (ES2022) on Node.js 18+ + yargs, Node.js `fs/promises` + `path`, Vite, Vitest, Biome
 

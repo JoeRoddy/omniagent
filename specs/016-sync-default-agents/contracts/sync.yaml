@@ -1,0 +1,78 @@
+openapi: 3.0.3
+info:
+  title: Sync Targets API
+  version: 1.0.0
+  description: Contract for invoking sync with explicit targets and returning summaries.
+paths:
+  /sync:
+    post:
+      summary: Sync agent targets
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncRequest"
+      responses:
+        "200":
+          description: Sync completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncSummary"
+        "400":
+          description: Invalid target name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  schemas:
+    SyncRequest:
+      type: object
+      properties:
+        explicitTargets:
+          type: array
+          items:
+            type: string
+          description: Explicit target names to sync. When provided, overrides availability detection.
+      additionalProperties: false
+    SyncSummary:
+      type: object
+      required:
+        - syncedTargets
+        - skippedTargets
+        - exitStatus
+      properties:
+        syncedTargets:
+          type: array
+          items:
+            type: string
+        skippedTargets:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkippedTarget"
+        warnings:
+          type: array
+          items:
+            type: string
+        exitStatus:
+          type: string
+          enum: [success, failed]
+    SkippedTarget:
+      type: object
+      required:
+        - name
+        - reason
+      properties:
+        name:
+          type: string
+        reason:
+          type: string
+    ErrorResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
