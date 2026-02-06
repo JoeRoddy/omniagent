@@ -5,11 +5,15 @@ import { runCli } from "../../src/cli/index.js";
 
 const DEFAULT_CLI_COMMANDS = ["codex", "claude", "gemini", "copilot"];
 
-async function createFakeCliBin(root: string): Promise<string> {
-	const binDir = path.join(root, "bin");
+async function createFakeCliBin(
+	root: string,
+	commands: string[] = DEFAULT_CLI_COMMANDS,
+	binDirName = "bin",
+): Promise<string> {
+	const binDir = path.join(root, binDirName);
 	await mkdir(binDir, { recursive: true });
 	const isWindows = process.platform === "win32";
-	for (const command of DEFAULT_CLI_COMMANDS) {
+	for (const command of commands) {
 		const basePath = path.join(binDir, command);
 		const contents = isWindows ? "@echo off\r\n" : "#!/usr/bin/env sh\nexit 0\n";
 		await writeFile(basePath, contents, "utf8");
@@ -219,6 +223,68 @@ describe.sequential("sync command", () => {
 		});
 	});
 
+	it("syncs only targets with CLIs on PATH and reports skip reasons", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalSkills(root);
+			await createCanonicalCommands(root);
+
+			const binDir = await createFakeCliBin(root, ["claude"], "bin-claude");
+			const originalPath = process.env.PATH;
+			process.env.PATH = binDir;
+			try {
+				await withCwd(root, async () => {
+					await runCli(["node", "omniagent", "sync"]);
+				});
+			} finally {
+				process.env.PATH = originalPath;
+			}
+
+			expect(await pathExists(path.join(root, ".claude", "skills", "example", "SKILL.md"))).toBe(
+				true,
+			);
+			expect(await pathExists(path.join(root, ".codex", "skills"))).toBe(false);
+			expect(await pathExists(path.join(root, ".github", "skills"))).toBe(false);
+			expect(await pathExists(path.join(root, ".gemini", "skills"))).toBe(false);
+
+			const output = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
+			expect(output).toContain("Skipped OpenAI Codex: CLI not found on PATH.");
+			expect(output).toContain("CLI not found on PATH.");
+		});
+	});
+
+	it("warns when CLI availability checks are inconclusive", async () => {
+		if (process.platform === "win32") {
+			return;
+		}
+
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalSkills(root);
+
+			const binDir = path.join(root, "blocked-bin");
+			await mkdir(binDir, { recursive: true });
+			const cliPath = path.join(binDir, "claude");
+			await writeFile(cliPath, "#!/usr/bin/env sh\nexit 0\n", "utf8");
+			await chmod(cliPath, 0o644);
+
+			const originalPath = process.env.PATH;
+			process.env.PATH = binDir;
+			try {
+				await withCwd(root, async () => {
+					await runCli(["node", "omniagent", "sync"]);
+				});
+			} finally {
+				process.env.PATH = originalPath;
+			}
+
+			const output = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
+			expect(output).toContain("CLI availability could not be confirmed.");
+			expect(output).toContain("Unable to verify claude on PATH");
+			expect(await pathExists(path.join(root, ".claude", "skills"))).toBe(false);
+		});
+	});
+
 	it("errors on unknown targets without syncing", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
@@ -360,6 +426,39 @@ describe.sequential("sync command", () => {
 			expect(errorSpy).not.toHaveBeenCalled();
 			expect(exitSpy).not.toHaveBeenCalled();
 			expect(await pathExists(path.join(root, ".codex", "skills"))).toBe(false);
+		});
+	});
+
+	it("retains outputs when a previously synced target becomes unavailable", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalSkills(root);
+			await createCanonicalCommands(root);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync"]);
+			});
+
+			const claudeSkillPath = path.join(root, ".claude", "skills", "example", "SKILL.md");
+			const originalContents = await readFile(claudeSkillPath, "utf8");
+			const updatedContents = `${originalContents}\nlocal edit`;
+			await writeFile(claudeSkillPath, updatedContents, "utf8");
+
+			logSpy.mockClear();
+			const originalPath = process.env.PATH;
+			process.env.PATH = "";
+			try {
+				await withCwd(root, async () => {
+					await runCli(["node", "omniagent", "sync"]);
+				});
+			} finally {
+				process.env.PATH = originalPath;
+			}
+
+			expect(await readFile(claudeSkillPath, "utf8")).toBe(updatedContents);
+			const output = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
+			expect(output).toContain("No available targets detected.");
+			expect(output).toContain("Skipped Claude Code");
 		});
 	});
 
