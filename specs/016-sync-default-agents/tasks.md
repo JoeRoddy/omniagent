@@ -78,8 +78,8 @@ description: "Task list for Sync Default Agent Generation"
 
 ### Implementation for User Story 3
 
-- [ ] T009 [US3] When no targets are available and no explicit list is provided, exit successfully with a clear message and no sync actions in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
-- [ ] T010 [US3] Leave previously synced outputs untouched by ensuring unavailable targets are excluded from sync/remove flows and clearly marked as skipped in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
+- [X] T009 [US3] When no targets are available and no explicit list is provided, exit successfully with a clear message and no sync actions in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
+- [X] T010 [US3] Leave previously synced outputs untouched by ensuring unavailable targets are excluded from sync/remove flows and clearly marked as skipped in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
 
 **Checkpoint**: All user stories are independently functional
 
@@ -89,8 +89,8 @@ description: "Task list for Sync Default Agent Generation"
 
 **Purpose**: User-facing clarity and validation
 
-- [ ] T011 [P] Update `sync` help/examples to mention availability-based default selection in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
-- [ ] T012 [P] Validate and adjust steps in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/specs/016-sync-default-agents/quickstart.md`
+- [X] T011 [P] Update `sync` help/examples to mention availability-based default selection in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
+- [X] T012 [P] Validate and adjust steps in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/specs/016-sync-default-agents/quickstart.md`
 
 ---
 

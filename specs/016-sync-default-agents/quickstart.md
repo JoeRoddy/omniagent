@@ -11,10 +11,10 @@ Verify that `sync` defaults to available agent platforms, respects explicit targ
 3. Run `sync` with an explicit target list that includes a platform not on `PATH`.
 4. Confirm the explicitly requested target is synced despite being unavailable by detection.
 5. Run `sync` on a machine with no supported agent CLIs on `PATH`.
-6. Confirm no outputs are changed, the command exits successfully, and a clear actionable message is shown.
+6. Confirm no outputs are changed, the command exits successfully, and the message suggests installing a CLI or using `--only`.
 
 ## Expected Results
 
 - Default `sync` only generates outputs for available platforms.
 - Explicit target lists override availability detection.
-- No-available-target scenarios are successful no-ops with guidance.
+- No-available-target scenarios are successful no-ops with guidance to install a CLI or use `--only`.

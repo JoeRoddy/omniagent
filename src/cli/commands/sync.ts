@@ -39,6 +39,7 @@ import {
 import { loadSubagentCatalog } from "../../lib/subagents/catalog.js";
 import {
 	formatSubagentSummary,
+	type SubagentSyncSummary,
 	type SubagentSyncRequestV2,
 	syncSubagents as syncSubagentsV2,
 } from "../../lib/subagents/sync.js";
@@ -776,6 +777,15 @@ type AvailabilitySkip = {
 	warnings: string[];
 };
 
+type CombinedSyncSummary = {
+	instructions: InstructionSyncSummary;
+	skills: SyncSummary;
+	subagents: SubagentSyncSummary;
+	commands: CommandSyncSummary;
+	hadFailures: boolean;
+	missingIgnoreRules: boolean;
+};
+
 function mergeWarnings(existing: string[], additions: string[]): string[] {
 	if (additions.length === 0) {
 		return existing;
@@ -855,6 +865,50 @@ function buildAvailabilitySubagentWarnings(skips: AvailabilitySkip[]): string[] 
 	return skips.map((skip) => `Skipped ${skip.target.displayName} subagents: ${skip.reason}`);
 }
 
+function emitSyncSummary(options: {
+	combined: CombinedSyncSummary;
+	jsonOutput: boolean;
+	repoRoot: string;
+	agentsDir: string;
+	ignoreRules: string[] | null;
+}): void {
+	const { combined, jsonOutput, repoRoot, agentsDir, ignoreRules } = options;
+	if (jsonOutput) {
+		console.log(JSON.stringify(combined, null, 2));
+	} else {
+		const outputs: string[] = [];
+		const instructionOutput = formatInstructionSummary(combined.instructions, false);
+		if (instructionOutput.length > 0) {
+			outputs.push(instructionOutput);
+		}
+		const skillsOutput = formatSummary(combined.skills, false);
+		if (skillsOutput.length > 0) {
+			outputs.push(skillsOutput);
+		}
+		const subagentOutput = formatSubagentSummary(combined.subagents, false);
+		if (subagentOutput.length > 0) {
+			outputs.push(subagentOutput);
+		}
+		const commandOutput = formatCommandSummary(combined.commands, false);
+		if (commandOutput.length > 0) {
+			outputs.push(commandOutput);
+		}
+		if (combined.missingIgnoreRules) {
+			const warningRules = ignoreRules ?? buildAgentsIgnoreRules(repoRoot, agentsDir);
+			outputs.push(
+				`Warning: Missing ignore rules for local sources (${warningRules.join(", ")}).`,
+			);
+		}
+		if (outputs.length > 0) {
+			console.log(outputs.join("\n"));
+		}
+	}
+
+	if (combined.hadFailures) {
+		process.exitCode = 1;
+	}
+}
+
 export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 	command: "sync",
 	describe: "Sync skills, subagents, slash commands, and instruction files to targets",
@@ -867,7 +921,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			})
 			.option("only", {
 				type: "string",
-				describe: `Comma-separated targets to sync (${DEFAULT_SUPPORTED_TARGETS})`,
+				describe: `Comma-separated targets to sync (${DEFAULT_SUPPORTED_TARGETS}); overrides availability`,
 			})
 			.option("agentsDir", {
 				type: "string",
@@ -918,7 +972,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			)
 			.example(
 				"omniagent sync",
-				"Sync all targets (auto-discovers omniagent.config.* in the agents directory)",
+				"Sync available targets (auto-detects agent CLIs on PATH)",
 			)
 			.example("omniagent sync --skip <target>", "Skip a target")
 			.example("omniagent sync --only <target>", "Sync only one target")
@@ -1110,6 +1164,118 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const skillsSourcePath = resolveSharedCategoryRoot(repoRoot, "skills", agentsDir);
 			const localSkillsPath = resolveLocalCategoryRoot(repoRoot, "skills", agentsDir);
 			const commandsSourcePath = resolveSharedCategoryRoot(repoRoot, "commands", agentsDir);
+			const subagentsSourcePath = resolveSharedCategoryRoot(repoRoot, "agents", agentsDir);
+
+			const noAvailableTargets = !explicitOnly && selectedTargets.length === 0;
+			if (noAvailableTargets) {
+				const noAvailableMessage =
+					"No available targets detected. Install a supported agent CLI or run " +
+					'"omniagent sync --only <target>" to sync explicitly.';
+
+				let commandsSummary: CommandSyncSummary = {
+					sourcePath: commandsSourcePath,
+					results: [],
+					warnings: [],
+					hadFailures: false,
+					sourceCounts: {
+						shared: 0,
+						local: 0,
+						excludedLocal: excludeLocalCommands,
+					},
+				};
+				if (availabilityCommandSkips.length > 0) {
+					const availabilityCommandResults =
+						buildAvailabilityCommandResults(availabilityCommandSkips);
+					commandsSummary = {
+						...commandsSummary,
+						results: [...commandsSummary.results, ...availabilityCommandResults],
+					};
+				}
+
+				let subagentSummary: SubagentSyncSummary = {
+					sourcePath: subagentsSourcePath,
+					results: [],
+					warnings: [],
+					hadFailures: false,
+					sourceCounts: {
+						shared: 0,
+						local: 0,
+						excludedLocal: excludeLocalAgents,
+					},
+				};
+				if (availabilitySubagentSkips.length > 0) {
+					const subagentWarnings = mergeWarnings(
+						buildAvailabilitySubagentWarnings(availabilitySubagentSkips),
+						buildAvailabilityWarnings(availabilitySubagentSkips),
+					);
+					subagentSummary = {
+						...subagentSummary,
+						warnings: mergeWarnings(subagentSummary.warnings, subagentWarnings),
+					};
+				}
+
+				let instructionsSummary: InstructionSyncSummary = {
+					sourcePath: repoRoot,
+					results: [],
+					warnings: [],
+					hadFailures: false,
+					sourceCounts: {
+						shared: 0,
+						local: 0,
+						excludedLocal: excludeLocalInstructions,
+					},
+				};
+				if (availabilityInstructionSkips.length > 0) {
+					const availabilityInstructionResults =
+						buildAvailabilityInstructionResults(availabilityInstructionSkips);
+					instructionsSummary = {
+						...instructionsSummary,
+						results: [...instructionsSummary.results, ...availabilityInstructionResults],
+					};
+				}
+				instructionsSummary = {
+					...instructionsSummary,
+					warnings: mergeWarnings(
+						instructionsSummary.warnings,
+						mergeWarnings(availabilityWarnings, [noAvailableMessage]),
+					),
+				};
+
+				let skillsSummary = buildSummary(skillsSourcePath, [], [], {
+					shared: 0,
+					local: 0,
+					excludedLocal: excludeLocalSkills,
+				});
+				if (availabilitySkillSkips.length > 0) {
+					const availabilitySkillResults = buildAvailabilitySkillResults(
+						repoRoot,
+						skillsSourcePath,
+						availabilitySkillSkips,
+					);
+					skillsSummary = {
+						...skillsSummary,
+						results: [...skillsSummary.results, ...availabilitySkillResults],
+					};
+				}
+
+				const combined: CombinedSyncSummary = {
+					instructions: instructionsSummary,
+					skills: skillsSummary,
+					subagents: subagentSummary,
+					commands: commandsSummary,
+					hadFailures: false,
+					missingIgnoreRules: false,
+				};
+
+				emitSyncSummary({
+					combined,
+					jsonOutput,
+					repoRoot,
+					agentsDir,
+					ignoreRules: null,
+				});
+				return;
+			}
 
 			const nonInteractive = yes || !process.stdin.isTTY;
 			const hasLocalItems = await hasLocalSources(repoRoot, agentsDir, resolved.targets);
@@ -1408,40 +1574,13 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				missingIgnoreRules,
 			};
 
-			if (jsonOutput) {
-				console.log(JSON.stringify(combined, null, 2));
-			} else {
-				const outputs: string[] = [];
-				const instructionOutput = formatInstructionSummary(instructionsSummary, false);
-				if (instructionOutput.length > 0) {
-					outputs.push(instructionOutput);
-				}
-				const skillsOutput = formatSummary(skillsSummary, false);
-				if (skillsOutput.length > 0) {
-					outputs.push(skillsOutput);
-				}
-				const subagentOutput = formatSubagentSummary(subagentSummary, false);
-				if (subagentOutput.length > 0) {
-					outputs.push(subagentOutput);
-				}
-				const commandOutput = formatCommandSummary(commandsSummary, false);
-				if (commandOutput.length > 0) {
-					outputs.push(commandOutput);
-				}
-				if (missingIgnoreRules) {
-					const warningRules = ignoreRules ?? buildAgentsIgnoreRules(repoRoot, agentsDir);
-					outputs.push(
-						`Warning: Missing ignore rules for local sources (${warningRules.join(", ")}).`,
-					);
-				}
-				if (outputs.length > 0) {
-					console.log(outputs.join("\n"));
-				}
-			}
-
-			if (combined.hadFailures) {
-				process.exitCode = 1;
-			}
+			emitSyncSummary({
+				combined,
+				jsonOutput,
+				repoRoot,
+				agentsDir,
+				ignoreRules,
+			});
 		} catch (error) {
 			if (error instanceof InvalidFrontmatterTargetsError) {
 				console.error(`Error: ${error.message}`);
