@@ -58,6 +58,7 @@ import {
 } from "../../lib/sync-targets.js";
 import {
 	BUILTIN_TARGETS,
+	checkTargetAvailability,
 	loadTargetConfig,
 	type ResolvedTarget,
 	resolveTargets,
@@ -769,6 +770,91 @@ function buildInstructionsSummary(
 	};
 }
 
+type AvailabilitySkip = {
+	target: ResolvedTarget;
+	reason: string;
+	warnings: string[];
+};
+
+function mergeWarnings(existing: string[], additions: string[]): string[] {
+	if (additions.length === 0) {
+		return existing;
+	}
+	const seen = new Set(existing);
+	const output = [...existing];
+	for (const warning of additions) {
+		if (seen.has(warning)) {
+			continue;
+		}
+		seen.add(warning);
+		output.push(warning);
+	}
+	return output;
+}
+
+function buildAvailabilityWarnings(skips: AvailabilitySkip[]): string[] {
+	const warnings: string[] = [];
+	for (const skip of skips) {
+		for (const warning of skip.warnings) {
+			if (!warnings.includes(warning)) {
+				warnings.push(warning);
+			}
+		}
+	}
+	return warnings;
+}
+
+function buildAvailabilityCommandResults(
+	skips: AvailabilitySkip[],
+): CommandSyncSummary["results"] {
+	return skips.map((skip) => ({
+		targetName: skip.target.id,
+		status: "skipped",
+		message: `Skipped ${skip.target.displayName}: ${skip.reason}`,
+		error: skip.reason,
+		counts: emptyCommandCounts(),
+	}));
+}
+
+function buildAvailabilitySkillResults(
+	repoRoot: string,
+	sourcePath: string,
+	skips: AvailabilitySkip[],
+): SyncResult[] {
+	const sourceDisplay = formatDisplayPath(repoRoot, sourcePath);
+	return skips.map((skip) => ({
+		targetName: skip.target.id,
+		status: "skipped",
+		message: `Skipped ${sourceDisplay} for ${skip.target.displayName}: ${skip.reason}`,
+		error: skip.reason,
+	}));
+}
+
+function buildAvailabilityInstructionResults(
+	skips: AvailabilitySkip[],
+): InstructionSyncSummary["results"] {
+	return skips.map((skip) => {
+		const counts = emptyOutputCounts();
+		return {
+			targetName: skip.target.id,
+			status: "skipped",
+			message: buildInstructionResultMessage({
+				targetName: skip.target.id,
+				status: "skipped",
+				counts,
+				error: skip.reason,
+			}),
+			counts,
+			warnings: skip.warnings,
+			error: skip.reason,
+		};
+	});
+}
+
+function buildAvailabilitySubagentWarnings(skips: AvailabilitySkip[]): string[] {
+	return skips.map((skip) => `Skipped ${skip.target.displayName} subagents: ${skip.reason}`);
+}
+
 export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 	command: "sync",
 	describe: "Sync skills, subagents, slash commands, and instruction files to targets",
@@ -939,7 +1025,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 
 			const skipSet = new Set(resolvedSkip.ids);
 			const onlySet = new Set(resolvedOnly.ids);
-			const selectedTargets = resolved.targets.filter((target) => {
+			const filteredTargets = resolved.targets.filter((target) => {
 				if (onlySet.size > 0 && !onlySet.has(target.id)) {
 					return false;
 				}
@@ -952,7 +1038,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const overrideSkip = resolvedSkip.ids.length > 0 ? resolvedSkip.ids : undefined;
 			const validAgents = buildSupportedAgentNames(resolved.targets);
 
-			if (selectedTargets.length === 0 && !listLocal) {
+			if (filteredTargets.length === 0 && !listLocal) {
 				console.error("Error: No targets selected after applying filters.");
 				process.exit(1);
 				return;
@@ -969,14 +1055,51 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				return;
 			}
 
-			const nonInteractive = yes || !process.stdin.isTTY;
-			const hasLocalItems = await hasLocalSources(repoRoot, agentsDir, resolved.targets);
+			const explicitOnly = resolvedOnly.ids.length > 0;
+			let selectedTargets = filteredTargets;
+			let availabilitySkips: AvailabilitySkip[] = [];
+			let availabilityWarnings: string[] = [];
+			if (!explicitOnly) {
+				const availabilityResults = await Promise.all(
+					filteredTargets.map(async (target) => ({
+						target,
+						availability: await checkTargetAvailability(target),
+					})),
+				);
+				const availableTargets: ResolvedTarget[] = [];
+				for (const { target, availability } of availabilityResults) {
+					if (availability.status === "available") {
+						availableTargets.push(target);
+						continue;
+					}
+					availabilitySkips.push({
+						target,
+						reason: availability.reason ?? "CLI not found on PATH.",
+						warnings: availability.warnings,
+					});
+				}
+				selectedTargets = availableTargets;
+				availabilityWarnings = buildAvailabilityWarnings(availabilitySkips);
+			}
 
 			const selectedSkillTargets = selectedTargets.filter((target) => target.outputs.skills);
 			const selectedCommandTargets = selectedTargets.filter((target) => target.outputs.commands);
 			const selectedSubagentTargets = selectedTargets.filter((target) => target.outputs.subagents);
 			const selectedInstructionTargets = selectedTargets.filter(
 				(target) => target.outputs.instructions,
+			);
+
+			const availabilitySkillSkips = availabilitySkips.filter(
+				(skip) => skip.target.outputs.skills,
+			);
+			const availabilityCommandSkips = availabilitySkips.filter(
+				(skip) => skip.target.outputs.commands,
+			);
+			const availabilitySubagentSkips = availabilitySkips.filter(
+				(skip) => skip.target.outputs.subagents,
+			);
+			const availabilityInstructionSkips = availabilitySkips.filter(
+				(skip) => skip.target.outputs.instructions,
 			);
 
 			const includeLocalSkills = !excludeLocalSkills;
@@ -986,6 +1109,11 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 
 			const skillsSourcePath = resolveSharedCategoryRoot(repoRoot, "skills", agentsDir);
 			const localSkillsPath = resolveLocalCategoryRoot(repoRoot, "skills", agentsDir);
+			const commandsSourcePath = resolveSharedCategoryRoot(repoRoot, "commands", agentsDir);
+
+			const nonInteractive = yes || !process.stdin.isTTY;
+			const hasLocalItems = await hasLocalSources(repoRoot, agentsDir, resolved.targets);
+
 			const sharedSkillsAvailable = await assertSourceDirectory(skillsSourcePath);
 			const localSkillsAvailable = includeLocalSkills
 				? await assertSourceDirectory(localSkillsPath)
@@ -1077,7 +1205,6 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				}
 			}
 
-			const commandsSourcePath = resolveSharedCategoryRoot(repoRoot, "commands", agentsDir);
 			let commandsSummary: CommandSyncSummary;
 			if (selectedCommandTargets.length === 0) {
 				commandsSummary = {
@@ -1120,7 +1247,15 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				} satisfies CommandSyncRequestV2);
 			}
 
-			const subagentSummary = await syncSubagentsV2({
+			if (availabilityCommandSkips.length > 0) {
+				const availabilityCommandResults = buildAvailabilityCommandResults(availabilityCommandSkips);
+				commandsSummary = {
+					...commandsSummary,
+					results: [...commandsSummary.results, ...availabilityCommandResults],
+				};
+			}
+
+			let subagentSummary = await syncSubagentsV2({
 				repoRoot,
 				agentsDir,
 				targets: selectedSubagentTargets,
@@ -1133,6 +1268,17 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				resolveTargetName,
 				hooks: globalHooks,
 			} satisfies SubagentSyncRequestV2);
+
+			if (availabilitySubagentSkips.length > 0) {
+				const subagentWarnings = mergeWarnings(
+					buildAvailabilitySubagentWarnings(availabilitySubagentSkips),
+					buildAvailabilityWarnings(availabilitySubagentSkips),
+				);
+				subagentSummary = {
+					...subagentSummary,
+					warnings: mergeWarnings(subagentSummary.warnings, subagentWarnings),
+				};
+			}
 
 			let instructionsSummary: InstructionSyncSummary;
 			if (selectedInstructionTargets.length === 0) {
@@ -1189,6 +1335,21 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				}
 			}
 
+			if (availabilityInstructionSkips.length > 0) {
+				const availabilityInstructionResults =
+					buildAvailabilityInstructionResults(availabilityInstructionSkips);
+				instructionsSummary = {
+					...instructionsSummary,
+					results: [...instructionsSummary.results, ...availabilityInstructionResults],
+				};
+			}
+			if (availabilityWarnings.length > 0) {
+				instructionsSummary = {
+					...instructionsSummary,
+					warnings: mergeWarnings(instructionsSummary.warnings, availabilityWarnings),
+				};
+			}
+
 			// Sync conversions before copying canonical skills.
 			let skillsSummary: SyncSummary;
 			if (selectedSkillTargets.length === 0) {
@@ -1220,6 +1381,18 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					resolveTargetName,
 					hooks: globalHooks,
 				});
+			}
+
+			if (availabilitySkillSkips.length > 0) {
+				const availabilitySkillResults = buildAvailabilitySkillResults(
+					repoRoot,
+					skillsSourcePath,
+					availabilitySkillSkips,
+				);
+				skillsSummary = {
+					...skillsSummary,
+					results: [...skillsSummary.results, ...availabilitySkillResults],
+				};
 			}
 
 			const combined = {

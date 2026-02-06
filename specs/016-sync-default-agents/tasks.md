@@ -47,9 +47,9 @@ description: "Task list for Sync Default Agent Generation"
 
 ### Implementation for User Story 1
 
-- [ ] T004 [US1] Compute availability (available/unavailable + reasons) for resolved targets when `--only` is not provided in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
-- [ ] T005 [US1] Apply availability-filtered targets as the default selection and retain skip reasons for unavailable targets in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
-- [ ] T006 [US1] Surface availability skips and warnings in human and JSON summaries in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
+- [X] T004 [US1] Compute availability (available/unavailable + reasons) for resolved targets when `--only` is not provided in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
+- [X] T005 [US1] Apply availability-filtered targets as the default selection and retain skip reasons for unavailable targets in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
+- [X] T006 [US1] Surface availability skips and warnings in human and JSON summaries in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
 
 **Checkpoint**: User Story 1 is fully functional and independently testable
 
@@ -63,8 +63,8 @@ description: "Task list for Sync Default Agent Generation"
 
 ### Implementation for User Story 2
 
-- [ ] T007 [US2] Bypass availability filtering when `--only` is provided and ensure explicit targets are selected in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
-- [ ] T008 [US2] Preserve existing unknown-target validation and summary behavior for explicit targets in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
+- [X] T007 [US2] Bypass availability filtering when `--only` is provided and ensure explicit targets are selected in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
+- [X] T008 [US2] Preserve existing unknown-target validation and summary behavior for explicit targets in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
 
 **Checkpoint**: User Stories 1 and 2 are independently functional
 
