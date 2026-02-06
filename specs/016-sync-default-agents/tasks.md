@@ -22,7 +22,7 @@ description: "Task list for Sync Default Agent Generation"
 
 **Purpose**: Confirm existing target metadata supports availability detection
 
-- [ ] T001 Ensure each built-in target declares a CLI command in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/builtins/codex/target.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/builtins/claude-code/target.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/builtins/gemini-cli/target.ts`, and `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/builtins/copilot-cli/target.ts`
+- [X] T001 Ensure each built-in target declares a CLI command in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/builtins/codex/target.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/builtins/claude-code/target.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/builtins/gemini-cli/target.ts`, and `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/builtins/copilot-cli/target.ts`
 
 ---
 
@@ -32,8 +32,8 @@ description: "Task list for Sync Default Agent Generation"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T002 Add CLI-on-PATH availability detection helper in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/availability.ts`
-- [ ] T003 Export availability helper from `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/index.ts`
+- [X] T002 Add CLI-on-PATH availability detection helper in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/availability.ts`
+- [X] T003 Export availability helper from `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/index.ts`
 
 **Checkpoint**: Availability detection utilities are ready for sync command integration
 
