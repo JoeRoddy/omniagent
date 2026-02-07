@@ -4,6 +4,11 @@ tests/
 specs/
 problems/
 scripts/
+research/
+tmp/
+docs/
+project-direction.md
+AGENTS.md
 
 # Tooling
 .claude/
