@@ -1,6 +1,6 @@
 {
   "name": "omniagent",
-  "version": "0.0.1-alpha.2",
+  "version": "0.0.1-alpha.3",
   "description": "Unified agent configuration CLI that compiles canonical agent configs to multiple runtimes.",
   "type": "module",
   "bin": {
