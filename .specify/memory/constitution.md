@@ -1,14 +1,18 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change: N/A (initial) → 1.0.0
-Modified principles: N/A (initial creation)
-Added sections:
-  - Core Principles (5 principles)
+Version change: 1.0.0 → 1.1.0
+Modified principles:
+  - I. CLI-First Compiler Design → clarified shim boundary
+  - II. Markdown-First, Human-Readable Output → clarified canonical sources + shim output
+  - IV. Test-Driven Validation → aligned with CI + shim E2E
+  - V. Predictable Resolution Order → updated to agents/ + local overrides + target selection
+Modified sections:
   - Performance Standards
   - Development Workflow
-  - Governance
-Removed sections: N/A
+  - Target Addition Process
+Added sections: None
+Removed sections: None
 Templates requiring updates:
   - .specify/templates/plan-template.md: ✅ compatible (Constitution Check section exists)
   - .specify/templates/spec-template.md: ✅ compatible (Requirements section aligns)
@@ -20,29 +24,35 @@ Follow-up TODOs: None
 
 ## Core Principles
 
-### I. CLI-First Compiler Design
+### I. Compiler-First with Shim Boundaries
 
-omniagent is a **compiler/adapter**, not a runtime or agent framework. Every feature
-MUST adhere to this boundary:
+omniagent is a **compiler/adapter** for agent configuration. It also provides a thin
+CLI shim to delegate commands to external agent CLIs, but it is **not** an agent runtime.
+Every feature MUST adhere to this boundary:
 
-- MUST validate canonical agent configuration
-- MUST resolve global vs project-level overrides deterministically
-- MUST generate target-specific outputs without runtime dependencies
+- MUST validate canonical agent configuration and target mappings
+- MUST generate target-specific outputs as static files; sync must not require agent runtimes
+- MAY provide a CLI shim that invokes external agent CLIs, but MUST NOT implement its own
+  runtime, orchestration layer, or model hosting
 - MUST handle lossy mappings explicitly and visibly to users
-- MUST NOT run agents, orchestrate workflows, or host models
+- MUST keep shim behavior transparent (explicit translation + pass-through outputs)
 
-**Rationale**: Clear separation of concerns prevents scope creep and ensures the tool
-remains focused on its core value proposition: unified configuration compilation.
+**Rationale**: Clear separation of concerns prevents scope creep. The shim is a UX
+adapter layer, not a runtime.
 
 ### II. Markdown-First, Human-Readable Output
 
 All canonical configuration MUST be markdown-first:
 
-- Configuration files MUST be human-readable and diffable
-- Structured data (frontmatter) MUST use YAML or TOML, never proprietary formats
-- CLI output MUST support both JSON and human-readable formats
+- Canonical content sources (skills, subagents, slash commands, instructions, `AGENTS.md`)
+  MUST be human-readable and diffable
+- Structured data (frontmatter) MUST use YAML or TOML; code-based configuration
+  (`omniagent.config.*`) is allowed for target definitions
+- CLI output for user-facing management commands (for example, `sync`) MUST support both
+  JSON and human-readable formats; shim output is passed through unmodified
 - Error messages MUST be actionable with clear remediation steps
-- Generated target files MUST include provenance comments indicating source
+- Generated target files SHOULD include provenance comments when the target format allows;
+  managed outputs MUST be tracked to support safe cleanup and change detection
 
 **Rationale**: Developer tools succeed when they integrate seamlessly with existing
 workflows. Git diffability and human readability reduce friction and build trust.
@@ -55,6 +65,7 @@ Not all agent features map cleanly across targets. omniagent MUST surface this:
 - MUST document which features are fully supported, partially supported, or unsupported per target
 - MUST NOT silently drop configuration during compilation
 - SHOULD provide suggestions for target-specific alternatives when features cannot map
+- MUST surface automatic conversions (for example, subagents → skills) in warnings/summary
 
 **Rationale**: Users deserve to know what they're getting. Hidden incompatibilities
 erode trust and cause debugging nightmares in production.
@@ -63,9 +74,10 @@ erode trust and cause debugging nightmares in production.
 
 All compilation and validation logic MUST be thoroughly tested:
 
-- Schema validation MUST have comprehensive test coverage
-- Each target compiler MUST have contract tests verifying output format
-- Integration tests MUST verify round-trip consistency where applicable
+- Schema/frontmatter validation MUST have comprehensive test coverage
+- Core sync, templating, and writer behavior MUST have unit tests
+- Each built-in target MUST have contract tests verifying output paths and formats
+- CLI shim translation MUST have E2E tests against expected invocations/baselines
 - Edge cases (empty configs, malformed input, missing fields) MUST be tested
 - New targets MUST include a test suite before merge
 
@@ -76,15 +88,23 @@ omniagent to produce valid output; broken compilation breaks their entire workfl
 
 Configuration resolution MUST follow a deterministic, documented order:
 
-1. Project-level overrides (repo `.agents/` directory)
-2. Global user configuration (`~/.config/omniagent/` or equivalent)
-3. Canonical defaults (built into omniagent)
+**Source precedence (same item name):**
+
+1. Local overrides in `agents/.local/**` (or `.local` suffix)
+2. Shared sources in `agents/{agents,skills,commands}/**` and repo `AGENTS.md`
+
+**Target selection:**
+
+1. Per-file frontmatter `targets`/`targetAgents` defines defaults
+2. Run-level `--only` / `--skip` filters apply
+3. Built-in targets plus custom targets from `omniagent.config.*` in the active
+   agents directory (`--agentsDir`)
 
 This order MUST be:
 
 - Documented in user-facing help and documentation
 - Consistent across all commands and targets
-- Debuggable via a `--verbose` or `--debug` flag showing resolution steps
+- Debuggable via JSON output (`--json`) and shim trace flags (`--trace-translate`)
 
 **Rationale**: Mirroring established patterns (Git, Terraform, ESLint) reduces
 learning curve and makes behavior predictable for power users.
@@ -93,14 +113,13 @@ learning curve and makes behavior predictable for power users.
 
 omniagent MUST maintain responsive CLI performance:
 
-- `omniagent validate` MUST complete in under 500ms for typical project configs
-- `omniagent compile` MUST complete in under 2 seconds for all targets combined
-- Memory usage MUST stay under 100MB for standard operations
+- Sync operations SHOULD complete quickly for typical project configs (seconds, not minutes)
+- Memory usage SHOULD remain modest for standard operations
 - File I/O MUST be minimized; prefer streaming over loading entire directories
-- Cold start (first run) MAY be slower but MUST NOT exceed 5 seconds
+- Cold start (first run) MAY be slower but SHOULD still be within a few seconds
 
-**Measurement**: Performance benchmarks SHOULD be included in CI and regression
-tested against these thresholds.
+**Measurement**: Benchmarks are not enforced yet. If/when added, encode thresholds
+in CI and regression test against them.
 
 **Rationale**: CLI tools that feel slow get abandoned. Fast feedback loops
 encourage iterative configuration refinement.
@@ -111,26 +130,29 @@ encourage iterative configuration refinement.
 
 All contributions MUST pass:
 
-- Linting (language-appropriate tooling configured in project)
-- Type checking where applicable
-- Unit test suite with >80% coverage on core compilation logic
-- Integration tests for each supported target
+- `npm run check` (Biome formatting/linting)
+- `npm run typecheck`
+- `npm test`
+- `npm run build`
 - Documentation updates for user-facing changes
+
+New functionality MUST include appropriate tests (unit/contract/E2E) for the affected
+surfaces.
 
 ### Commit Standards
 
-- Commits MUST follow conventional commit format
+- Commits SHOULD follow conventional commit format when practical
 - Breaking changes MUST be clearly marked and documented
-- Each PR MUST include test coverage for new functionality
+- Each PR SHOULD include test coverage for new functionality
 
-### Target Addition Process
+### Built-in Target Addition Process
 
-Adding a new compilation target requires:
+Adding a new built-in compilation target requires:
 
-1. Research document outlining target's configuration format
+1. Research document outlining the target's configuration format
 2. Mapping document showing canonical → target field translations
 3. Explicit list of unsupported/lossy features
-4. Complete test suite for the new target
+4. Complete test suite for the new target (unit + contract, plus E2E where applicable)
 5. Documentation updates (README, help text)
 
 ## Governance
@@ -154,4 +176,4 @@ All PRs and code reviews MUST verify compliance with these principles.
 - Constitution Check section in plan templates MUST verify alignment
 - Complexity beyond these principles MUST be justified in Complexity Tracking
 
-**Version**: 1.0.0 | **Ratified**: 2026-01-10 | **Last Amended**: 2026-01-10
+**Version**: 1.1.0 | **Ratified**: 2026-01-10 | **Last Amended**: 2026-02-07
