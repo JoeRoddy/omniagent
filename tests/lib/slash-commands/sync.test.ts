@@ -360,6 +360,41 @@ describe("slash command sync planning", () => {
 		});
 	});
 
+	it("forces Codex command conversions into project skills for any global skill template", async () => {
+		await withTempRepoInHome(async (root, homeDir) => {
+			await createCanonicalCommand(root);
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["codex"],
+				config: {
+					targets: [
+						{
+							id: "codex",
+							inherits: "codex",
+							outputs: {
+								skills: "{homeDir}/.config/codex/skills/{itemName}",
+								commands: {
+									userPath: "{homeDir}/.codex/prompts/{itemName}.md",
+									fallback: { mode: "convert", targetType: "skills" },
+								},
+							},
+						},
+					],
+				},
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+
+			await applySlashCommandSync(plan);
+
+			const localSkill = path.join(root, ".codex", "skills", "example", "SKILL.md");
+			const globalSkill = path.join(homeDir, ".config", "codex", "skills", "example", "SKILL.md");
+			expect(await pathExists(localSkill)).toBe(true);
+			expect(await pathExists(globalSkill)).toBe(false);
+		});
+	});
+
 	it("keeps manifest stable and reports no changes on a repeat sync", async () => {
 		await withTempRepo(async (root) => {
 			await createCanonicalCommand(root);

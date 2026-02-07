@@ -355,21 +355,12 @@ function coerceCodexSkillPath(options: {
 	targetId: string;
 	resolvedPath: string;
 	repoRoot: string;
-	homeDir: string;
 }): string {
 	if (options.targetId !== "codex") {
 		return options.resolvedPath;
 	}
-	const homeSkillsRoot = path.join(options.homeDir, ".codex", "skills");
-	const repoSkillsRoot = path.join(options.repoRoot, ".codex", "skills");
-	if (isWithinDir(repoSkillsRoot, options.resolvedPath)) {
-		return options.resolvedPath;
-	}
-	if (!isWithinDir(homeSkillsRoot, options.resolvedPath)) {
-		return options.resolvedPath;
-	}
-	const relative = path.relative(homeSkillsRoot, options.resolvedPath);
-	return path.join(repoSkillsRoot, relative);
+	const commandName = path.basename(options.resolvedPath);
+	return path.join(options.repoRoot, ".codex", "skills", commandName);
 }
 
 function resolveCommandTemplatePath(options: {
@@ -423,7 +414,6 @@ function resolveSkillTemplatePath(options: {
 		targetId: options.targetId,
 		resolvedPath: templatePath,
 		repoRoot: options.repoRoot,
-		homeDir: options.homeDir,
 	});
 }
 
@@ -1443,7 +1433,6 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 					targetId: target.id,
 					resolvedPath: basePath,
 					repoRoot: request.repoRoot,
-					homeDir,
 				});
 				commandPaths = [{ location: "project", path: path.join(basePath, "SKILL.md") }];
 			} else {
