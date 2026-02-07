@@ -538,6 +538,47 @@ describe.sequential("sync command", () => {
 		});
 	});
 
+	it("writes Codex command conversions to project skills even when configured globally", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalCommands(root);
+
+			const configDir = path.join(root, "agents");
+			await mkdir(configDir, { recursive: true });
+			await writeFile(
+				path.join(configDir, "omniagent.config.cjs"),
+				[
+					"module.exports = {",
+					"  targets: [",
+					"    {",
+					'      id: "codex",',
+					'      inherits: "codex",',
+					"      outputs: {",
+					'        skills: "{homeDir}/.codex/skills/{itemName}",',
+					"        commands: {",
+					'          userPath: "{homeDir}/.codex/prompts/{itemName}.md",',
+					'          fallback: { mode: "convert", targetType: "skills" },',
+					"        },",
+					"      },",
+					"    },",
+					"  ],",
+					"};",
+					"",
+				].join("\n"),
+				"utf8",
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "codex", "--yes"]);
+			});
+
+			const localSkill = path.join(root, ".codex", "skills", "example", "SKILL.md");
+			const globalSkill = path.join(root, "home", ".codex", "skills", "example", "SKILL.md");
+			expect(await pathExists(localSkill)).toBe(true);
+			expect(await pathExists(globalSkill)).toBe(false);
+		});
+	});
+
 	it("surfaces command support and conversion notices in non-interactive runs", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);

@@ -19,6 +19,22 @@ async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> 
 	}
 }
 
+async function withTempRepoInHome(
+	fn: (root: string, homeDir: string) => Promise<void>,
+): Promise<void> {
+	const base = await mkdtemp(path.join(os.tmpdir(), "omniagent-slash-commands-home-"));
+	const homeDir = path.join(base, "home");
+	const root = path.join(homeDir, "project");
+	await mkdir(root, { recursive: true });
+	const homeSpy = vi.spyOn(os, "homedir").mockReturnValue(homeDir);
+	try {
+		await fn(root, homeDir);
+	} finally {
+		homeSpy.mockRestore();
+		await rm(base, { recursive: true, force: true });
+	}
+}
+
 async function pathExists(candidate: string): Promise<boolean> {
 	try {
 		await stat(candidate);
@@ -306,6 +322,41 @@ describe("slash command sync planning", () => {
 			);
 			expect(output).toContain("# example");
 			expect(output).toContain("Say hello.");
+		});
+	});
+
+	it("forces Codex command conversions into project skills even when skills are global", async () => {
+		await withTempRepoInHome(async (root, homeDir) => {
+			await createCanonicalCommand(root);
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["codex"],
+				config: {
+					targets: [
+						{
+							id: "codex",
+							inherits: "codex",
+							outputs: {
+								skills: "{homeDir}/.codex/skills/{itemName}",
+								commands: {
+									userPath: "{homeDir}/.codex/prompts/{itemName}.md",
+									fallback: { mode: "convert", targetType: "skills" },
+								},
+							},
+						},
+					],
+				},
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+
+			await applySlashCommandSync(plan);
+
+			const localSkill = path.join(root, ".codex", "skills", "example", "SKILL.md");
+			const globalSkill = path.join(homeDir, ".codex", "skills", "example", "SKILL.md");
+			expect(await pathExists(localSkill)).toBe(true);
+			expect(await pathExists(globalSkill)).toBe(false);
 		});
 	});
 
