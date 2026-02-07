@@ -47,7 +47,7 @@
   - `conflictResolution`: enum (`overwrite` | `rename` | `skip`)
   - `removeMissing`: boolean
   - `unsupportedFallback`: enum (`convert_to_skills` | `skip`)
-  - `codexConversionChoice`: enum (`global` | `project` | `skip`)
+  - `codexConversionChoice`: enum (`global` | `project` | `skip`) where `project` converts to local `.codex/skills`.
   - `nonInteractive`: boolean
   - `useDefaults`: boolean
   - `requestedAt`: string (ISO timestamp)

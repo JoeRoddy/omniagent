@@ -63,7 +63,7 @@
 ## Non-Interactive Defaults
 
 - Decision: Support `--yes` to accept defaults for all prompts. Defaults are:
-  project scope for agents that support project/global, global scope for Codex
+  project scope for agents that support project/global, local scope for Codex
   conversions, convert-to-skills for unsupported agents, and skip on conflicts.
 - Rationale: Safe-by-default behavior avoids destructive changes in
   non-interactive runs while keeping the flow predictable.

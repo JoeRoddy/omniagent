@@ -40,7 +40,8 @@ node /Users/joeroddy/Documents/dev/projects/open-source/omniagent/dist/cli.js sy
 ```
 
 Expected: defaults are applied (project scope for Gemini/Claude, global prompts
-for Codex, convert-to-skills for unsupported targets) and a summary is printed.
+for Codex, convert-to-skills for unsupported targets). Converted Codex skills
+land in the local `.codex/skills` directory, and a summary is printed.
 
 ## Limit Targets
 

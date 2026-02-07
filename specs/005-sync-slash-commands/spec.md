@@ -10,7 +10,7 @@
 ### Session 2026-01-11
 
 - Q: Should command catalogs be shared across agents or separate per agent? → A: One shared command catalog synced to selected agents (no per-agent variants).
-- Q: For Codex only, when converting slash commands to skills, should the user choose scope? → A: Use global scope by default (no scope prompt in the CLI for now).
+- Q: For Codex only, when converting slash commands to skills, should the user choose scope? → A: Use local (project) skills by default (no scope prompt in the CLI for now).
 - Q: For unsupported agents (Copilot), should conversion be opt-in? → A: Convert to skills by default; skip by excluding the target.
 - Q: Should sync remove commands that are no longer in the shared catalog? → A: Remove only previously-synced commands that are no longer in the catalog, leaving unrelated commands untouched.
 - Q: Should command names be unique case-insensitively? → A: Yes, command names must be unique case-insensitively.
@@ -59,9 +59,9 @@ As a user syncing to Codex, I need a clear warning that project-level custom sla
 
 **Acceptance Scenarios**:
 
-1. **Given** Codex is selected as a sync target, **When** sync starts, **Then** I am warned about the lack of project-level custom commands and offered options to configure globally or convert to skills.
+1. **Given** Codex is selected as a sync target, **When** sync starts, **Then** I am warned about the lack of project-level custom commands and offered options to configure globally or convert to local skills.
 2. **Given** I choose one of the options, **When** sync completes, **Then** the result matches my choice and the summary reflects the action.
-3. **Given** I choose to convert to skills for Codex, **When** sync completes, **Then** the conversion uses global scope by default (no scope prompt in the CLI).
+3. **Given** I choose to convert to skills for Codex, **When** sync completes, **Then** the conversion uses local scope by default (no scope prompt in the CLI).
 
 ---
 
@@ -89,7 +89,7 @@ As a user syncing to Codex, I need a clear warning that project-level custom sla
 - **FR-009**: The system MUST ensure that running sync without changes results in no modifications and a "no changes" summary.
 - **FR-010**: The system MUST provide a preview or summary of planned actions before applying changes, including counts of commands to create, update, convert, or skip per agent.
 - **FR-011**: The system MUST not support per-agent command variants or overrides within the shared catalog.
-- **FR-012**: When Codex conversion to skills is selected, the system MUST use global scope by default (no scope prompt in the CLI).
+- **FR-012**: When Codex conversion to skills is selected, the system MUST use local scope by default (no scope prompt in the CLI).
 - **FR-013**: The system MUST enforce unique command names in the shared catalog using case-insensitive comparison.
 - **FR-014**: The system MUST support a non-interactive confirmation mode that accepts defaults (e.g., a --yes flag) while still producing the preview or summary.
 - **FR-015**: The system MUST treat Claude Code slash command definitions as the source of truth when target agents differ, and map that canonical definition to other targets.
@@ -99,13 +99,13 @@ As a user syncing to Codex, I need a clear warning that project-level custom sla
 - **Slash Command Definition**: A user-defined command in the shared catalog stored as a Markdown file under `agents/commands/` with a filename-derived name, content, and selected target agents.
 - **Agent Capability Profile**: A record of whether an agent supports custom slash commands and what scopes are available.
 - **Sync Decision**: The per-agent defaults and choices made during a sync (scope defaults, conversion behavior, or exclusion).
-- **Skill Mapping**: The representation of a slash command converted into a skill, retaining the original command name and the applied scope (project or global) when applicable.
+- **Skill Mapping**: The representation of a slash command converted into a skill, retaining the original command name and the applied scope (project/local where applicable).
 
 ## Assumptions
 
 - Sync is one-way from omniagent configuration to each agent's command configuration; importing existing agent commands is out of scope.
 - When an agent supports both project and personal/global scopes, the default choice is project scope (local) for now.
-- Skill conversions create project-scoped skills by default; for Codex, conversions default to global scope in the CLI.
+- Skill conversions create project-scoped skills by default; for Codex, conversions default to local scope in the CLI.
 
 ## Constraints & Dependencies
 

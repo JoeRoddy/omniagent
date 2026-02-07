@@ -351,6 +351,18 @@ function isWithinDir(baseDir: string, candidate: string): boolean {
 	return !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
+function coerceCodexSkillPath(options: {
+	targetId: string;
+	resolvedPath: string;
+	repoRoot: string;
+}): string {
+	if (options.targetId !== "codex") {
+		return options.resolvedPath;
+	}
+	const commandName = path.basename(options.resolvedPath);
+	return path.join(options.repoRoot, ".codex", "skills", commandName);
+}
+
 function resolveCommandTemplatePath(options: {
 	commandDef: NonNullable<ReturnType<typeof normalizeCommandOutputDefinition>>;
 	scope: Scope;
@@ -386,7 +398,7 @@ function resolveSkillTemplatePath(options: {
 	agentsDir: string;
 	targetId: string;
 }): string {
-	return resolveTargetOutputPath({
+	const templatePath = resolveTargetOutputPath({
 		template: options.skillDef.path,
 		context: {
 			repoRoot: options.repoRoot,
@@ -397,6 +409,11 @@ function resolveSkillTemplatePath(options: {
 		},
 		item: { name: "__placeholder__" },
 		baseDir: options.repoRoot,
+	});
+	return coerceCodexSkillPath({
+		targetId: options.targetId,
+		resolvedPath: templatePath,
+		repoRoot: options.repoRoot,
 	});
 }
 
@@ -1400,7 +1417,7 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 					continue;
 				}
 				outputKind = "skill";
-				const basePath = resolveTargetOutputPath({
+				let basePath = resolveTargetOutputPath({
 					template: skillDef.path,
 					context: {
 						repoRoot: request.repoRoot,
@@ -1411,6 +1428,11 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 					},
 					item: command,
 					baseDir: request.repoRoot,
+				});
+				basePath = coerceCodexSkillPath({
+					targetId: target.id,
+					resolvedPath: basePath,
+					repoRoot: request.repoRoot,
 				});
 				commandPaths = [{ location: "project", path: path.join(basePath, "SKILL.md") }];
 			} else {
