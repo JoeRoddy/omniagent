@@ -62,11 +62,30 @@ describe("instruction template catalog", () => {
 		});
 	});
 
-	it("marks templates missing outPutPath outside /agents/AGENTS.md", async () => {
+	it("uses source directory for supported nested templates missing outPutPath", async () => {
+		await withTempRepo(async (root) => {
+			const supportedPath = await writeTemplate(
+				root,
+				path.join("agents", "skills", "helper", "AGENTS.md"),
+				"Skill instructions",
+			);
+
+			const catalog = await loadInstructionTemplateCatalog({ repoRoot: root });
+			const supportedTemplate = catalog.templates.find(
+				(template) => template.sourcePath === supportedPath,
+			);
+
+			expect(supportedTemplate?.resolvedOutputDir).toBe(
+				path.join(root, "agents", "skills", "helper"),
+			);
+		});
+	});
+
+	it("marks templates missing outPutPath in unsupported nested directories", async () => {
 		await withTempRepo(async (root) => {
 			const missingPath = await writeTemplate(
 				root,
-				path.join("agents", "sub", "missing.AGENTS.md"),
+				path.join("agents", "custom", "missing.AGENTS.md"),
 				"Missing output path",
 			);
 

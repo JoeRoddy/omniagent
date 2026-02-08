@@ -1,5 +1,5 @@
-import { realpathSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { echoCommand } from "./commands/echo.js";
@@ -8,7 +8,31 @@ import { helloCommand } from "./commands/hello.js";
 import { syncCommand } from "./commands/sync.js";
 import { runShim } from "./shim/index.js";
 
-const VERSION = "0.1.0";
+function resolveVersion(): string {
+	const packageJsonPaths = [
+		fileURLToPath(new URL("../package.json", import.meta.url)),
+		fileURLToPath(new URL("../../package.json", import.meta.url)),
+	];
+
+	for (const packageJsonPath of packageJsonPaths) {
+		if (!existsSync(packageJsonPath)) {
+			continue;
+		}
+		try {
+			const contents = readFileSync(packageJsonPath, "utf8");
+			const parsed = JSON.parse(contents) as { version?: unknown };
+			if (typeof parsed.version === "string" && parsed.version.trim().length > 0) {
+				return parsed.version;
+			}
+		} catch {
+			// Fall through and try the next candidate.
+		}
+	}
+
+	return "0.0.0";
+}
+
+const VERSION = resolveVersion();
 const KNOWN_COMMANDS = new Set(["hello", "greet", "echo", "sync"]);
 const SHIM_CAPABILITIES = [
 	"Capabilities by agent:",

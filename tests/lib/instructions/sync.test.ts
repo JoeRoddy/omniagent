@@ -212,11 +212,37 @@ describe("instruction sync", () => {
 		});
 	});
 
-	it("warns and skips templates missing outPutPath outside /agents/AGENTS.md", async () => {
+	it("does not warn for supported nested templates missing outPutPath", async () => {
 		await withTempRepo(async (root) => {
 			await writeInstruction(
 				root,
-				path.join("agents", "sub", "missing.AGENTS.md"),
+				path.join("agents", "skills", "clickup-api", "actions", "create-task", "AGENTS.md"),
+				"Action instructions",
+			);
+
+			const summary = await syncInstructions({
+				repoRoot: root,
+				targets: ["claude"],
+				validAgents: VALID_AGENTS,
+				nonInteractive: true,
+			});
+
+			expect(summary.warnings.some((warning) => warning.includes("missing outPutPath"))).toBe(
+				false,
+			);
+			expect(
+				await pathExists(
+					path.join(root, "agents", "skills", "clickup-api", "actions", "create-task", "CLAUDE.md"),
+				),
+			).toBe(true);
+		});
+	});
+
+	it("warns and skips templates missing outPutPath in unsupported nested directories", async () => {
+		await withTempRepo(async (root) => {
+			await writeInstruction(
+				root,
+				path.join("agents", "custom", "missing.AGENTS.md"),
 				"Missing output path",
 			);
 
