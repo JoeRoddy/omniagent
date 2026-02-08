@@ -34,8 +34,8 @@ description: "Task list for Dynamic Template Scripts"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [X] T004 Implement `<oa-script>` parsing, block indexing, and validation rules in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
-- [X] T005 Implement isolated Node subprocess execution and return-value normalization helpers in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
+- [X] T004 Implement `<nodejs>` parsing, block indexing, and validation rules in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
+- [X] T005 Implement isolated Node subprocess execution, CommonJS helpers (`require`, `__dirname`, `__filename`), and return-value normalization helpers in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
 - [X] T006 Implement per-sync-run template script cache and evaluation orchestration in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
 - [X] T007 Add sync-run script metadata types (`runId`, `scriptExecutions`, `warnings`, `partialOutputsWritten`) in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/sync-results.ts`
 - [X] T008 Wire script runtime context propagation through sync entry points in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/skills/sync.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/slash-commands/sync.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/subagents/sync.ts`, and `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/instructions/sync.ts`
@@ -46,14 +46,14 @@ description: "Task list for Dynamic Template Scripts"
 
 ## Phase 3: User Story 1 - Generate content from template scripts (Priority: P1) 🎯 MVP
 
-**Goal**: Template authors can embed `<oa-script>` blocks and render generated content from current repository state.
+**Goal**: Template authors can embed `<nodejs>` blocks and render generated content from current repository state.
 
 **Independent Test**: Add a docs-list script block to one template, run sync, and verify output contains rendered list content instead of raw script markup.
 
 ### Tests for User Story 1
 
 - [X] T009 [P] [US1] Add unit tests for successful script evaluation, block ordering, and repo-state-sensitive output in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/lib/template-scripts.test.ts`
-- [X] T010 [US1] Add sync integration test verifying `<oa-script>` content replaces script markup in generated outputs in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/sync.test.ts`
+- [X] T010 [US1] Add sync integration test verifying `<nodejs>` content replaces script markup in generated outputs in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/sync.test.ts`
 
 ### Implementation for User Story 1
 
@@ -74,7 +74,7 @@ description: "Task list for Dynamic Template Scripts"
 
 ### Tests for User Story 2
 
-- [X] T015 [P] [US2] Add regression tests for unchanged output when no `<oa-script>` blocks are present in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/lib/slash-commands/sync.test.ts`
+- [X] T015 [P] [US2] Add regression tests for unchanged output when no `<nodejs>` blocks are present in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/lib/slash-commands/sync.test.ts`
 - [X] T016 [P] [US2] Add regression tests for static text preservation around script blocks in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/lib/instructions/sync.test.ts`
 - [X] T017 [US2] Add integration test proving once-per-template execution and cross-target result reuse in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/sync.test.ts`
 - [X] T018 [US2] Add integration test proving renderer output is authoritative when scripts side-effect managed outputs in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/sync.test.ts`
@@ -117,7 +117,7 @@ description: "Task list for Dynamic Template Scripts"
 
 **Purpose**: Documentation and final cross-feature alignment
 
-- [X] T030 [P] Document `<oa-script>` authoring, return handling, side-effect expectations, and verbose telemetry in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/README.md`
+- [X] T030 [P] Document `<nodejs>` authoring, return handling, side-effect expectations, and verbose telemetry in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/README.md`
 - [X] T031 [P] Add maintainer guidance that dynamic scripts apply to all current/future syncable surfaces in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/AGENTS.md`
 - [X] T032 [P] Align end-to-end validation steps for docs-list generation, failure mode, and long-running warnings in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/specs/017-dynamic-template-scripts/quickstart.md`
 - [X] T033 [P] Reconcile contract examples and schema details with implemented sync telemetry/failure payloads in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/specs/017-dynamic-template-scripts/contracts/sync-dynamic-scripts.yaml`

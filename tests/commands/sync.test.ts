@@ -111,7 +111,7 @@ async function writeScriptedCommand(
 	name: string,
 	scriptBody: string,
 ): Promise<string> {
-	const contents = ["Before", "<oa-script>", scriptBody, "</oa-script>", "After"].join("\n");
+	const contents = ["Before", "<nodejs>", scriptBody, "</nodejs>", "After"].join("\n");
 	return writeCanonicalCommand(root, name, contents);
 }
 
@@ -513,7 +513,7 @@ describe.sequential("sync command", () => {
 		});
 	});
 
-	it("renders oa-script blocks in synced command outputs", async () => {
+	it("renders nodejs blocks in synced command outputs", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
 			await writeScriptedCommand(root, "scripted", "return ' dynamic content ';");
@@ -526,7 +526,7 @@ describe.sequential("sync command", () => {
 			expect(output).toContain("Before");
 			expect(output).toContain("dynamic content");
 			expect(output).toContain("After");
-			expect(output).not.toContain("<oa-script>");
+			expect(output).not.toContain("<nodejs>");
 		});
 	});
 
@@ -539,7 +539,7 @@ describe.sequential("sync command", () => {
 				root,
 				"docs-index",
 				[
-					'const fs = await import("node:fs/promises");',
+					'const fs = require("node:fs/promises");',
 					"const entries = await fs.readdir('docs');",
 					"return entries",
 					"  .filter((entry) => entry.endsWith('.md'))",
@@ -603,7 +603,7 @@ describe.sequential("sync command", () => {
 		});
 	});
 
-	it("renders oa-script blocks for skill and subagent templates", async () => {
+	it("renders nodejs blocks for skill and subagent templates", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
 			await writeCanonicalSkillFile(
@@ -611,20 +611,27 @@ describe.sequential("sync command", () => {
 				"dynamic-skill",
 				[
 					"Skill before",
-					"<oa-script>",
-					"return ' skill content ';",
-					"</oa-script>",
+					"<nodejs>",
+					'const fs = require("node:fs");',
+					'const path = require("node:path");',
+					'return fs.readFileSync(path.join(__dirname, "fragment.txt"), "utf8").trim();',
+					"</nodejs>",
 					"Skill after",
 				].join("\n"),
+			);
+			await writeFile(
+				path.join(root, "agents", "skills", "dynamic-skill", "fragment.txt"),
+				"skill content",
+				"utf8",
 			);
 			await writeSubagent(
 				root,
 				"dynamic-helper",
 				[
 					"Subagent before",
-					"<oa-script>",
+					"<nodejs>",
 					"return ' helper content ';",
-					"</oa-script>",
+					"</nodejs>",
 					"Subagent after",
 				].join("\n"),
 			);
@@ -640,7 +647,7 @@ describe.sequential("sync command", () => {
 			expect(skillOutput).toContain("Skill before");
 			expect(skillOutput).toContain("skill content");
 			expect(skillOutput).toContain("Skill after");
-			expect(skillOutput).not.toContain("<oa-script>");
+			expect(skillOutput).not.toContain("<nodejs>");
 
 			const subagentOutput = await readFile(
 				path.join(root, ".claude", "agents", "dynamic-helper.md"),
@@ -649,7 +656,7 @@ describe.sequential("sync command", () => {
 			expect(subagentOutput).toContain("Subagent before");
 			expect(subagentOutput).toContain("helper content");
 			expect(subagentOutput).toContain("Subagent after");
-			expect(subagentOutput).not.toContain("<oa-script>");
+			expect(subagentOutput).not.toContain("<nodejs>");
 		});
 	});
 

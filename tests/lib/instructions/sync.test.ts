@@ -195,16 +195,16 @@ describe("instruction sync", () => {
 		});
 	});
 
-	it("preserves static instruction text around oa-script blocks", async () => {
+	it("preserves static instruction text around nodejs blocks", async () => {
 		await withTempRepo(async (root) => {
 			const template = [
 				"---",
 				"outPutPath: docs/AGENTS.md",
 				"---",
 				"Before",
-				"<oa-script>",
+				"<nodejs>",
 				"return ' inserted ';",
-				"</oa-script>",
+				"</nodejs>",
 				"After",
 			].join("\n");
 			await writeInstruction(root, path.join("agents", "scripted.AGENTS.md"), template);
@@ -220,7 +220,7 @@ describe("instruction sync", () => {
 			expect(output).toContain("Before");
 			expect(output).toContain("inserted");
 			expect(output).toContain("After");
-			expect(output).not.toContain("<oa-script>");
+			expect(output).not.toContain("<nodejs>");
 		});
 	});
 

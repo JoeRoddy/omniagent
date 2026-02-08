@@ -13,9 +13,9 @@ Create a syncable template (example: `/Users/joeroddy/Documents/dev/projects/ope
 # docs-index
 
 Current docs pages:
-<oa-script>
-const fs = await import("node:fs/promises");
-const path = await import("node:path");
+<nodejs>
+const fs = require("node:fs/promises");
+const path = require("node:path");
 
 const docsDir = path.join(process.cwd(), "docs");
 const entries = await fs.readdir(docsDir, { withFileTypes: true });
@@ -25,7 +25,7 @@ const pages = entries
   .sort();
 
 return pages.join("\n");
-</oa-script>
+</nodejs>
 ```
 
 ## 2) Run sync
@@ -38,8 +38,9 @@ node /Users/joeroddy/Documents/dev/projects/open-source/omniagent/dist/cli.js sy
 ```
 
 Expected result:
-- Output files contain rendered markdown list items instead of the `<oa-script>` block.
+- Output files contain rendered markdown list items instead of the `<nodejs>` block.
 - Static template text remains unchanged.
+- Script code can use `require`, `__dirname`, and `__filename`.
 
 ## 3) Verify reuse across targets
 
@@ -54,9 +55,9 @@ Expected result:
 Temporarily change the block to throw:
 
 ```md
-<oa-script>
+<nodejs>
 throw new Error("intentional failure");
-</oa-script>
+</nodejs>
 ```
 
 Run sync again.

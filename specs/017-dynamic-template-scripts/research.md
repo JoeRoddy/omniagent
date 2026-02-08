@@ -1,8 +1,8 @@
 # Research: Dynamic Template Scripts
 
-## Decision 1: Use explicit `<oa-script>...</oa-script>` block syntax
+## Decision 1: Use explicit `<nodejs>...</nodejs>` block syntax
 
-**Decision**: Dynamic script regions use a dedicated tag pair, `<oa-script>` and `</oa-script>`,
+**Decision**: Dynamic script regions use a dedicated tag pair, `<nodejs>` and `</nodejs>`,
 inside syncable templates.
 
 **Rationale**: A distinct tag avoids accidental execution of ordinary markdown/html content and
@@ -13,10 +13,11 @@ aligns with the existing tag-based template parsing approach.
 - Handlebars-style delimiters (introduces a second delimiter grammar alongside existing agent tags)
 - Raw `<script>` tags (higher collision risk with existing content)
 
-## Decision 2: Execute each script block in an isolated Node subprocess
+## Decision 2: Execute each script block in an isolated Node subprocess with CommonJS helpers
 
 **Decision**: Run each script block in its own `node` subprocess, inheriting normal userspace
-capabilities (filesystem, network, subprocess access), with no sandbox and no timeout.
+capabilities (filesystem, network, subprocess access), with no sandbox and no timeout. The
+execution context provides `require`, `__dirname`, and `__filename`.
 
 **Rationale**: Process isolation enforces FR-018 (no shared in-memory state), while preserving the
 explicit no-restrictions requirements from FR-011/FR-012.

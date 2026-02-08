@@ -18,6 +18,7 @@
 - Q: If a script hangs forever, what should sync do? → A: Wait indefinitely and emit periodic "still running" warnings.
 - Q: What execution telemetry should be shown by default? → A: No telemetry by default; show telemetry when a root CLI `--verbose` mode is enabled.
 - Q: Should script blocks share runtime state? → A: No; each script block runs in an isolated execution context.
+- Q: What script block syntax and module access should be supported? → A: Scripts use `<nodejs>...</nodejs>` tags and support CommonJS helpers (`require`, `__dirname`, `__filename`).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -33,6 +34,7 @@ As a template author, I want to place dynamic script blocks inside template file
 
 1. **Given** a template contains a dynamic script block that generates a list of documentation files, **When** the user runs sync, **Then** the generated output includes a rendered list of those files in place of the script block.
 2. **Given** a documentation file is added or removed after a previous sync, **When** the user runs sync again, **Then** the generated list in output reflects the updated repository state.
+3. **Given** a script block uses `require` and `__dirname` to load local files, **When** sync evaluates the block, **Then** the script executes successfully and renders the loaded content.
 
 ---
 
@@ -97,6 +99,7 @@ As a template author, I want clear failure feedback when a script block cannot b
 ### Functional Requirements
 
 - **FR-001**: The system MUST allow template authors to embed dynamic script blocks within syncable template files.
+- **FR-001a**: Dynamic script blocks MUST be delimited by `<nodejs>` and `</nodejs>` tags.
 - **FR-002**: During sync, the system MUST evaluate each dynamic script block and replace it with generated text in the rendered output.
 - **FR-003**: Script evaluation MUST use the current state of repository content at sync time so generated output stays current.
 - **FR-004**: Template content outside dynamic script blocks MUST be preserved exactly in rendered output.
@@ -115,12 +118,14 @@ As a template author, I want clear failure feedback when a script block cannot b
 - **FR-016**: If a script does not complete, the system MUST continue waiting without timeout and MUST emit periodic "still running" warnings until completion or external interruption.
 - **FR-017**: In default mode, the system MUST suppress routine per-script execution telemetry; when root CLI `--verbose` is enabled, the system MUST emit script execution telemetry.
 - **FR-018**: Each dynamic script block MUST execute in an isolated runtime context and MUST NOT share in-memory execution state with other script blocks.
+- **FR-019**: Script execution context MUST expose `require`, `__dirname`, and `__filename` so template code can load Node.js modules and resolve local paths.
 
 ### Acceptance Coverage
 
-- **FR-001, FR-002, FR-003**: Covered by User Story 1 acceptance scenarios.
+- **FR-001, FR-001a, FR-002, FR-003**: Covered by User Story 1 acceptance scenarios.
 - **FR-004, FR-005, FR-005a, FR-008, FR-013, FR-015**: Covered by User Story 2 acceptance scenarios.
 - **FR-006, FR-007, FR-011, FR-012, FR-014, FR-016, FR-017, FR-018**: Covered by User Story 3 acceptance scenarios.
+- **FR-019**: Covered by User Story 1 acceptance scenario 3.
 - **FR-009, FR-010**: Covered by cross-feature validation and documentation review.
 
 ### Key Entities *(include if feature involves data)*

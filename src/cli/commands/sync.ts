@@ -304,7 +304,7 @@ type ScriptPreflightOptions = {
 };
 
 function hasTemplateScripts(content: string): boolean {
-	return content.includes("<oa-script>");
+	return content.includes("<nodejs>");
 }
 
 function addTemplateScriptSource(

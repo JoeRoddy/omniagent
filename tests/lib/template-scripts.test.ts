@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -14,8 +14,7 @@ describe("template script runtime", () => {
 		const runtime = createTemplateScriptRuntime();
 		const rendered = await evaluateTemplateScripts({
 			templatePath: "agents/commands/example.md",
-			content:
-				"Start\n<oa-script>return 'one';</oa-script>\nMiddle\n<oa-script>return 'two';</oa-script>\nEnd",
+			content: "Start\n<nodejs>return 'one';</nodejs>\nMiddle\n<nodejs>return 'two';</nodejs>\nEnd",
 			runtime,
 		});
 
@@ -39,9 +38,9 @@ describe("template script runtime", () => {
 		const rendered = await evaluateTemplateScripts({
 			templatePath: "agents/commands/types.md",
 			content: [
-				"<oa-script>return { hello: 'world' };</oa-script>",
-				"<oa-script>return 42;</oa-script>",
-				"<oa-script>return null;</oa-script>",
+				"<nodejs>return { hello: 'world' };</nodejs>",
+				"<nodejs>return 42;</nodejs>",
+				"<nodejs>return null;</nodejs>",
 			].join("\n"),
 			runtime,
 		});
@@ -61,14 +60,14 @@ describe("template script runtime", () => {
 			const runtime = createTemplateScriptRuntime({ cwd: root });
 			const templatePath = path.join(root, "agents", "commands", "stateful.md");
 			const content = [
-				"<oa-script>",
+				"<nodejs>",
 				'const fs = await import("node:fs/promises");',
 				'const markerPath = "marker.txt";',
 				'const current = Number(await fs.readFile(markerPath, "utf8"));',
 				"const next = current + 1;",
 				'await fs.writeFile(markerPath, String(next), "utf8");',
 				"return String(next);",
-				"</oa-script>",
+				"</nodejs>",
 			].join("\n");
 
 			const first = await evaluateTemplateScripts({ templatePath, content, runtime });
@@ -91,10 +90,10 @@ describe("template script runtime", () => {
 		try {
 			await writeFile(path.join(root, "value.txt"), "first", "utf8");
 			const content = [
-				"<oa-script>",
+				"<nodejs>",
 				'const fs = await import("node:fs/promises");',
 				'return (await fs.readFile("value.txt", "utf8")).trim();',
-				"</oa-script>",
+				"</nodejs>",
 			].join("\n");
 			const templatePath = path.join(root, "agents", "commands", "state.md");
 
@@ -125,14 +124,14 @@ describe("template script runtime", () => {
 				evaluateTemplateScripts({
 					templatePath: "agents/commands/fail-fast.md",
 					content: [
-						"<oa-script>",
+						"<nodejs>",
 						"throw new Error('boom');",
-						"</oa-script>",
-						"<oa-script>",
+						"</nodejs>",
+						"<nodejs>",
 						'const fs = await import("node:fs/promises");',
 						'await fs.writeFile("should-not-exist.txt", "ran", "utf8");',
 						"return 'late';",
-						"</oa-script>",
+						"</nodejs>",
 					].join("\n"),
 					runtime,
 				}),
@@ -153,13 +152,13 @@ describe("template script runtime", () => {
 		const rendered = await evaluateTemplateScripts({
 			templatePath: "agents/commands/isolation.md",
 			content: [
-				"<oa-script>",
+				"<nodejs>",
 				"globalThis.__omniagentShared = 'set';",
 				"return 'first';",
-				"</oa-script>",
-				"<oa-script>",
+				"</nodejs>",
+				"<nodejs>",
 				"return String(globalThis.__omniagentShared ?? 'unset');",
-				"</oa-script>",
+				"</nodejs>",
 			].join("\n"),
 			runtime,
 		});
@@ -175,7 +174,9 @@ describe("template script runtime", () => {
 			response.end("network-ok");
 		});
 		try {
-			await writeFile(path.join(root, "capability.txt"), "file-ok", "utf8");
+			const templatePath = path.join(root, "agents", "commands", "capabilities.md");
+			await mkdir(path.dirname(templatePath), { recursive: true });
+			await writeFile(path.join(path.dirname(templatePath), "capability.txt"), "file-ok", "utf8");
 			await new Promise<void>((resolve) => {
 				server.listen(0, "127.0.0.1", () => resolve());
 			});
@@ -186,14 +187,15 @@ describe("template script runtime", () => {
 
 			const runtime = createTemplateScriptRuntime({ cwd: root });
 			const rendered = await evaluateTemplateScripts({
-				templatePath: "agents/commands/capabilities.md",
+				templatePath,
 				content: [
-					"<oa-script>",
-					'const fs = await import("node:fs/promises");',
-					'const { execFile } = await import("node:child_process");',
-					'const { promisify } = await import("node:util");',
+					"<nodejs>",
+					'const fs = require("node:fs/promises");',
+					'const { execFile } = require("node:child_process");',
+					'const { promisify } = require("node:util");',
+					'const path = require("node:path");',
 					"const run = promisify(execFile);",
-					'const fileValue = (await fs.readFile("capability.txt", "utf8")).trim();',
+					'const fileValue = (await fs.readFile(path.join(__dirname, "capability.txt"), "utf8")).trim();',
 					"const child = await run(process.execPath, [",
 					"  '-e',",
 					"  \"process.stdout.write('subprocess-ok')\",",
@@ -201,7 +203,7 @@ describe("template script runtime", () => {
 					`const response = await fetch("http://127.0.0.1:${address.port}/status");`,
 					"const networkValue = (await response.text()).trim();",
 					"return fileValue + '-' + child.stdout + '-' + networkValue;",
-					"</oa-script>",
+					"</nodejs>",
 				].join("\n"),
 				runtime,
 			});
@@ -218,12 +220,12 @@ describe("template script runtime", () => {
 		const rendered = await evaluateTemplateScripts({
 			templatePath: "agents/commands/noisy.md",
 			content: [
-				"<oa-script>",
+				"<nodejs>",
 				"for (let index = 0; index < 200_000; index += 1) {",
 				"  console.log('line-' + index);",
 				"}",
 				"return 'done';",
-				"</oa-script>",
+				"</nodejs>",
 			].join("\n"),
 			runtime,
 		});
@@ -236,7 +238,7 @@ describe("template script runtime", () => {
 		await expect(
 			evaluateTemplateScripts({
 				templatePath: "agents/commands/bad.md",
-				content: "<oa-script>return 'x';<oa-script>return 'y';</oa-script>",
+				content: "<nodejs>return 'x';<nodejs>return 'y';</nodejs>",
 				runtime,
 			}),
 		).rejects.toBeInstanceOf(TemplateScriptExecutionError);
@@ -247,10 +249,10 @@ describe("template script runtime", () => {
 		const rendered = await evaluateTemplateScripts({
 			templatePath: "agents/commands/slow.md",
 			content: [
-				"<oa-script>",
+				"<nodejs>",
 				"await new Promise((resolve) => setTimeout(resolve, 85));",
 				"return 'done';",
-				"</oa-script>",
+				"</nodejs>",
 			].join("\n"),
 			runtime,
 		});

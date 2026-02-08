@@ -2,18 +2,27 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { RunWarning, ScriptExecution, ScriptResultKind } from "./sync-results.js";
 
-const SCRIPT_OPEN_TAG = "<oa-script>";
-const SCRIPT_CLOSE_TAG = "</oa-script>";
+const SCRIPT_OPEN_TAG = "<nodejs>";
+const SCRIPT_CLOSE_TAG = "</nodejs>";
 const SCRIPT_HEARTBEAT_INTERVAL_MS = 30_000;
 const PREVIEW_LIMIT = 200;
 
 const RUNNER_SOURCE = String.raw`
+import path from "node:path";
 import { writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 
 const encoded = process.env.OMNIAGENT_SCRIPT_B64 ?? "";
 const sourceLabel = process.env.OMNIAGENT_SCRIPT_SOURCE ?? "template";
+const sourcePathValue = process.env.OMNIAGENT_SCRIPT_TEMPLATE_PATH ?? sourceLabel;
 const script = Buffer.from(encoded, "base64").toString("utf8");
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+const sourcePath = path.isAbsolute(sourcePathValue)
+	? sourcePathValue
+	: path.resolve(process.cwd(), sourcePathValue);
+const __filename = sourcePath;
+const __dirname = path.dirname(__filename);
+const require = createRequire(__filename);
 
 function encodeResult(value) {
 	if (value === undefined) {
@@ -51,8 +60,8 @@ function encodeResult(value) {
 async function main() {
 	try {
 		const wrapped = script + "\n//# sourceURL=" + sourceLabel;
-		const fn = new AsyncFunction(wrapped);
-		const result = await fn();
+		const fn = new AsyncFunction("require", "__dirname", "__filename", wrapped);
+		const result = await fn(require, __dirname, __filename);
 		writeFileSync(3, JSON.stringify({ ok: true, payload: encodeResult(result) }), "utf8");
 	} catch (error) {
 		const message =
@@ -145,7 +154,7 @@ export class TemplateScriptExecutionError extends Error {
 
 function formatParseError(templatePath: string, message: string): TemplateScriptExecutionError {
 	return new TemplateScriptExecutionError(
-		`Invalid <oa-script> markup in ${templatePath}: ${message}`,
+		`Invalid <nodejs> markup in ${templatePath}: ${message}`,
 		{ templatePath },
 	);
 }
@@ -216,7 +225,7 @@ function parseTemplateScripts(templatePath: string, content: string): ParsedTemp
 		const nextClose = content.indexOf(SCRIPT_CLOSE_TAG, cursor);
 
 		if (nextClose !== -1 && (nextOpen === -1 || nextClose < nextOpen)) {
-			throw formatParseError(templatePath, "closing </oa-script> appears before an opening tag");
+			throw formatParseError(templatePath, "closing </nodejs> appears before an opening tag");
 		}
 		if (nextOpen === -1) {
 			break;
@@ -225,12 +234,12 @@ function parseTemplateScripts(templatePath: string, content: string): ParsedTemp
 		const scriptStart = nextOpen + SCRIPT_OPEN_TAG.length;
 		const closeIndex = content.indexOf(SCRIPT_CLOSE_TAG, scriptStart);
 		if (closeIndex === -1) {
-			throw formatParseError(templatePath, "missing closing </oa-script> tag");
+			throw formatParseError(templatePath, "missing closing </nodejs> tag");
 		}
 
 		const scriptBody = content.slice(scriptStart, closeIndex);
 		if (scriptBody.includes(SCRIPT_OPEN_TAG)) {
-			throw formatParseError(templatePath, "nested <oa-script> blocks are not supported");
+			throw formatParseError(templatePath, "nested <nodejs> blocks are not supported");
 		}
 
 		blocks.push({
@@ -263,6 +272,7 @@ async function executeScriptBlock(options: {
 			...process.env,
 			OMNIAGENT_SCRIPT_B64: Buffer.from(block.scriptBody, "utf8").toString("base64"),
 			OMNIAGENT_SCRIPT_SOURCE: blockLabel,
+			OMNIAGENT_SCRIPT_TEMPLATE_PATH: block.templatePath,
 		},
 		// Ignore child stdout to prevent scripts with heavy console output from deadlocking on pipe backpressure.
 		stdio: ["ignore", "ignore", "pipe", "pipe"],

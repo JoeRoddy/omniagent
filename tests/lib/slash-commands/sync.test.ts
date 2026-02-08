@@ -115,9 +115,9 @@ async function createScriptedCommand(root: string, name = "scripted"): Promise<v
 		'description: "dynamic"',
 		"---",
 		"Prefix",
-		"<oa-script>",
+		"<nodejs>",
 		"return ' GENERATED ';",
-		"</oa-script>",
+		"</nodejs>",
 		"Suffix",
 	].join("\n");
 	await writeFile(path.join(commandsDir, `${name}.md`), contents, "utf8");
@@ -493,7 +493,7 @@ describe("slash command sync planning", () => {
 		});
 	});
 
-	it("renders oa-script content before command output rendering", async () => {
+	it("renders nodejs content before command output rendering", async () => {
 		await withTempRepo(async (root) => {
 			await createScriptedCommand(root);
 
@@ -512,7 +512,7 @@ describe("slash command sync planning", () => {
 			expect(rendered).toContain("Prefix");
 			expect(rendered).toContain("GENERATED");
 			expect(rendered).toContain("Suffix");
-			expect(rendered).not.toContain("<oa-script>");
+			expect(rendered).not.toContain("<nodejs>");
 		});
 	});
 
