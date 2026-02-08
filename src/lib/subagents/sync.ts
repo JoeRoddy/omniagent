@@ -45,6 +45,11 @@ import {
 	type WriterRegistry,
 	writeFileOutput,
 } from "../targets/writers.js";
+import {
+	createTemplateScriptRuntime,
+	evaluateTemplateScripts,
+	type TemplateScriptRuntime,
+} from "../template-scripts.js";
 import { loadSubagentCatalog, type SubagentDefinition } from "./catalog.js";
 import {
 	type ManagedSubagent,
@@ -68,6 +73,7 @@ export type SubagentSyncRequest = {
 	validAgents?: string[];
 	excludeLocal?: boolean;
 	includeLocalSkills?: boolean;
+	templateScriptRuntime?: TemplateScriptRuntime;
 };
 
 export type SubagentSyncRequestV2 = {
@@ -82,6 +88,7 @@ export type SubagentSyncRequestV2 = {
 	includeLocalSkills?: boolean;
 	resolveTargetName?: (value: string) => string | null;
 	hooks?: SyncHooks;
+	templateScriptRuntime?: TemplateScriptRuntime;
 };
 
 export type SubagentSyncPlanAction = {
@@ -580,8 +587,15 @@ async function buildTargetPlan(
 			continue;
 		}
 
+		const withScripts = request.templateScriptRuntime
+			? await evaluateTemplateScripts({
+					templatePath: subagent.sourcePath,
+					content: subagent.rawContents,
+					runtime: request.templateScriptRuntime,
+				})
+			: subagent.rawContents;
 		const templatedContents = applyAgentTemplating({
-			content: subagent.rawContents,
+			content: withScripts,
 			target: targetName,
 			validAgents,
 			sourcePath: subagent.sourcePath,
@@ -739,6 +753,8 @@ async function buildTargetPlan(
 export async function planSubagentSync(
 	request: SubagentSyncRequest,
 ): Promise<SubagentSyncPlanDetails> {
+	const templateScriptRuntime =
+		request.templateScriptRuntime ?? createTemplateScriptRuntime({ cwd: request.repoRoot });
 	const resolvedTargets =
 		request.resolvedTargets ??
 		resolveTargets({
@@ -781,7 +797,10 @@ export async function planSubagentSync(
 		targetPlans.push(
 			await buildTargetPlan(
 				{
-					request,
+					request: {
+						...request,
+						templateScriptRuntime,
+					},
 					subagents: catalog.subagents,
 					removeMissing,
 					timestamp,
@@ -999,6 +1018,8 @@ type SubagentOutputCandidate = {
 };
 
 export async function syncSubagents(request: SubagentSyncRequestV2): Promise<SubagentSyncSummary> {
+	const templateScriptRuntime =
+		request.templateScriptRuntime ?? createTemplateScriptRuntime({ cwd: request.repoRoot });
 	const catalog = await loadSubagentCatalog(request.repoRoot, {
 		includeLocal: !request.excludeLocal,
 		agentsDir: request.agentsDir,
@@ -1294,6 +1315,7 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 					targetId: target.id,
 					outputType: "subagents",
 					validAgents,
+					templateScriptRuntime,
 				},
 			});
 			const checksum =

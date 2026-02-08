@@ -106,6 +106,15 @@ async function writeCanonicalCommand(
 	return filePath;
 }
 
+async function writeScriptedCommand(
+	root: string,
+	name: string,
+	scriptBody: string,
+): Promise<string> {
+	const contents = ["Before", "<nodejs>", scriptBody, "</nodejs>", "After"].join("\n");
+	return writeCanonicalCommand(root, name, contents);
+}
+
 async function writeSubagent(root: string, name: string, body: string): Promise<string> {
 	const catalogDir = path.join(root, "agents", "agents");
 	await mkdir(catalogDir, { recursive: true });
@@ -504,6 +513,288 @@ describe.sequential("sync command", () => {
 		});
 	});
 
+	it("renders nodejs blocks in synced command outputs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeScriptedCommand(root, "scripted", "return ' dynamic content ';");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			const output = await readFile(path.join(root, ".claude", "commands", "scripted.md"), "utf8");
+			expect(output).toContain("Before");
+			expect(output).toContain("dynamic content");
+			expect(output).toContain("After");
+			expect(output).not.toContain("<nodejs>");
+		});
+	});
+
+	it("updates script output when repository content changes between sync runs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await mkdir(path.join(root, "docs"), { recursive: true });
+			await writeFile(path.join(root, "docs", "alpha.md"), "# alpha", "utf8");
+			await writeScriptedCommand(
+				root,
+				"docs-index",
+				[
+					'const fs = require("node:fs/promises");',
+					"const entries = await fs.readdir('docs');",
+					"return entries",
+					"  .filter((entry) => entry.endsWith('.md'))",
+					"  .sort()",
+					"  .map((entry) => '- ' + entry)",
+					"  .join('\\n');",
+				].join("\n"),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			const firstOutput = await readFile(
+				path.join(root, ".claude", "commands", "docs-index.md"),
+				"utf8",
+			);
+			expect(firstOutput).toContain("- alpha.md");
+			expect(firstOutput).not.toContain("- beta.md");
+
+			await writeFile(path.join(root, "docs", "beta.md"), "# beta", "utf8");
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			const secondOutput = await readFile(
+				path.join(root, ".claude", "commands", "docs-index.md"),
+				"utf8",
+			);
+			expect(secondOutput).toContain("- alpha.md");
+			expect(secondOutput).toContain("- beta.md");
+		});
+	});
+
+	it("evaluates script paths relative to the repository root when run from a subdirectory", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await mkdir(path.join(root, "docs"), { recursive: true });
+			await writeFile(path.join(root, "docs", "alpha.md"), "# alpha", "utf8");
+			await writeScriptedCommand(
+				root,
+				"subdir-cwd",
+				[
+					'const fs = await import("node:fs/promises");',
+					"const entries = await fs.readdir('docs');",
+					"return entries.filter((entry) => entry.endsWith('.md')).sort().join('\\n');",
+				].join("\n"),
+			);
+			const subdir = path.join(root, "nested");
+			await mkdir(subdir, { recursive: true });
+
+			await withCwd(subdir, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			const output = await readFile(
+				path.join(root, ".claude", "commands", "subdir-cwd.md"),
+				"utf8",
+			);
+			expect(output).toContain("alpha.md");
+		});
+	});
+
+	it("renders nodejs blocks for skill and subagent templates", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeCanonicalSkillFile(
+				root,
+				"dynamic-skill",
+				[
+					"Skill before",
+					"<nodejs>",
+					'const fs = require("node:fs");',
+					'const path = require("node:path");',
+					'return fs.readFileSync(path.join(__dirname, "fragment.txt"), "utf8").trim();',
+					"</nodejs>",
+					"Skill after",
+				].join("\n"),
+			);
+			await writeFile(
+				path.join(root, "agents", "skills", "dynamic-skill", "fragment.txt"),
+				"skill content",
+				"utf8",
+			);
+			await writeSubagent(
+				root,
+				"dynamic-helper",
+				[
+					"Subagent before",
+					"<nodejs>",
+					"return ' helper content ';",
+					"</nodejs>",
+					"Subagent after",
+				].join("\n"),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			const skillOutput = await readFile(
+				path.join(root, ".claude", "skills", "dynamic-skill", "SKILL.md"),
+				"utf8",
+			);
+			expect(skillOutput).toContain("Skill before");
+			expect(skillOutput).toContain("skill content");
+			expect(skillOutput).toContain("Skill after");
+			expect(skillOutput).not.toContain("<nodejs>");
+
+			const subagentOutput = await readFile(
+				path.join(root, ".claude", "agents", "dynamic-helper.md"),
+				"utf8",
+			);
+			expect(subagentOutput).toContain("Subagent before");
+			expect(subagentOutput).toContain("helper content");
+			expect(subagentOutput).toContain("Subagent after");
+			expect(subagentOutput).not.toContain("<nodejs>");
+		});
+	});
+
+	it("evaluates each script block once per template and reuses result across targets", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeFile(path.join(root, "counter.txt"), "0", "utf8");
+			await writeScriptedCommand(
+				root,
+				"counter",
+				[
+					'const fs = await import("node:fs/promises");',
+					'const marker = "counter.txt";',
+					"const current = Number(await fs.readFile(marker, 'utf8'));",
+					"const next = current + 1;",
+					"await fs.writeFile(marker, String(next), 'utf8');",
+					"return String(next);",
+				].join("\n"),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude,gemini", "--yes"]);
+			});
+
+			expect(await readFile(path.join(root, "counter.txt"), "utf8")).toBe("1");
+			const claudeOutput = await readFile(
+				path.join(root, ".claude", "commands", "counter.md"),
+				"utf8",
+			);
+			const geminiOutput = await readFile(
+				path.join(root, ".gemini", "commands", "counter.toml"),
+				"utf8",
+			);
+			expect(claudeOutput).toContain("1");
+			expect(geminiOutput).toContain("1");
+		});
+	});
+
+	it("keeps renderer output authoritative over script side effects on managed outputs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeScriptedCommand(
+				root,
+				"authoritative",
+				[
+					'const fs = await import("node:fs/promises");',
+					'await fs.mkdir(".claude/commands", { recursive: true });',
+					'await fs.writeFile(".claude/commands/authoritative.md", "side effect", "utf8");',
+					"return 'renderer output';",
+				].join("\n"),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			const output = await readFile(
+				path.join(root, ".claude", "commands", "authoritative.md"),
+				"utf8",
+			);
+			expect(output).toContain("Before");
+			expect(output).toContain("renderer output");
+			expect(output).toContain("After");
+			expect(output.trim()).not.toBe("side effect");
+		});
+	});
+
+	it("fails before writing managed outputs when a template script errors", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeCanonicalCommand(root, "static", "safe command");
+			const failingPath = await writeScriptedCommand(root, "failing", "throw new Error('boom');");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--json", "--yes"]);
+			});
+
+			expect(await pathExists(path.join(root, ".claude", "commands", "static.md"))).toBe(false);
+			expect(await pathExists(path.join(root, ".claude", "commands", "failing.md"))).toBe(false);
+
+			const output = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
+			const parsed = JSON.parse(output);
+			expect(parsed.status).toBe("failed");
+			expect(parsed.failedTemplatePath).toBe(failingPath);
+			expect(parsed.failedBlockId).toContain("#0");
+			expect(parsed.partialOutputsWritten).toBe(false);
+			expect(Array.isArray(parsed.warnings)).toBe(true);
+			expect(parsed.warnings.length).toBeGreaterThan(0);
+			expect(
+				parsed.scriptExecutions.some((entry: { status: string }) => entry.status === "failed"),
+			).toBe(true);
+		});
+	});
+
+	it("retains unmanaged side effects when script evaluation fails", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeScriptedCommand(
+				root,
+				"failing-side-effect",
+				[
+					'const fs = await import("node:fs/promises");',
+					'await fs.writeFile("outside-managed.txt", "persisted", "utf8");',
+					"throw new Error('boom');",
+				].join("\n"),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			expect(await readFile(path.join(root, "outside-managed.txt"), "utf8")).toBe("persisted");
+			expect(
+				await pathExists(path.join(root, ".claude", "commands", "failing-side-effect.md")),
+			).toBe(false);
+		});
+	});
+
+	it("emits per-script telemetry only when --verbose is enabled", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeScriptedCommand(root, "telemetry", "return 'ok';");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+			const defaultOutput = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
+			expect(defaultOutput).not.toContain("Evaluating template script");
+
+			logSpy.mockClear();
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes", "--verbose"]);
+			});
+			const verboseOutput = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
+			expect(verboseOutput).toContain("Evaluating template script");
+		});
+	});
+
 	it("prints a plan summary in non-interactive runs", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
@@ -641,7 +932,9 @@ describe.sequential("sync command", () => {
 			expect(output).toContain(
 				"Claude Code commands will be written to project and user locations.",
 			);
-			expect(output).toContain("GitHub Copilot CLI commands are configured to convert to skills.");
+			expect(output).not.toContain(
+				"GitHub Copilot CLI commands are configured to convert to skills.",
+			);
 		});
 	});
 
@@ -935,11 +1228,13 @@ describe.sequential("sync command", () => {
 			const claudeCommand = path.join(root, ".claude", "commands", "targeted.md");
 			const geminiCommand = path.join(root, ".gemini", "commands", "targeted.toml");
 			const codexCommand = path.join(root, "home", ".codex", "prompts", "targeted.md");
-			const copilotCommand = path.join(root, ".github", "skills", "targeted", "SKILL.md");
+			const copilotCommand = path.join(root, ".github", "agents", "targeted.agent.md");
+			const copilotPrompt = path.join(root, ".github", "prompts", "targeted.prompt.md");
 			expect(await pathExists(claudeCommand)).toBe(true);
 			expect(await pathExists(geminiCommand)).toBe(true);
 			expect(await pathExists(codexCommand)).toBe(false);
 			expect(await pathExists(copilotCommand)).toBe(false);
+			expect(await pathExists(copilotPrompt)).toBe(false);
 
 			const claudeCommandOutput = await readFile(claudeCommand, "utf8");
 			expect(claudeCommandOutput).not.toContain("targets:");
@@ -948,12 +1243,15 @@ describe.sequential("sync command", () => {
 			const globalClaude = path.join(root, ".claude", "commands", "global.md");
 			const globalGemini = path.join(root, ".gemini", "commands", "global.toml");
 			const globalCodex = path.join(root, "home", ".codex", "prompts", "global.md");
-			const globalCopilot = path.join(root, ".github", "skills", "global", "SKILL.md");
+			const globalCopilot = path.join(root, ".github", "agents", "global.agent.md");
+			const globalCopilotPrompt = path.join(root, ".github", "prompts", "global.prompt.md");
 
 			expect(await pathExists(globalClaude)).toBe(true);
 			expect(await pathExists(globalGemini)).toBe(true);
 			expect(await pathExists(globalCodex)).toBe(true);
 			expect(await pathExists(globalCopilot)).toBe(true);
+			expect(await pathExists(globalCopilotPrompt)).toBe(true);
+			expect(await readFile(globalCopilotPrompt, "utf8")).toContain('agent: "global"');
 		});
 	});
 });

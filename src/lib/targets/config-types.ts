@@ -1,3 +1,5 @@
+import type { TemplateScriptRuntime } from "../template-scripts.js";
+
 export const AGENT_IDS = ["claude", "codex", "gemini", "copilot"] as const;
 export type AgentId = (typeof AGENT_IDS)[number];
 
@@ -65,6 +67,7 @@ export type WriterContext = {
 	outputType: OutputType;
 	commandLocation?: CommandLocation;
 	validAgents: string[];
+	templateScriptRuntime?: TemplateScriptRuntime;
 };
 
 export type WriterResult = {

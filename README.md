@@ -266,6 +266,38 @@ Everyone except Claude and Gemini see this.
 </agents>
 ```
 
+### Dynamic template scripts (`<nodejs>`)
+
+`sync` can execute inline JavaScript blocks in canonical templates before agent templating/rendering:
+
+```md
+Current docs:
+<nodejs>
+const fs = require("node:fs");
+const path = require("node:path");
+
+const docsDir = path.join(process.cwd(), "docs");
+const pages = fs
+  .readdirSync(docsDir)
+  .filter((name) => name.endsWith(".md"))
+  .sort();
+
+return pages.map((name) => `- ${name}`).join("\n");
+</nodejs>
+```
+
+Behavior:
+
+- Scripts run once per template per sync run and cached results are reused across targets.
+- Each script block runs in an isolated Node subprocess (no shared in-memory state).
+- Script blocks can use `require`, `__dirname`, and `__filename`.
+- Return values are normalized as: string unchanged, object/array JSON text, other values via
+  `String(value)`, `null`/`undefined` as empty output.
+- Static template text around script blocks is preserved.
+- Script failures stop sync before managed writes are applied.
+- Long-running scripts emit periodic `still running` warnings every 30 seconds.
+- Routine per-script telemetry is quiet by default and shown only with `sync --verbose`.
+
 ## CLI reference
 
 ```bash
@@ -277,6 +309,7 @@ npx omniagent@latest sync --exclude-local=skills,commands
 npx omniagent@latest sync --agentsDir ./my-custom-agents
 npx omniagent@latest sync --list-local
 npx omniagent@latest sync --yes
+npx omniagent@latest sync --verbose
 npx omniagent@latest sync --json
 ```
 

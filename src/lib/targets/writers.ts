@@ -4,6 +4,7 @@ import path from "node:path";
 import { TextDecoder } from "node:util";
 import { applyAgentTemplating } from "../agent-templating.js";
 import { stripFrontmatterFields } from "../frontmatter-strip.js";
+import { evaluateTemplateScripts } from "../template-scripts.js";
 import type { OutputWriter, OutputWriterRef, WriterContext, WriterResult } from "./config-types.js";
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
@@ -99,6 +100,7 @@ async function copySkillDirectory(options: {
 	validAgents: string[];
 	skillFileName: string;
 	outputFileName: string;
+	templateScriptRuntime?: WriterContext["templateScriptRuntime"];
 }): Promise<void> {
 	await mkdir(options.destination, { recursive: true });
 	const entries = await readdir(options.source, { withFileTypes: true });
@@ -135,8 +137,15 @@ async function copySkillDirectory(options: {
 			continue;
 		}
 
+		const withScripts = options.templateScriptRuntime
+			? await evaluateTemplateScripts({
+					templatePath: sourcePath,
+					content: decoded,
+					runtime: options.templateScriptRuntime,
+				})
+			: decoded;
 		const templated = applyAgentTemplating({
-			content: decoded,
+			content: withScripts,
 			target: options.targetId,
 			validAgents: options.validAgents,
 			sourcePath,
@@ -168,6 +177,7 @@ export const defaultSkillWriter: OutputWriter = {
 			validAgents: options.context.validAgents,
 			skillFileName: item.skillFileName,
 			outputFileName: item.outputFileName,
+			templateScriptRuntime: options.context.templateScriptRuntime,
 		});
 		return { status: "created" };
 	},
@@ -185,8 +195,15 @@ export const defaultSubagentWriter: OutputWriter = {
 		if (!item) {
 			return writeOutputFile(options.outputPath, options.content);
 		}
+		const withScripts = options.context.templateScriptRuntime
+			? await evaluateTemplateScripts({
+					templatePath: item.sourcePath,
+					content: item.rawContents,
+					runtime: options.context.templateScriptRuntime,
+				})
+			: item.rawContents;
 		const templated = applyAgentTemplating({
-			content: item.rawContents,
+			content: withScripts,
 			target: options.context.targetId,
 			validAgents: options.context.validAgents,
 			sourcePath: item.sourcePath,

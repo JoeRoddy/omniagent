@@ -107,6 +107,22 @@ async function createTemplatedCommand(root: string, name = "templated"): Promise
 	await writeFile(path.join(commandsDir, `${name}.md`), contents);
 }
 
+async function createScriptedCommand(root: string, name = "scripted"): Promise<void> {
+	const commandsDir = path.join(root, "agents", "commands");
+	await mkdir(commandsDir, { recursive: true });
+	const contents = [
+		"---",
+		'description: "dynamic"',
+		"---",
+		"Prefix",
+		"<nodejs>",
+		"return ' GENERATED ';",
+		"</nodejs>",
+		"Suffix",
+	].join("\n");
+	await writeFile(path.join(commandsDir, `${name}.md`), contents, "utf8");
+}
+
 describe("slash command sync planning", () => {
 	it("syncs only the selected targets", async () => {
 		await withTempRepo(async (root) => {
@@ -179,12 +195,12 @@ describe("slash command sync planning", () => {
 
 			expect(claudePlan?.mode).toBe("commands");
 			expect(claudePlan?.summary.create).toBe(1);
-			expect(copilotPlan?.mode).toBe("skills");
-			expect(copilotPlan?.summary.convert).toBe(1);
+			expect(copilotPlan?.mode).toBe("commands");
+			expect(copilotPlan?.summary.create).toBe(1);
 		});
 	});
 
-	it("converts commands to project skills for unsupported targets", async () => {
+	it("writes commands to Copilot project agents", async () => {
 		await withTempRepo(async (root) => {
 			await createCanonicalCommand(root);
 
@@ -196,21 +212,20 @@ describe("slash command sync planning", () => {
 			});
 
 			const targetPlan = plan.targetPlans[0];
-			expect(targetPlan?.mode).toBe("skills");
+			expect(targetPlan?.mode).toBe("commands");
 			expect(targetPlan?.scope).toBe("project");
 
 			await applySlashCommandSync(plan);
 
 			const output = await readFile(
-				path.join(root, ".github", "skills", "example", "SKILL.md"),
+				path.join(root, ".github", "agents", "example.agent.md"),
 				"utf8",
 			);
-			expect(output).toContain("# example");
 			expect(output).toContain("Say hello.");
 		});
 	});
 
-	it("includes frontmatter when converting commands to skills", async () => {
+	it("keeps frontmatter when writing Copilot project agents", async () => {
 		await withTempRepo(async (root) => {
 			await createCanonicalCommandWithFrontmatter(root, "frontmatter-test");
 
@@ -224,20 +239,16 @@ describe("slash command sync planning", () => {
 			await applySlashCommandSync(plan);
 
 			const output = await readFile(
-				path.join(root, ".github", "skills", "frontmatter-test", "SKILL.md"),
+				path.join(root, ".github", "agents", "frontmatter-test.agent.md"),
 				"utf8",
 			);
 			expect(output).toContain("---");
-			expect(output).toContain('name: "frontmatter-test"');
 			expect(output).toContain('description: "Say hello from a skill"');
 			expect(output).toContain('  - "testing"');
-			expect(output.indexOf('name: "frontmatter-test"')).toBeLessThan(
-				output.indexOf('description: "Say hello from a skill"'),
-			);
 		});
 	});
 
-	it("respects an explicit frontmatter name when converting commands to skills", async () => {
+	it("respects explicit frontmatter when writing Copilot project agents", async () => {
 		await withTempRepo(async (root) => {
 			await createCanonicalCommandWithCustomName(root, "named-command", "custom-skill-name");
 
@@ -251,11 +262,10 @@ describe("slash command sync planning", () => {
 			await applySlashCommandSync(plan);
 
 			const output = await readFile(
-				path.join(root, ".github", "skills", "named-command", "SKILL.md"),
+				path.join(root, ".github", "agents", "named-command.agent.md"),
 				"utf8",
 			);
 			expect(output).toContain('name: "custom-skill-name"');
-			expect(output).not.toContain('name: "named-command"');
 		});
 	});
 
@@ -459,6 +469,47 @@ describe("slash command sync planning", () => {
 		});
 	});
 
+	it("preserves command output when no script blocks are present", async () => {
+		await withTempRepo(async (root) => {
+			await createCanonicalCommand(root, "plain");
+			const before = await readFile(path.join(root, "agents", "commands", "plain.md"), "utf8");
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["claude"],
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+			await applySlashCommandSync(plan);
+
+			const after = await readFile(path.join(root, ".claude", "commands", "plain.md"), "utf8");
+			expect(after).toContain(before);
+		});
+	});
+
+	it("renders nodejs content before command output rendering", async () => {
+		await withTempRepo(async (root) => {
+			await createScriptedCommand(root);
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["claude"],
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+			await applySlashCommandSync(plan);
+
+			const rendered = await readFile(
+				path.join(root, ".claude", "commands", "scripted.md"),
+				"utf8",
+			);
+			expect(rendered).toContain("Prefix");
+			expect(rendered).toContain("GENERATED");
+			expect(rendered).toContain("Suffix");
+			expect(rendered).not.toContain("<nodejs>");
+		});
+	});
+
 	it("fails planning when templating is invalid", async () => {
 		await withTempRepo(async (root) => {
 			const commandsDir = path.join(root, "agents", "commands");
@@ -579,7 +630,7 @@ describe("slash command sync planning", () => {
 			expect(geminiOutput).toContain('prompt = "Run the canonical prompt."');
 
 			const copilotOutput = await readFile(
-				path.join(root, ".github", "skills", "canonical", "SKILL.md"),
+				path.join(root, ".github", "agents", "canonical.agent.md"),
 				"utf8",
 			);
 			expect(copilotOutput).toContain("Run the canonical prompt.");

@@ -38,6 +38,11 @@ import {
 } from "../targets/output-resolver.js";
 import { resolveTargets } from "../targets/resolve-targets.js";
 import { resolveWriter, type WriterRegistry, writeFileOutput } from "../targets/writers.js";
+import {
+	createTemplateScriptRuntime,
+	evaluateTemplateScripts,
+	type TemplateScriptRuntime,
+} from "../template-scripts.js";
 import { loadCommandCatalog, type SlashCommandDefinition } from "./catalog.js";
 import { renderMarkdownCommand, renderSkillFromCommand, renderTomlCommand } from "./formatting.js";
 import { extractFrontmatter } from "./frontmatter.js";
@@ -68,6 +73,7 @@ export type SyncRequest = {
 	useDefaults?: boolean;
 	validAgents?: string[];
 	excludeLocal?: boolean;
+	templateScriptRuntime?: TemplateScriptRuntime;
 };
 
 export type SyncRequestV2 = {
@@ -83,6 +89,7 @@ export type SyncRequestV2 = {
 	excludeLocal?: boolean;
 	resolveTargetName?: (value: string) => string | null;
 	hooks?: SyncHooks;
+	templateScriptRuntime?: TemplateScriptRuntime;
 };
 
 export type SyncPlanAction = {
@@ -128,6 +135,8 @@ export type SyncSummary = {
 };
 
 type OutputKind = "command" | "skill";
+type CommandFilePattern = { prefix: string; suffix: string };
+const COMMAND_NAME_PLACEHOLDER = "__placeholder__";
 
 type PlannedAction = SyncPlanAction & {
 	destinationPath?: string;
@@ -239,7 +248,10 @@ async function pathExists(candidate: string): Promise<boolean> {
 	}
 }
 
-async function listExistingNames(destinationDir: string, extension: string): Promise<Set<string>> {
+async function listExistingNames(
+	destinationDir: string,
+	pattern: CommandFilePattern,
+): Promise<Set<string>> {
 	if (!(await pathExists(destinationDir))) {
 		return new Set();
 	}
@@ -249,10 +261,16 @@ async function listExistingNames(destinationDir: string, extension: string): Pro
 		if (!entry.isFile()) {
 			continue;
 		}
-		if (!entry.name.toLowerCase().endsWith(extension)) {
+		if (
+			!entry.name.startsWith(pattern.prefix) ||
+			!entry.name.toLowerCase().endsWith(pattern.suffix.toLowerCase())
+		) {
 			continue;
 		}
-		const base = entry.name.slice(0, -extension.length);
+		const base = entry.name.slice(pattern.prefix.length, entry.name.length - pattern.suffix.length);
+		if (!base) {
+			continue;
+		}
 		names.add(normalizeName(base));
 	}
 	return names;
@@ -302,7 +320,7 @@ function resolveOutputPath(
 	commandName: string,
 	destinationDir: string,
 	outputKind: OutputKind,
-	extension: string,
+	commandPattern: CommandFilePattern,
 ): { destinationPath: string; containerDir: string } {
 	if (outputKind === "skill") {
 		const containerDir = path.join(destinationDir, commandName);
@@ -313,7 +331,22 @@ function resolveOutputPath(
 	}
 	return {
 		containerDir: destinationDir,
-		destinationPath: path.join(destinationDir, `${commandName}${extension}`),
+		destinationPath: path.join(
+			destinationDir,
+			`${commandPattern.prefix}${commandName}${commandPattern.suffix}`,
+		),
+	};
+}
+
+function resolveCommandFilePattern(templatePath: string): CommandFilePattern {
+	const fileName = path.basename(templatePath);
+	const index = fileName.indexOf(COMMAND_NAME_PLACEHOLDER);
+	if (index === -1) {
+		return { prefix: "", suffix: path.extname(templatePath) };
+	}
+	return {
+		prefix: fileName.slice(0, index),
+		suffix: fileName.slice(index + COMMAND_NAME_PLACEHOLDER.length),
 	};
 }
 
@@ -383,10 +416,10 @@ function resolveCommandTemplatePath(options: {
 			agentsDir: options.agentsDir,
 			homeDir: options.homeDir,
 			targetId: options.targetId,
-			itemName: "__placeholder__",
+			itemName: COMMAND_NAME_PLACEHOLDER,
 			commandLocation: options.scope === "project" ? "project" : "user",
 		},
-		item: { name: "__placeholder__" },
+		item: { name: COMMAND_NAME_PLACEHOLDER },
 		baseDir: options.scope === "project" ? options.repoRoot : options.homeDir,
 	});
 }
@@ -487,13 +520,21 @@ function buildInvalidTargetWarnings(commands: SlashCommandDefinition[]): string[
 	return warnings;
 }
 
-function applyTemplatingToCommand(
+async function applyTemplatingToCommand(
 	command: SlashCommandDefinition,
 	targetName: TargetName,
 	validAgents: string[],
-): SlashCommandDefinition {
+	runtime?: TemplateScriptRuntime,
+): Promise<SlashCommandDefinition> {
+	const withScripts = runtime
+		? await evaluateTemplateScripts({
+				templatePath: command.sourcePath,
+				content: command.rawContents,
+				runtime,
+			})
+		: command.rawContents;
 	const templatedContents = applyAgentTemplating({
-		content: command.rawContents,
+		content: withScripts,
 		target: targetName,
 		validAgents,
 		sourcePath: command.sourcePath,
@@ -611,6 +652,7 @@ async function buildTargetPlan(
 	let scope: Scope | null = null;
 	let destinationDir: string | null = null;
 	let extension = ".md";
+	let commandPattern: CommandFilePattern = { prefix: "", suffix: ".md" };
 
 	if (mode === "commands" && commandDef) {
 		const supportedScopes: Scope[] = [];
@@ -637,7 +679,7 @@ async function buildTargetPlan(
 			targetId: targetName,
 		});
 		destinationDir = path.dirname(templatePath);
-		extension = path.extname(templatePath);
+		commandPattern = resolveCommandFilePattern(templatePath);
 	} else if (mode === "skills" && skillDef) {
 		const templatePath = resolveSkillTemplatePath({
 			skillDef,
@@ -667,7 +709,9 @@ async function buildTargetPlan(
 	}
 	const manifestPath = resolveProjectManifestPath(targetName, scope, request.repoRoot, homeDir);
 	const existingNames =
-		outputKind === "skill" ? new Set<string>() : await listExistingNames(destinationDir, extension);
+		outputKind === "skill"
+			? new Set<string>()
+			: await listExistingNames(destinationDir, commandPattern);
 	const reservedNames = new Set(existingNames);
 
 	const legacyManifestPaths = new Set<string>();
@@ -716,7 +760,12 @@ async function buildTargetPlan(
 	const legacyCleanupPaths = new Set<string>();
 
 	for (const command of targetCommands) {
-		const templatedCommand = applyTemplatingToCommand(command, targetName, validAgents);
+		const templatedCommand = await applyTemplatingToCommand(
+			command,
+			targetName,
+			validAgents,
+			request.templateScriptRuntime,
+		);
 		const nameKey = normalizeName(command.name);
 		catalogNames.add(nameKey);
 
@@ -724,7 +773,7 @@ async function buildTargetPlan(
 			command.name,
 			destinationDir,
 			outputKind,
-			extension,
+			commandPattern,
 		);
 		const output = renderOutput(templatedCommand, outputKind, destinationPath);
 		const outputHash = hashContent(output);
@@ -838,7 +887,10 @@ async function buildTargetPlan(
 					candidate = `${command.name}-backup-${suffix}`;
 				}
 				reservedNames.add(normalizeName(candidate));
-				backupPath = path.join(destinationDir, `${candidate}${extension}`);
+				backupPath = path.join(
+					destinationDir,
+					`${commandPattern.prefix}${candidate}${commandPattern.suffix}`,
+				);
 			}
 		}
 
@@ -890,7 +942,7 @@ async function buildTargetPlan(
 				entry.name,
 				destinationDir,
 				outputKind,
-				extension,
+				commandPattern,
 			);
 			const removalPath = outputKind === "skill" ? containerDir : destinationPath;
 			actions.push({
@@ -945,6 +997,8 @@ async function buildTargetPlan(
 }
 
 export async function planSlashCommandSync(request: SyncRequest): Promise<SyncPlanDetails> {
+	const templateScriptRuntime =
+		request.templateScriptRuntime ?? createTemplateScriptRuntime({ cwd: request.repoRoot });
 	const resolvedTargets =
 		request.resolvedTargets ??
 		resolveTargets({
@@ -987,6 +1041,7 @@ export async function planSlashCommandSync(request: SyncRequest): Promise<SyncPl
 				request: {
 					...request,
 					removeMissing,
+					templateScriptRuntime,
 				},
 				commands: catalog.commands,
 				conflictResolution,
@@ -1286,6 +1341,8 @@ async function ensureBackupPath(outputPath: string): Promise<string> {
 }
 
 export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSummary> {
+	const templateScriptRuntime =
+		request.templateScriptRuntime ?? createTemplateScriptRuntime({ cwd: request.repoRoot });
 	const catalog = await loadCommandCatalog(request.repoRoot, {
 		includeLocal: !request.excludeLocal,
 		agentsDir: request.agentsDir,
@@ -1469,7 +1526,12 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 					commandPaths.push({ location: "user", path: resolved });
 				}
 			}
-			const templated = applyTemplatingToCommand(command, target.id, validAgents);
+			const templated = await applyTemplatingToCommand(
+				command,
+				target.id,
+				validAgents,
+				templateScriptRuntime,
+			);
 			const writer = resolveWriter(commandDef.writer, writerRegistry);
 			const converter = resolveConverter(commandDef.converter, converterRegistry);
 			for (const entry of commandPaths) {
@@ -1613,6 +1675,7 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 						outputType: "commands",
 						commandLocation: selected.location,
 						validAgents,
+						templateScriptRuntime,
 					},
 				});
 				const checksum = writeResult.contentHash ?? (await hashOutputPath(selected.outputPath));

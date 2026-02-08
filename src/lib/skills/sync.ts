@@ -38,6 +38,7 @@ import {
 	type WriterRegistry,
 	writeFileOutput,
 } from "../targets/writers.js";
+import { createTemplateScriptRuntime, type TemplateScriptRuntime } from "../template-scripts.js";
 import { loadSkillCatalog, type SkillDefinition } from "./catalog.js";
 
 export type SkillSyncRequest = {
@@ -51,6 +52,7 @@ export type SkillSyncRequest = {
 	removeMissing?: boolean;
 	resolveTargetName?: (value: string) => string | null;
 	hooks?: SyncHooks;
+	templateScriptRuntime?: TemplateScriptRuntime;
 };
 
 function formatDisplayPath(repoRoot: string, absolutePath: string): string {
@@ -83,6 +85,8 @@ type SkillOutputCandidate = {
 };
 
 export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary> {
+	const templateScriptRuntime =
+		request.templateScriptRuntime ?? createTemplateScriptRuntime({ cwd: request.repoRoot });
 	const sourcePath = resolveSharedCategoryRoot(request.repoRoot, "skills", request.agentsDir);
 	const skillTargets = request.targets.filter(
 		(target) => normalizeOutputDefinition(target.outputs.skills) !== null,
@@ -329,6 +333,7 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 					targetId: target.id,
 					outputType: "skills",
 					validAgents: request.validAgents,
+					templateScriptRuntime,
 				},
 			});
 			const checksum = await hashOutputPath(selected.outputPath);

@@ -195,6 +195,35 @@ describe("instruction sync", () => {
 		});
 	});
 
+	it("preserves static instruction text around nodejs blocks", async () => {
+		await withTempRepo(async (root) => {
+			const template = [
+				"---",
+				"outPutPath: docs/AGENTS.md",
+				"---",
+				"Before",
+				"<nodejs>",
+				"return ' inserted ';",
+				"</nodejs>",
+				"After",
+			].join("\n");
+			await writeInstruction(root, path.join("agents", "scripted.AGENTS.md"), template);
+
+			await syncInstructions({
+				repoRoot: root,
+				targets: ["claude"],
+				validAgents: VALID_AGENTS,
+				nonInteractive: true,
+			});
+
+			const output = await readFile(path.join(root, "docs", "CLAUDE.md"), "utf8");
+			expect(output).toContain("Before");
+			expect(output).toContain("inserted");
+			expect(output).toContain("After");
+			expect(output).not.toContain("<nodejs>");
+		});
+	});
+
 	it("writes outputs for nested AGENTS templates with outPutPath", async () => {
 		await withTempRepo(async (root) => {
 			const template = ["---", "outPutPath: docs/team", "---", "Team instructions"].join("\n");
