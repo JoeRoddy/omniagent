@@ -574,6 +574,35 @@ describe.sequential("sync command", () => {
 		});
 	});
 
+	it("evaluates script paths relative to the repository root when run from a subdirectory", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await mkdir(path.join(root, "docs"), { recursive: true });
+			await writeFile(path.join(root, "docs", "alpha.md"), "# alpha", "utf8");
+			await writeScriptedCommand(
+				root,
+				"subdir-cwd",
+				[
+					'const fs = await import("node:fs/promises");',
+					"const entries = await fs.readdir('docs');",
+					"return entries.filter((entry) => entry.endsWith('.md')).sort().join('\\n');",
+				].join("\n"),
+			);
+			const subdir = path.join(root, "nested");
+			await mkdir(subdir, { recursive: true });
+
+			await withCwd(subdir, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			const output = await readFile(
+				path.join(root, ".claude", "commands", "subdir-cwd.md"),
+				"utf8",
+			);
+			expect(output).toContain("alpha.md");
+		});
+	});
+
 	it("renders oa-script blocks for skill and subagent templates", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);

@@ -1292,6 +1292,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				process.exit(1);
 				return;
 			}
+			scriptRuntime.cwd = repoRoot;
 
 			const agentsDirResolution = resolveAgentsDir(repoRoot, argv.agentsDir);
 			if (agentsDirResolution.source === "override") {

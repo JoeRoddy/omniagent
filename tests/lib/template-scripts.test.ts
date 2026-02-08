@@ -213,6 +213,24 @@ describe("template script runtime", () => {
 		}
 	});
 
+	it("completes when scripts emit heavy stdout", async () => {
+		const runtime = createTemplateScriptRuntime();
+		const rendered = await evaluateTemplateScripts({
+			templatePath: "agents/commands/noisy.md",
+			content: [
+				"<oa-script>",
+				"for (let index = 0; index < 200_000; index += 1) {",
+				"  console.log('line-' + index);",
+				"}",
+				"return 'done';",
+				"</oa-script>",
+			].join("\n"),
+			runtime,
+		});
+
+		expect(rendered).toBe("done");
+	}, 15_000);
+
 	it("throws on invalid or nested script markup", async () => {
 		const runtime = createTemplateScriptRuntime();
 		await expect(

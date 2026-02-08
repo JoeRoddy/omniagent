@@ -264,7 +264,8 @@ async function executeScriptBlock(options: {
 			OMNIAGENT_SCRIPT_B64: Buffer.from(block.scriptBody, "utf8").toString("base64"),
 			OMNIAGENT_SCRIPT_SOURCE: blockLabel,
 		},
-		stdio: ["ignore", "pipe", "pipe", "pipe"],
+		// Ignore child stdout to prevent scripts with heavy console output from deadlocking on pipe backpressure.
+		stdio: ["ignore", "ignore", "pipe", "pipe"],
 	});
 
 	let stderr = "";
