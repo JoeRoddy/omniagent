@@ -35,7 +35,7 @@ describe("copilot builtin target", () => {
 		expect(copilotTarget.displayName).toBe("GitHub Copilot CLI");
 	});
 
-	it("routes skills and subagents to .github/skills with conversion fallback", () => {
+	it("routes skills to .github/skills", () => {
 		const skills = expectDefined(
 			normalizeOutputDefinition(copilotTarget.outputs?.skills),
 			"skills",
@@ -48,30 +48,32 @@ describe("copilot builtin target", () => {
 			baseDir: repoRoot,
 		});
 		expect(skillsPath).toBe(path.join(repoRoot, ".github", "skills", itemName));
+	});
 
+	it("writes subagents to project agents directory", () => {
 		const subagents = expectDefined(
 			normalizeOutputDefinition(copilotTarget.outputs?.subagents),
 			"subagents",
 		);
-		expect(subagents.path).toBe("{repoRoot}/.github/skills/{itemName}");
-		expect(subagents.fallback).toEqual({ mode: "convert", targetType: "skills" });
+		expect(subagents.path).toBe("{repoRoot}/.github/agents/{itemName}.agent.md");
+		expect(subagents.fallback).toBeUndefined();
 		const subagentPath = resolveOutputPath({
 			template: subagents.path,
 			context,
 			item: {},
 			baseDir: repoRoot,
 		});
-		expect(subagentPath).toBe(path.join(repoRoot, ".github", "skills", itemName));
+		expect(subagentPath).toBe(path.join(repoRoot, ".github", "agents", `${itemName}.agent.md`));
 	});
 
-	it("maps commands to project skills with conversion fallback", () => {
+	it("maps commands to project agent files", () => {
 		const commands = expectDefined(
 			normalizeCommandOutputDefinition(copilotTarget.outputs?.commands),
 			"commands",
 		);
-		expect(commands.projectPath).toBe("{repoRoot}/.github/skills/{itemName}");
+		expect(commands.projectPath).toBe("{repoRoot}/.github/agents/{itemName}.agent.md");
 		expect(commands.userPath).toBeUndefined();
-		expect(commands.fallback).toEqual({ mode: "convert", targetType: "skills" });
+		expect(commands.fallback).toBeUndefined();
 		const projectPath = expectDefined(commands.projectPath, "commands.projectPath");
 
 		const projectCommandPath = resolveCommandOutputPath({
@@ -80,7 +82,9 @@ describe("copilot builtin target", () => {
 			item: {},
 			baseDir: repoRoot,
 		});
-		expect(projectCommandPath).toBe(path.join(repoRoot, ".github", "skills", itemName));
+		expect(projectCommandPath).toBe(
+			path.join(repoRoot, ".github", "agents", `${itemName}.agent.md`),
+		);
 	});
 
 	it("writes instructions to AGENTS.md in the agents group", () => {

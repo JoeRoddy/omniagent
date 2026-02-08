@@ -641,7 +641,9 @@ describe.sequential("sync command", () => {
 			expect(output).toContain(
 				"Claude Code commands will be written to project and user locations.",
 			);
-			expect(output).toContain("GitHub Copilot CLI commands are configured to convert to skills.");
+			expect(output).not.toContain(
+				"GitHub Copilot CLI commands are configured to convert to skills.",
+			);
 		});
 	});
 
@@ -935,11 +937,13 @@ describe.sequential("sync command", () => {
 			const claudeCommand = path.join(root, ".claude", "commands", "targeted.md");
 			const geminiCommand = path.join(root, ".gemini", "commands", "targeted.toml");
 			const codexCommand = path.join(root, "home", ".codex", "prompts", "targeted.md");
-			const copilotCommand = path.join(root, ".github", "skills", "targeted", "SKILL.md");
+			const copilotCommand = path.join(root, ".github", "agents", "targeted.agent.md");
+			const copilotPrompt = path.join(root, ".github", "prompts", "targeted.prompt.md");
 			expect(await pathExists(claudeCommand)).toBe(true);
 			expect(await pathExists(geminiCommand)).toBe(true);
 			expect(await pathExists(codexCommand)).toBe(false);
 			expect(await pathExists(copilotCommand)).toBe(false);
+			expect(await pathExists(copilotPrompt)).toBe(false);
 
 			const claudeCommandOutput = await readFile(claudeCommand, "utf8");
 			expect(claudeCommandOutput).not.toContain("targets:");
@@ -948,12 +952,15 @@ describe.sequential("sync command", () => {
 			const globalClaude = path.join(root, ".claude", "commands", "global.md");
 			const globalGemini = path.join(root, ".gemini", "commands", "global.toml");
 			const globalCodex = path.join(root, "home", ".codex", "prompts", "global.md");
-			const globalCopilot = path.join(root, ".github", "skills", "global", "SKILL.md");
+			const globalCopilot = path.join(root, ".github", "agents", "global.agent.md");
+			const globalCopilotPrompt = path.join(root, ".github", "prompts", "global.prompt.md");
 
 			expect(await pathExists(globalClaude)).toBe(true);
 			expect(await pathExists(globalGemini)).toBe(true);
 			expect(await pathExists(globalCodex)).toBe(true);
 			expect(await pathExists(globalCopilot)).toBe(true);
+			expect(await pathExists(globalCopilotPrompt)).toBe(true);
+			expect(await readFile(globalCopilotPrompt, "utf8")).toContain('agent: "global"');
 		});
 	});
 });
