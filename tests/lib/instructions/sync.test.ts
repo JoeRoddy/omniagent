@@ -415,6 +415,78 @@ describe("instruction sync", () => {
 		});
 	});
 
+	it("removes omitted target outputs only when they were previously managed", async () => {
+		await withTempRepo(async (root) => {
+			await writeInstruction(root, path.join("docs", "AGENTS.md"), "Repo instructions");
+
+			await syncInstructions({
+				repoRoot: root,
+				targets: ["claude", "gemini"],
+				overrideOnly: ["gemini"],
+				validAgents: VALID_AGENTS,
+				removeMissing: true,
+				nonInteractive: true,
+			});
+
+			expect(await pathExists(path.join(root, "docs", "GEMINI.md"))).toBe(true);
+			await writeInstruction(root, path.join("docs", "CLAUDE.md"), "Unmanaged output");
+
+			await syncInstructions({
+				repoRoot: root,
+				targets: ["codex"],
+				validAgents: VALID_AGENTS,
+				removeMissing: true,
+				nonInteractive: true,
+			});
+
+			expect(await pathExists(path.join(root, "docs", "GEMINI.md"))).toBe(false);
+			const claude = await readFile(path.join(root, "docs", "CLAUDE.md"), "utf8");
+			expect(claude).toBe("Unmanaged output");
+		});
+	});
+
+	it("never removes managed instruction outputs inside agents dir", async () => {
+		await withTempRepo(async (root) => {
+			const template = [
+				"---",
+				"targets: gemini",
+				"outPutPath: agents/skills/clickup-api/actions/create-task-comment",
+				"---",
+				"Generated instructions",
+			].join("\n");
+			await writeInstruction(root, path.join("agents", "create-task-comment.AGENTS.md"), template);
+
+			await syncInstructions({
+				repoRoot: root,
+				targets: ["gemini"],
+				validAgents: VALID_AGENTS,
+				removeMissing: true,
+				nonInteractive: true,
+			});
+
+			const outputPath = path.join(
+				root,
+				"agents",
+				"skills",
+				"clickup-api",
+				"actions",
+				"create-task-comment",
+				"GEMINI.md",
+			);
+			expect(await pathExists(outputPath)).toBe(true);
+
+			await syncInstructions({
+				repoRoot: root,
+				targets: ["codex"],
+				validAgents: VALID_AGENTS,
+				removeMissing: true,
+				nonInteractive: true,
+			});
+
+			expect(await pathExists(outputPath)).toBe(true);
+		});
+	});
+
 	it("shares AGENTS output when codex and copilot are selected", async () => {
 		await withTempRepo(async (root) => {
 			await writeInstruction(root, path.join("agents", "AGENTS.md"), "Template instructions");
