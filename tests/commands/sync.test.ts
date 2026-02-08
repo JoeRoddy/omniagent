@@ -110,9 +110,17 @@ async function writeScriptedCommand(
 	root: string,
 	name: string,
 	scriptBody: string,
+	tag: "nodejs" | "shell" = "nodejs",
 ): Promise<string> {
-	const contents = ["Before", "<nodejs>", scriptBody, "</nodejs>", "After"].join("\n");
+	const contents = ["Before", `<${tag}>`, scriptBody, `</${tag}>`, "After"].join("\n");
 	return writeCanonicalCommand(root, name, contents);
+}
+
+function shellFailureScript(): string {
+	if (process.platform === "win32") {
+		return ["echo boom 1>&2", "exit /b 1"].join("\n");
+	}
+	return ["echo boom >&2", "exit 1"].join("\n");
 }
 
 async function writeSubagent(root: string, name: string, body: string): Promise<string> {
@@ -530,6 +538,26 @@ describe.sequential("sync command", () => {
 		});
 	});
 
+	it("renders shell blocks in synced command outputs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeScriptedCommand(root, "shell-scripted", "echo dynamic-shell-content", "shell");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			const output = await readFile(
+				path.join(root, ".claude", "commands", "shell-scripted.md"),
+				"utf8",
+			);
+			expect(output).toContain("Before");
+			expect(output).toContain("dynamic-shell-content");
+			expect(output).toContain("After");
+			expect(output).not.toContain("<shell>");
+		});
+	});
+
 	it("updates script output when repository content changes between sync runs", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
@@ -748,6 +776,33 @@ describe.sequential("sync command", () => {
 			expect(
 				parsed.scriptExecutions.some((entry: { status: string }) => entry.status === "failed"),
 			).toBe(true);
+		});
+	});
+
+	it("fails before writing managed outputs when a shell template script errors", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeCanonicalCommand(root, "static", "safe command");
+			await writeCanonicalSkillFile(
+				root,
+				"failing-shell-skill",
+				["before", "<shell>", shellFailureScript(), "</shell>", "after"].join("\n"),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--json", "--yes"]);
+			});
+
+			expect(await pathExists(path.join(root, ".claude", "commands", "static.md"))).toBe(false);
+			expect(
+				await pathExists(path.join(root, ".claude", "skills", "failing-shell-skill", "SKILL.md")),
+			).toBe(false);
+
+			const output = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
+			const parsed = JSON.parse(output);
+			expect(parsed.status).toBe("failed");
+			expect(parsed.failedBlockId).toContain("#0");
+			expect(parsed.partialOutputsWritten).toBe(false);
 		});
 	});
 

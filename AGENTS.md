@@ -57,7 +57,7 @@ TypeScript 5.x, Node.js 18+: Enforced by Biome (formatting and linting)
 
 
 <!-- MANUAL ADDITIONS START -->
-- Dynamic template scripts (`<nodejs>`) are a shared sync runtime feature and apply across all
+- Dynamic template scripts (`<nodejs>` and `<shell>`) are a shared sync runtime feature and apply across all
   syncable template surfaces (skills, subagents, slash commands, and instruction templates).
 - Any future syncable surface must integrate with the shared template-script runtime instead of
   introducing surface-specific script execution behavior.

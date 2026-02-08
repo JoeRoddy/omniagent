@@ -266,9 +266,11 @@ Everyone except Claude and Gemini see this.
 </agents>
 ```
 
-### Dynamic template scripts (`<nodejs>`)
+### Dynamic template scripts (`<nodejs>` and `<shell>`)
 
-`sync` can execute inline JavaScript blocks in canonical templates before agent templating/rendering:
+`sync` can execute inline script blocks in canonical templates before agent templating/rendering.
+
+Node.js blocks evaluate JavaScript and inject the returned value:
 
 ```md
 Current docs:
@@ -286,13 +288,27 @@ return pages.map((name) => `- ${name}`).join("\n");
 </nodejs>
 ```
 
+Shell blocks execute in the user's shell and inject stdout:
+
+```md
+Current docs:
+<shell>
+for file in docs/*.md; do
+  [ -f "$file" ] || continue
+  printf -- "- %s\n" "$(basename "$file")"
+done | sort
+</shell>
+```
+
 Behavior:
 
 - Scripts run once per template per sync run and cached results are reused across targets.
-- Each script block runs in an isolated Node subprocess (no shared in-memory state).
-- Script blocks can use `require`, `__dirname`, and `__filename`.
-- Return values are normalized as: string unchanged, object/array JSON text, other values via
+- Each script block runs in an isolated process (Node subprocess for `<nodejs>`, shell process for `<shell>`).
+- `<nodejs>` blocks can use `require`, `__dirname`, and `__filename`.
+- `<shell>` blocks run with the user's shell (`$SHELL` on Unix, `cmd.exe` on Windows fallback).
+- `<nodejs>` return values are normalized as: string unchanged, object/array JSON text, other values via
   `String(value)`, `null`/`undefined` as empty output.
+- `<shell>` blocks render raw stdout.
 - Static template text around script blocks is preserved.
 - Script failures stop sync before managed writes are applied.
 - Long-running scripts emit periodic `still running` warnings every 30 seconds.

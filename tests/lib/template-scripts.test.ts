@@ -9,6 +9,17 @@ import {
 	TemplateScriptExecutionError,
 } from "../../src/lib/template-scripts.js";
 
+function shellEchoScript(value: string): string {
+	return `echo ${value}`;
+}
+
+function shellFailureScript(): string {
+	if (process.platform === "win32") {
+		return ["echo boom 1>&2", "exit /b 1"].join("\n");
+	}
+	return ["echo boom >&2", "exit 1"].join("\n");
+}
+
 describe("template script runtime", () => {
 	it("evaluates script blocks in source order", async () => {
 		const runtime = createTemplateScriptRuntime();
@@ -51,6 +62,48 @@ describe("template script runtime", () => {
 
 		const executions = listTemplateScriptExecutions(runtime);
 		expect(executions.map((entry) => entry.resultKind)).toEqual(["json", "coerced", "empty"]);
+	});
+
+	it("evaluates shell blocks in source order", async () => {
+		const runtime = createTemplateScriptRuntime();
+		const rendered = await evaluateTemplateScripts({
+			templatePath: "agents/commands/shell.md",
+			content: [
+				"Start",
+				`<shell>${shellEchoScript("one")}</shell>`,
+				"Middle",
+				`<shell>${shellEchoScript("two")}</shell>`,
+				"End",
+			].join("\n"),
+			runtime,
+		});
+
+		expect(rendered).toContain("Start");
+		expect(rendered).toContain("one");
+		expect(rendered).toContain("Middle");
+		expect(rendered).toContain("two");
+		expect(rendered).toContain("End");
+		expect(rendered).not.toContain("<shell>");
+
+		const executions = listTemplateScriptExecutions(runtime);
+		expect(executions).toHaveLength(2);
+		expect(executions[0]?.resultKind).toBe("string");
+		expect(executions[1]?.resultKind).toBe("string");
+	});
+
+	it("supports mixed nodejs and shell blocks", async () => {
+		const runtime = createTemplateScriptRuntime();
+		const rendered = await evaluateTemplateScripts({
+			templatePath: "agents/commands/mixed.md",
+			content: [
+				"<nodejs>return 'nodejs-value';</nodejs>",
+				`<shell>${shellEchoScript("shell-value")}</shell>`,
+			].join("\n"),
+			runtime,
+		});
+
+		expect(rendered).toContain("nodejs-value");
+		expect(rendered).toContain("shell-value");
 	});
 
 	it("uses repo state and reuses cached results across evaluations", async () => {
@@ -239,6 +292,17 @@ describe("template script runtime", () => {
 			evaluateTemplateScripts({
 				templatePath: "agents/commands/bad.md",
 				content: "<nodejs>return 'x';<nodejs>return 'y';</nodejs>",
+				runtime,
+			}),
+		).rejects.toBeInstanceOf(TemplateScriptExecutionError);
+	});
+
+	it("surfaces shell script failures", async () => {
+		const runtime = createTemplateScriptRuntime();
+		await expect(
+			evaluateTemplateScripts({
+				templatePath: "agents/commands/failing-shell.md",
+				content: `<shell>${shellFailureScript()}</shell>`,
 				runtime,
 			}),
 		).rejects.toBeInstanceOf(TemplateScriptExecutionError);
