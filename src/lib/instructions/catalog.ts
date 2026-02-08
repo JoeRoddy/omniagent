@@ -125,33 +125,6 @@ function isRootTemplate(filePath: string, repoRoot: string, agentsDir?: string |
 	return strippedBase.toLowerCase() === "agents";
 }
 
-const SUPPORTED_TEMPLATE_DIRS = new Set(["skills", "commands", "agents"]);
-
-function isSupportedNestedTemplateDir(
-	filePath: string,
-	repoRoot: string,
-	agentsDir?: string | null,
-): boolean {
-	const sharedRoot = resolveAgentsDirPath(repoRoot, agentsDir);
-	const relative = path.relative(sharedRoot, filePath);
-	if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
-		return false;
-	}
-
-	const segments = relative.split(path.sep);
-	if (segments.length <= 1) {
-		return false;
-	}
-
-	const first = segments[0]?.toLowerCase();
-	const category = first === ".local" ? segments[1]?.toLowerCase() : first;
-	if (!category) {
-		return false;
-	}
-
-	return SUPPORTED_TEMPLATE_DIRS.has(category);
-}
-
 export async function loadInstructionTemplateCatalog(options: {
 	repoRoot: string;
 	includeLocal?: boolean;
@@ -175,13 +148,7 @@ export async function loadInstructionTemplateCatalog(options: {
 		});
 
 		const rootTemplate = isRootTemplate(entry.sourcePath, options.repoRoot, options.agentsDir);
-		const useSourceDir =
-			!parsed.resolvedOutputDir &&
-			!rootTemplate &&
-			isSupportedNestedTemplateDir(entry.sourcePath, options.repoRoot, options.agentsDir);
-		const resolvedOutputDir =
-			parsed.resolvedOutputDir ??
-			(rootTemplate ? options.repoRoot : useSourceDir ? path.dirname(entry.sourcePath) : null);
+		const resolvedOutputDir = parsed.resolvedOutputDir ?? (rootTemplate ? options.repoRoot : null);
 
 		templates.push({
 			kind: "template",

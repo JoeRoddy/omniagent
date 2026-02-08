@@ -62,22 +62,20 @@ describe("instruction template catalog", () => {
 		});
 	});
 
-	it("uses source directory for supported nested templates missing outPutPath", async () => {
+	it("marks nested templates missing outPutPath", async () => {
 		await withTempRepo(async (root) => {
-			const supportedPath = await writeTemplate(
+			const nestedPath = await writeTemplate(
 				root,
 				path.join("agents", "skills", "helper", "AGENTS.md"),
 				"Skill instructions",
 			);
 
 			const catalog = await loadInstructionTemplateCatalog({ repoRoot: root });
-			const supportedTemplate = catalog.templates.find(
-				(template) => template.sourcePath === supportedPath,
+			const nestedTemplate = catalog.templates.find(
+				(template) => template.sourcePath === nestedPath,
 			);
 
-			expect(supportedTemplate?.resolvedOutputDir).toBe(
-				path.join(root, "agents", "skills", "helper"),
-			);
+			expect(nestedTemplate?.resolvedOutputDir).toBeNull();
 		});
 	});
 

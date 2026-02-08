@@ -212,7 +212,7 @@ describe("instruction sync", () => {
 		});
 	});
 
-	it("does not warn for supported nested templates missing outPutPath", async () => {
+	it("warns and skips nested templates missing outPutPath", async () => {
 		await withTempRepo(async (root) => {
 			await writeInstruction(
 				root,
@@ -227,14 +227,12 @@ describe("instruction sync", () => {
 				nonInteractive: true,
 			});
 
-			expect(summary.warnings.some((warning) => warning.includes("missing outPutPath"))).toBe(
-				false,
-			);
+			expect(summary.warnings.some((warning) => warning.includes("missing outPutPath"))).toBe(true);
 			expect(
 				await pathExists(
 					path.join(root, "agents", "skills", "clickup-api", "actions", "create-task", "CLAUDE.md"),
 				),
-			).toBe(true);
+			).toBe(false);
 		});
 	});
 
