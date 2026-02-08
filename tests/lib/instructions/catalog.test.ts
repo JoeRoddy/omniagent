@@ -62,12 +62,19 @@ describe("instruction template catalog", () => {
 		});
 	});
 
-	it("marks nested templates missing outPutPath", async () => {
+	it("ignores templates in reserved managed source directories", async () => {
 		await withTempRepo(async (root) => {
 			const nestedPath = await writeTemplate(
 				root,
 				path.join("agents", "skills", "helper", "AGENTS.md"),
 				"Skill instructions",
+			);
+			await writeTemplate(root, path.join("agents", "commands", "foo", "AGENTS.md"), "Command");
+			await writeTemplate(root, path.join("agents", "agents", "bar", "AGENTS.md"), "Subagent");
+			await writeTemplate(
+				root,
+				path.join("agents", "instructions", "baz", "AGENTS.md"),
+				"Instructions",
 			);
 
 			const catalog = await loadInstructionTemplateCatalog({ repoRoot: root });
@@ -75,7 +82,22 @@ describe("instruction template catalog", () => {
 				(template) => template.sourcePath === nestedPath,
 			);
 
-			expect(nestedTemplate?.resolvedOutputDir).toBeNull();
+			expect(nestedTemplate).toBeUndefined();
+			expect(
+				catalog.templates.some((template) =>
+					template.sourcePath.includes(`${path.sep}commands${path.sep}`),
+				),
+			).toBe(false);
+			expect(
+				catalog.templates.some((template) =>
+					template.sourcePath.includes(`${path.sep}agents${path.sep}bar${path.sep}`),
+				),
+			).toBe(false);
+			expect(
+				catalog.templates.some((template) =>
+					template.sourcePath.includes(`${path.sep}instructions${path.sep}`),
+				),
+			).toBe(false);
 		});
 	});
 

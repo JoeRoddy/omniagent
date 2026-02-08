@@ -241,7 +241,7 @@ describe("instruction sync", () => {
 		});
 	});
 
-	it("warns and skips nested templates missing outPutPath", async () => {
+	it("ignores templates in reserved managed source directories", async () => {
 		await withTempRepo(async (root) => {
 			await writeInstruction(
 				root,
@@ -256,7 +256,9 @@ describe("instruction sync", () => {
 				nonInteractive: true,
 			});
 
-			expect(summary.warnings.some((warning) => warning.includes("missing outPutPath"))).toBe(true);
+			expect(summary.warnings.some((warning) => warning.includes("missing outPutPath"))).toBe(
+				false,
+			);
 			expect(
 				await pathExists(
 					path.join(root, "agents", "skills", "clickup-api", "actions", "create-task", "CLAUDE.md"),

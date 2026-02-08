@@ -75,6 +75,7 @@ import { normalizeCommandOutputDefinition } from "../../lib/targets/output-resol
 import {
 	createTemplateScriptRuntime,
 	evaluateTemplateScripts,
+	hasTemplateScriptMarkup,
 	listTemplateScriptExecutions,
 	TemplateScriptExecutionError,
 	type TemplateScriptRuntime,
@@ -304,7 +305,7 @@ type ScriptPreflightOptions = {
 };
 
 function hasTemplateScripts(content: string): boolean {
-	return content.includes("<nodejs>");
+	return hasTemplateScriptMarkup(content);
 }
 
 function addTemplateScriptSource(

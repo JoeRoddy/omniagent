@@ -27,6 +27,8 @@ export type InstructionTemplateCatalog = {
 	templates: InstructionTemplateSource[];
 };
 
+const RESERVED_MANAGED_SOURCE_DIRS = new Set(["skills", "commands", "agents", "instructions"]);
+
 function isTemplateFile(fileName: string): boolean {
 	if (!fileName.toLowerCase().endsWith(".md")) {
 		return false;
@@ -59,6 +61,24 @@ async function listTemplateFiles(root: string): Promise<string[]> {
 	return files;
 }
 
+function isInReservedManagedSourceDir(
+	filePath: string,
+	repoRoot: string,
+	agentsDir?: string | null,
+): boolean {
+	const templatesRoot = resolveAgentsDirPath(repoRoot, agentsDir);
+	const relative = path.relative(templatesRoot, filePath);
+	if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+		return false;
+	}
+	const segments = relative.split(path.sep).filter(Boolean);
+	if (segments.length < 2) {
+		return false;
+	}
+	const first = segments[0] === ".local" ? segments[1] : segments[0];
+	return first ? RESERVED_MANAGED_SOURCE_DIRS.has(first) : false;
+}
+
 export async function scanInstructionTemplateSources(options: {
 	repoRoot: string;
 	includeLocal?: boolean;
@@ -76,6 +96,9 @@ export async function scanInstructionTemplateSources(options: {
 
 	const entries: InstructionTemplateScanEntry[] = [];
 	for (const filePath of templateFiles) {
+		if (isInReservedManagedSourceDir(filePath, options.repoRoot, options.agentsDir)) {
+			continue;
+		}
 		const markerType = detectLocalMarker(filePath);
 		const sourceType: SourceType = markerType ? "local" : "shared";
 		if (!includeLocal && sourceType === "local") {

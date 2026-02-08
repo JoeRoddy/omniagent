@@ -2,10 +2,14 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { RunWarning, ScriptExecution, ScriptResultKind } from "./sync-results.js";
 
-const SCRIPT_OPEN_TAG = "<nodejs>";
-const SCRIPT_CLOSE_TAG = "</nodejs>";
+const SCRIPT_TAG_DEFINITIONS = [
+	{ kind: "nodejs", openTag: "<nodejs>", closeTag: "</nodejs>" },
+	{ kind: "shell", openTag: "<shell>", closeTag: "</shell>" },
+] as const;
 const SCRIPT_HEARTBEAT_INTERVAL_MS = 30_000;
 const PREVIEW_LIMIT = 200;
+const WINDOWS_DEFAULT_SHELL = "cmd.exe";
+const POSIX_DEFAULT_SHELL = "/bin/sh";
 
 const RUNNER_SOURCE = String.raw`
 import path from "node:path";
@@ -92,10 +96,20 @@ type RunnerSuccess = { ok: true; payload: RunnerPayload };
 type RunnerFailure = { ok: false; error: string };
 type RunnerResponse = RunnerSuccess | RunnerFailure;
 
+type ScriptTagDefinition = (typeof SCRIPT_TAG_DEFINITIONS)[number];
+type ScriptEvaluator = ScriptTagDefinition["kind"];
+
+type ScriptToken = {
+	index: number;
+	kind: "open" | "close";
+	definition: ScriptTagDefinition;
+};
+
 export type DynamicScriptBlock = {
 	blockId: string;
 	templatePath: string;
 	index: number;
+	evaluator: ScriptEvaluator;
 	scriptBody: string;
 	startOffset: number;
 	endOffset: number;
@@ -154,7 +168,7 @@ export class TemplateScriptExecutionError extends Error {
 
 function formatParseError(templatePath: string, message: string): TemplateScriptExecutionError {
 	return new TemplateScriptExecutionError(
-		`Invalid <nodejs> markup in ${templatePath}: ${message}`,
+		`Invalid template script markup in ${templatePath}: ${message}`,
 		{ templatePath },
 	);
 }
@@ -178,6 +192,43 @@ function emitVerbose(runtime: TemplateScriptRuntime, message: string): void {
 		return;
 	}
 	runtime.onVerbose?.(message);
+}
+
+export function hasTemplateScriptMarkup(content: string): boolean {
+	return SCRIPT_TAG_DEFINITIONS.some((definition) => content.includes(definition.openTag));
+}
+
+function findNextScriptToken(content: string, cursor: number): ScriptToken | null {
+	let nextToken: ScriptToken | null = null;
+	for (const definition of SCRIPT_TAG_DEFINITIONS) {
+		const openIndex = content.indexOf(definition.openTag, cursor);
+		if (openIndex !== -1 && (!nextToken || openIndex < nextToken.index)) {
+			nextToken = {
+				index: openIndex,
+				kind: "open",
+				definition,
+			};
+		}
+
+		const closeIndex = content.indexOf(definition.closeTag, cursor);
+		if (closeIndex !== -1 && (!nextToken || closeIndex < nextToken.index)) {
+			nextToken = {
+				index: closeIndex,
+				kind: "close",
+				definition,
+			};
+		}
+	}
+	return nextToken;
+}
+
+function resolveShellInvocation(): { command: string; args: string[] } {
+	if (process.platform === "win32") {
+		const command = process.env.ComSpec?.trim() || WINDOWS_DEFAULT_SHELL;
+		return { command, args: ["/d", "/s", "/c"] };
+	}
+	const command = process.env.SHELL?.trim() || POSIX_DEFAULT_SHELL;
+	return { command, args: ["-c"] };
 }
 
 function normalizeScriptResult(payload: RunnerPayload): {
@@ -221,57 +272,58 @@ function parseTemplateScripts(templatePath: string, content: string): ParsedTemp
 	let index = 0;
 
 	while (cursor < content.length) {
-		const nextOpen = content.indexOf(SCRIPT_OPEN_TAG, cursor);
-		const nextClose = content.indexOf(SCRIPT_CLOSE_TAG, cursor);
-
-		if (nextClose !== -1 && (nextOpen === -1 || nextClose < nextOpen)) {
-			throw formatParseError(templatePath, "closing </nodejs> appears before an opening tag");
-		}
-		if (nextOpen === -1) {
+		const nextToken = findNextScriptToken(content, cursor);
+		if (!nextToken) {
 			break;
 		}
+		if (nextToken.kind === "close") {
+			throw formatParseError(
+				templatePath,
+				`closing ${nextToken.definition.closeTag} appears before an opening tag`,
+			);
+		}
 
-		const scriptStart = nextOpen + SCRIPT_OPEN_TAG.length;
-		const closeIndex = content.indexOf(SCRIPT_CLOSE_TAG, scriptStart);
+		const { definition } = nextToken;
+		const scriptStart = nextToken.index + definition.openTag.length;
+		const closeIndex = content.indexOf(definition.closeTag, scriptStart);
 		if (closeIndex === -1) {
-			throw formatParseError(templatePath, "missing closing </nodejs> tag");
+			throw formatParseError(templatePath, `missing closing ${definition.closeTag} tag`);
 		}
 
 		const scriptBody = content.slice(scriptStart, closeIndex);
-		if (scriptBody.includes(SCRIPT_OPEN_TAG)) {
-			throw formatParseError(templatePath, "nested <nodejs> blocks are not supported");
+		if (hasTemplateScriptMarkup(scriptBody)) {
+			throw formatParseError(templatePath, "nested template script blocks are not supported");
 		}
 
 		blocks.push({
 			blockId: `${templatePath}#${index}`,
 			templatePath,
 			index,
+			evaluator: definition.kind,
 			scriptBody,
-			startOffset: nextOpen,
-			endOffset: closeIndex + SCRIPT_CLOSE_TAG.length,
+			startOffset: nextToken.index,
+			endOffset: closeIndex + definition.closeTag.length,
 		});
 		index += 1;
-		cursor = closeIndex + SCRIPT_CLOSE_TAG.length;
+		cursor = closeIndex + definition.closeTag.length;
 	}
 
 	return { blocks };
 }
 
-async function executeScriptBlock(options: {
+async function executeNodeJsScriptBlock(options: {
 	block: DynamicScriptBlock;
 	runtime: TemplateScriptRuntime;
-}): Promise<{ renderedText: string; resultKind: ScriptResultKind; durationMs: number }> {
+	blockLabel: string;
+}): Promise<{ renderedText: string; resultKind: ScriptResultKind }> {
 	const { block, runtime } = options;
-	const startTime = Date.now();
-	const blockLabel = `${block.templatePath}#${block.index}`;
-	emitVerbose(runtime, `Evaluating template script ${blockLabel}.`);
 
 	const child = spawn(process.execPath, ["--input-type=module", "--eval", RUNNER_SOURCE], {
 		cwd: runtime.cwd,
 		env: {
 			...process.env,
 			OMNIAGENT_SCRIPT_B64: Buffer.from(block.scriptBody, "utf8").toString("base64"),
-			OMNIAGENT_SCRIPT_SOURCE: blockLabel,
+			OMNIAGENT_SCRIPT_SOURCE: options.blockLabel,
 			OMNIAGENT_SCRIPT_TEMPLATE_PATH: block.templatePath,
 		},
 		// Ignore child stdout to prevent scripts with heavy console output from deadlocking on pipe backpressure.
@@ -296,29 +348,10 @@ async function executeScriptBlock(options: {
 		});
 	}
 
-	let warningTimer: NodeJS.Timeout | null = null;
-	if (runtime.heartbeatIntervalMs > 0) {
-		warningTimer = setInterval(() => {
-			appendWarning(
-				runtime,
-				createStillRunningWarning({
-					templatePath: block.templatePath,
-					blockId: block.blockId,
-				}),
-			);
-		}, runtime.heartbeatIntervalMs);
-		warningTimer.unref();
-	}
-
 	const exitCode = await new Promise<number>((resolve, reject) => {
 		child.once("error", reject);
 		child.once("exit", (code) => resolve(code ?? 1));
 	});
-	if (warningTimer) {
-		clearInterval(warningTimer);
-	}
-
-	const durationMs = Date.now() - startTime;
 	const parsed = responseRaw.trim();
 	let response: RunnerResponse | null = null;
 	if (parsed.length > 0) {
@@ -348,8 +381,97 @@ async function executeScriptBlock(options: {
 	}
 
 	const normalized = normalizeScriptResult(response.payload);
-	emitVerbose(runtime, `Finished template script ${blockLabel} in ${durationMs}ms.`);
-	return { ...normalized, durationMs };
+	return normalized;
+}
+
+async function executeShellScriptBlock(options: {
+	block: DynamicScriptBlock;
+	runtime: TemplateScriptRuntime;
+}): Promise<{ renderedText: string; resultKind: ScriptResultKind }> {
+	const { block, runtime } = options;
+	const shell = resolveShellInvocation();
+	const child = spawn(shell.command, [...shell.args, block.scriptBody], {
+		cwd: runtime.cwd,
+		env: {
+			...process.env,
+		},
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+
+	let stdout = "";
+	let stderr = "";
+	const stdoutPipe = child.stdout;
+	if (stdoutPipe) {
+		stdoutPipe.setEncoding("utf8");
+		stdoutPipe.on("data", (chunk: string) => {
+			stdout += chunk;
+		});
+	}
+	const stderrPipe = child.stderr;
+	if (stderrPipe) {
+		stderrPipe.setEncoding("utf8");
+		stderrPipe.on("data", (chunk: string) => {
+			stderr += chunk;
+		});
+	}
+
+	const exitCode = await new Promise<number>((resolve, reject) => {
+		child.once("error", reject);
+		child.once("exit", (code) => resolve(code ?? 1));
+	});
+	if (exitCode !== 0) {
+		const message = stderr.trim() || `Script process exited with code ${exitCode}.`;
+		throw new TemplateScriptExecutionError(
+			`Template script failed in ${block.templatePath} (${block.blockId}): ${message}`,
+			{ templatePath: block.templatePath, blockId: block.blockId },
+		);
+	}
+
+	return {
+		renderedText: stdout,
+		resultKind: stdout.length > 0 ? "string" : "empty",
+	};
+}
+
+async function executeScriptBlock(options: {
+	block: DynamicScriptBlock;
+	runtime: TemplateScriptRuntime;
+}): Promise<{ renderedText: string; resultKind: ScriptResultKind; durationMs: number }> {
+	const { block, runtime } = options;
+	const startTime = Date.now();
+	const blockLabel = `${block.templatePath}#${block.index}`;
+	emitVerbose(runtime, `Evaluating template script ${blockLabel} (${block.evaluator}).`);
+
+	let warningTimer: NodeJS.Timeout | null = null;
+	if (runtime.heartbeatIntervalMs > 0) {
+		warningTimer = setInterval(() => {
+			appendWarning(
+				runtime,
+				createStillRunningWarning({
+					templatePath: block.templatePath,
+					blockId: block.blockId,
+				}),
+			);
+		}, runtime.heartbeatIntervalMs);
+		warningTimer.unref();
+	}
+
+	try {
+		const executed =
+			block.evaluator === "shell"
+				? await executeShellScriptBlock({ block, runtime })
+				: await executeNodeJsScriptBlock({ block, runtime, blockLabel });
+		const durationMs = Date.now() - startTime;
+		emitVerbose(
+			runtime,
+			`Finished template script ${blockLabel} (${block.evaluator}) in ${durationMs}ms.`,
+		);
+		return { ...executed, durationMs };
+	} finally {
+		if (warningTimer) {
+			clearInterval(warningTimer);
+		}
+	}
 }
 
 async function evaluateTemplateScriptsUncached(request: EvaluateTemplateScriptsRequest) {

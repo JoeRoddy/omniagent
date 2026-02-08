@@ -25,7 +25,8 @@ describe("README", () => {
 		const readme = await readFile(README_PATH, "utf8");
 		const quickstart = await readFile(QUICKSTART_PATH, "utf8");
 
-		expect(readme).toContain("Dynamic template scripts (`<nodejs>`)");
+		expect(readme).toContain("Dynamic template scripts (`<nodejs>` and `<shell>`)");
+		expect(readme).toContain("<shell>");
 		expect(readme).toContain("sync --verbose");
 		expect(quickstart).toContain("Current docs pages:");
 		expect(quickstart).toContain('const docsDir = path.join(process.cwd(), "docs")');
