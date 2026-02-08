@@ -38,6 +38,11 @@ import {
 	type WriterRegistry,
 	writeFileOutput,
 } from "../targets/writers.js";
+import {
+	createTemplateScriptRuntime,
+	evaluateTemplateScripts,
+	type TemplateScriptRuntime,
+} from "../template-scripts.js";
 import { loadInstructionTemplateCatalog } from "./catalog.js";
 import { type InstructionManifestEntry, readManifest, writeManifest } from "./manifest.js";
 import { resolveInstructionOutputPath } from "./paths.js";
@@ -67,6 +72,7 @@ export type InstructionSyncRequest = {
 	validAgents: string[];
 	resolveTargetName?: (value: string) => string | null;
 	hooks?: SyncHooks;
+	templateScriptRuntime?: TemplateScriptRuntime;
 	confirmRemoval?: (options: {
 		outputPath: string;
 		sourcePath: string;
@@ -294,6 +300,8 @@ function normalizeInstructionTargets(
 export async function syncInstructions(
 	request: InstructionSyncRequest,
 ): Promise<InstructionSyncSummary> {
+	const templateScriptRuntime =
+		request.templateScriptRuntime ?? createTemplateScriptRuntime({ cwd: request.repoRoot });
 	const targets = normalizeInstructionTargets(request.targets);
 	const includeLocal = !(request.excludeLocal ?? false);
 	const summarySourcePath = request.repoRoot;
@@ -413,8 +421,15 @@ export async function syncInstructions(
 			});
 			const outputPath = resolveInstructionOutputPath(resolvedOutputDir, filename);
 			const key = buildOutputKey(outputPath, selection.group);
+			const withScripts = templateScriptRuntime
+				? await evaluateTemplateScripts({
+						templatePath: template.sourcePath,
+						content: template.body,
+						runtime: templateScriptRuntime,
+					})
+				: template.body;
 			const content = applyAgentTemplating({
-				content: template.body,
+				content: withScripts,
 				target: targetName,
 				validAgents: request.validAgents,
 				sourcePath: template.sourcePath,
@@ -688,6 +703,7 @@ export async function syncInstructions(
 					targetId: candidate.targetName,
 					outputType: "instructions",
 					validAgents: request.validAgents,
+					templateScriptRuntime,
 				},
 			});
 			recordCount(groupResult.counts, writeResult.status);

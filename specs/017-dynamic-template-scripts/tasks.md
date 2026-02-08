@@ -22,9 +22,9 @@ description: "Task list for Dynamic Template Scripts"
 
 **Purpose**: Establish module and test scaffolding for dynamic script execution
 
-- [ ] T001 Create dynamic script runtime module scaffold in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
-- [ ] T002 [P] Create template script unit test scaffold in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/lib/template-scripts.test.ts`
-- [ ] T003 [P] Add sync command argument scaffolding for `--verbose` script telemetry mode in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
+- [X] T001 Create dynamic script runtime module scaffold in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
+- [X] T002 [P] Create template script unit test scaffold in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/lib/template-scripts.test.ts`
+- [X] T003 [P] Add sync command argument scaffolding for `--verbose` script telemetry mode in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
 
 ---
 
@@ -34,11 +34,11 @@ description: "Task list for Dynamic Template Scripts"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Implement `<oa-script>` parsing, block indexing, and validation rules in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
-- [ ] T005 Implement isolated Node subprocess execution and return-value normalization helpers in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
-- [ ] T006 Implement per-sync-run template script cache and evaluation orchestration in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
-- [ ] T007 Add sync-run script metadata types (`runId`, `scriptExecutions`, `warnings`, `partialOutputsWritten`) in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/sync-results.ts`
-- [ ] T008 Wire script runtime context propagation through sync entry points in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/skills/sync.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/slash-commands/sync.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/subagents/sync.ts`, and `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/instructions/sync.ts`
+- [X] T004 Implement `<oa-script>` parsing, block indexing, and validation rules in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
+- [X] T005 Implement isolated Node subprocess execution and return-value normalization helpers in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
+- [X] T006 Implement per-sync-run template script cache and evaluation orchestration in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
+- [X] T007 Add sync-run script metadata types (`runId`, `scriptExecutions`, `warnings`, `partialOutputsWritten`) in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/sync-results.ts`
+- [X] T008 Wire script runtime context propagation through sync entry points in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/skills/sync.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/slash-commands/sync.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/subagents/sync.ts`, and `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/instructions/sync.ts`
 
 **Checkpoint**: Foundation ready - dynamic script runtime can be consumed by feature flows
 
@@ -52,15 +52,15 @@ description: "Task list for Dynamic Template Scripts"
 
 ### Tests for User Story 1
 
-- [ ] T009 [P] [US1] Add unit tests for successful script evaluation, block ordering, and repo-state-sensitive output in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/lib/template-scripts.test.ts`
-- [ ] T010 [US1] Add sync integration test verifying `<oa-script>` content replaces script markup in generated outputs in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/sync.test.ts`
+- [X] T009 [P] [US1] Add unit tests for successful script evaluation, block ordering, and repo-state-sensitive output in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/lib/template-scripts.test.ts`
+- [X] T010 [US1] Add sync integration test verifying `<oa-script>` content replaces script markup in generated outputs in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/sync.test.ts`
 
 ### Implementation for User Story 1
 
-- [ ] T011 [P] [US1] Evaluate dynamic script blocks before slash-command templating/rendering in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/slash-commands/sync.ts`
-- [ ] T012 [P] [US1] Evaluate dynamic script blocks before instruction template rendering in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/instructions/sync.ts`
-- [ ] T013 [P] [US1] Evaluate dynamic script blocks during skill writer processing in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/writers.ts`
-- [ ] T014 [US1] Evaluate dynamic script blocks before subagent frontmatter stripping in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/subagents/sync.ts`
+- [X] T011 [P] [US1] Evaluate dynamic script blocks before slash-command templating/rendering in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/slash-commands/sync.ts`
+- [X] T012 [P] [US1] Evaluate dynamic script blocks before instruction template rendering in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/instructions/sync.ts`
+- [X] T013 [P] [US1] Evaluate dynamic script blocks during skill writer processing in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/writers.ts`
+- [X] T014 [US1] Evaluate dynamic script blocks before subagent frontmatter stripping in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/subagents/sync.ts`
 
 **Checkpoint**: User Story 1 is fully functional and independently testable
 
@@ -74,16 +74,16 @@ description: "Task list for Dynamic Template Scripts"
 
 ### Tests for User Story 2
 
-- [ ] T015 [P] [US2] Add regression tests for unchanged output when no `<oa-script>` blocks are present in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/lib/slash-commands/sync.test.ts`
-- [ ] T016 [P] [US2] Add regression tests for static text preservation around script blocks in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/lib/instructions/sync.test.ts`
-- [ ] T017 [US2] Add integration test proving once-per-template execution and cross-target result reuse in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/sync.test.ts`
-- [ ] T018 [US2] Add integration test proving renderer output is authoritative when scripts side-effect managed outputs in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/sync.test.ts`
+- [X] T015 [P] [US2] Add regression tests for unchanged output when no `<oa-script>` blocks are present in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/lib/slash-commands/sync.test.ts`
+- [X] T016 [P] [US2] Add regression tests for static text preservation around script blocks in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/lib/instructions/sync.test.ts`
+- [X] T017 [US2] Add integration test proving once-per-template execution and cross-target result reuse in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/sync.test.ts`
+- [X] T018 [US2] Add integration test proving renderer output is authoritative when scripts side-effect managed outputs in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/sync.test.ts`
 
 ### Implementation for User Story 2
 
-- [ ] T019 [US2] Reuse cached script results across target renders for command and instruction templates in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/slash-commands/sync.ts` and `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/instructions/sync.ts`
-- [ ] T020 [US2] Reuse cached script results across skill and subagent sync flows in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/writers.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/skills/sync.ts`, and `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/subagents/sync.ts`
-- [ ] T021 [US2] Enforce rendering contract for script return types (string/json/coerced/empty omission) in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
+- [X] T019 [US2] Reuse cached script results across target renders for command and instruction templates in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/slash-commands/sync.ts` and `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/instructions/sync.ts`
+- [X] T020 [US2] Reuse cached script results across skill and subagent sync flows in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/targets/writers.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/skills/sync.ts`, and `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/subagents/sync.ts`
+- [X] T021 [US2] Enforce rendering contract for script return types (string/json/coerced/empty omission) in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
 
 **Checkpoint**: User Stories 1 and 2 are independently functional with backward compatibility
 
@@ -97,17 +97,17 @@ description: "Task list for Dynamic Template Scripts"
 
 ### Tests for User Story 3
 
-- [ ] T022 [US3] Add integration tests for first-error abort and zero partial sync-managed writes in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/sync.test.ts`
-- [ ] T023 [P] [US3] Add runtime tests for long-running script heartbeat warnings and no-timeout execution in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/lib/template-scripts.test.ts`
-- [ ] T024 [US3] Add JSON summary contract assertions (`failedTemplatePath`, `failedBlockId`, warnings, status) in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/sync.test.ts`
+- [X] T022 [US3] Add integration tests for first-error abort and zero partial sync-managed writes in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/sync.test.ts`
+- [X] T023 [P] [US3] Add runtime tests for long-running script heartbeat warnings and no-timeout execution in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/lib/template-scripts.test.ts`
+- [X] T024 [US3] Add JSON summary contract assertions (`failedTemplatePath`, `failedBlockId`, warnings, status) in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/tests/commands/sync.test.ts`
 
 ### Implementation for User Story 3
 
-- [ ] T025 [US3] Propagate structured script failures (template path + block identity) through sync reporting in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts` and `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
-- [ ] T026 [US3] Stage script evaluation before sync-managed writes in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/skills/sync.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/slash-commands/sync.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/subagents/sync.ts`, and `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/instructions/sync.ts`
-- [ ] T027 [US3] Emit periodic `still running` warnings every 30 seconds without execution timeouts in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
-- [ ] T028 [US3] Gate routine per-script telemetry behind `sync --verbose` and keep default output quiet in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts` and `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
-- [ ] T029 [US3] Execute every script block in an isolated Node subprocess with no shared in-memory state in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
+- [X] T025 [US3] Propagate structured script failures (template path + block identity) through sync reporting in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts` and `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts`
+- [X] T026 [US3] Stage script evaluation before sync-managed writes in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/skills/sync.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/slash-commands/sync.ts`, `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/subagents/sync.ts`, and `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/instructions/sync.ts`
+- [X] T027 [US3] Emit periodic `still running` warnings every 30 seconds without execution timeouts in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
+- [X] T028 [US3] Gate routine per-script telemetry behind `sync --verbose` and keep default output quiet in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/cli/commands/sync.ts` and `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
+- [X] T029 [US3] Execute every script block in an isolated Node subprocess with no shared in-memory state in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/src/lib/template-scripts.ts`
 
 **Checkpoint**: All user stories are independently functional with safety and telemetry requirements met
 
@@ -117,10 +117,10 @@ description: "Task list for Dynamic Template Scripts"
 
 **Purpose**: Documentation and final cross-feature alignment
 
-- [ ] T030 [P] Document `<oa-script>` authoring, return handling, side-effect expectations, and verbose telemetry in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/README.md`
-- [ ] T031 [P] Add maintainer guidance that dynamic scripts apply to all current/future syncable surfaces in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/AGENTS.md`
-- [ ] T032 [P] Align end-to-end validation steps for docs-list generation, failure mode, and long-running warnings in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/specs/017-dynamic-template-scripts/quickstart.md`
-- [ ] T033 [P] Reconcile contract examples and schema details with implemented sync telemetry/failure payloads in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/specs/017-dynamic-template-scripts/contracts/sync-dynamic-scripts.yaml`
+- [X] T030 [P] Document `<oa-script>` authoring, return handling, side-effect expectations, and verbose telemetry in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/README.md`
+- [X] T031 [P] Add maintainer guidance that dynamic scripts apply to all current/future syncable surfaces in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/AGENTS.md`
+- [X] T032 [P] Align end-to-end validation steps for docs-list generation, failure mode, and long-running warnings in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/specs/017-dynamic-template-scripts/quickstart.md`
+- [X] T033 [P] Reconcile contract examples and schema details with implemented sync telemetry/failure payloads in `/Users/joeroddy/Documents/dev/projects/open-source/omniagent/specs/017-dynamic-template-scripts/contracts/sync-dynamic-scripts.yaml`
 
 ---
 

@@ -106,6 +106,15 @@ async function writeCanonicalCommand(
 	return filePath;
 }
 
+async function writeScriptedCommand(
+	root: string,
+	name: string,
+	scriptBody: string,
+): Promise<string> {
+	const contents = ["Before", "<oa-script>", scriptBody, "</oa-script>", "After"].join("\n");
+	return writeCanonicalCommand(root, name, contents);
+}
+
 async function writeSubagent(root: string, name: string, body: string): Promise<string> {
 	const catalogDir = path.join(root, "agents", "agents");
 	await mkdir(catalogDir, { recursive: true });
@@ -501,6 +510,105 @@ describe.sequential("sync command", () => {
 				excludedLocal: false,
 			});
 			expect(parsed.hadFailures).toBe(false);
+		});
+	});
+
+	it("renders oa-script blocks in synced command outputs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeScriptedCommand(root, "scripted", "return ' dynamic content ';");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			const output = await readFile(path.join(root, ".claude", "commands", "scripted.md"), "utf8");
+			expect(output).toContain("Before");
+			expect(output).toContain("dynamic content");
+			expect(output).toContain("After");
+			expect(output).not.toContain("<oa-script>");
+		});
+	});
+
+	it("evaluates each script block once per template and reuses result across targets", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeFile(path.join(root, "counter.txt"), "0", "utf8");
+			await writeScriptedCommand(
+				root,
+				"counter",
+				[
+					'const fs = await import("node:fs/promises");',
+					'const marker = "counter.txt";',
+					"const current = Number(await fs.readFile(marker, 'utf8'));",
+					"const next = current + 1;",
+					"await fs.writeFile(marker, String(next), 'utf8');",
+					"return String(next);",
+				].join("\n"),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude,gemini", "--yes"]);
+			});
+
+			expect(await readFile(path.join(root, "counter.txt"), "utf8")).toBe("1");
+			const claudeOutput = await readFile(
+				path.join(root, ".claude", "commands", "counter.md"),
+				"utf8",
+			);
+			const geminiOutput = await readFile(
+				path.join(root, ".gemini", "commands", "counter.toml"),
+				"utf8",
+			);
+			expect(claudeOutput).toContain("1");
+			expect(geminiOutput).toContain("1");
+		});
+	});
+
+	it("fails before writing managed outputs when a template script errors", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeCanonicalCommand(root, "static", "safe command");
+			const failingPath = await writeScriptedCommand(root, "failing", "throw new Error('boom');");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--json", "--yes"]);
+			});
+
+			expect(await pathExists(path.join(root, ".claude", "commands", "static.md"))).toBe(false);
+			expect(await pathExists(path.join(root, ".claude", "commands", "failing.md"))).toBe(false);
+
+			const output = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
+			const parsed = JSON.parse(output);
+			expect(parsed.status).toBe("failed");
+			expect(parsed.failedTemplatePath).toBe(failingPath);
+			expect(parsed.failedBlockId).toContain("#0");
+			expect(parsed.partialOutputsWritten).toBe(false);
+			expect(Array.isArray(parsed.warnings)).toBe(true);
+			expect(parsed.warnings.length).toBeGreaterThan(0);
+			expect(
+				parsed.scriptExecutions.some((entry: { status: string }) => entry.status === "failed"),
+			).toBe(true);
+		});
+	});
+
+	it("emits per-script telemetry only when --verbose is enabled", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeScriptedCommand(root, "telemetry", "return 'ok';");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+			const defaultOutput = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
+			expect(defaultOutput).not.toContain("Evaluating template script");
+
+			logSpy.mockClear();
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes", "--verbose"]);
+			});
+			const verboseOutput = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
+			expect(verboseOutput).toContain("Evaluating template script");
 		});
 	});
 

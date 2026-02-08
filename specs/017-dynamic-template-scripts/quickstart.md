@@ -65,6 +65,8 @@ Expected result:
 - Sync exits failed on the first script error.
 - Error output identifies template path and script block.
 - No partial sync-managed rendered outputs are written for the failed run.
+- `sync --json` output includes `status`, `failedTemplatePath`, `failedBlockId`,
+  `partialOutputsWritten`, `scriptExecutions`, and run `warnings`.
 
 ## 5) Verify long-running warnings and verbose telemetry
 

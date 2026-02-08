@@ -195,6 +195,35 @@ describe("instruction sync", () => {
 		});
 	});
 
+	it("preserves static instruction text around oa-script blocks", async () => {
+		await withTempRepo(async (root) => {
+			const template = [
+				"---",
+				"outPutPath: docs/AGENTS.md",
+				"---",
+				"Before",
+				"<oa-script>",
+				"return ' inserted ';",
+				"</oa-script>",
+				"After",
+			].join("\n");
+			await writeInstruction(root, path.join("agents", "scripted.AGENTS.md"), template);
+
+			await syncInstructions({
+				repoRoot: root,
+				targets: ["claude"],
+				validAgents: VALID_AGENTS,
+				nonInteractive: true,
+			});
+
+			const output = await readFile(path.join(root, "docs", "CLAUDE.md"), "utf8");
+			expect(output).toContain("Before");
+			expect(output).toContain("inserted");
+			expect(output).toContain("After");
+			expect(output).not.toContain("<oa-script>");
+		});
+	});
+
 	it("writes outputs for nested AGENTS templates with outPutPath", async () => {
 		await withTempRepo(async (root) => {
 			const template = ["---", "outPutPath: docs/team", "---", "Team instructions"].join("\n");

@@ -76,6 +76,7 @@ components:
       required:
         - runId
         - status
+        - hadFailures
         - partialOutputsWritten
         - scriptExecutions
         - warnings
@@ -84,7 +85,9 @@ components:
           type: string
         status:
           type: string
-          enum: [running, completed, failed]
+          enum: [completed, failed]
+        hadFailures:
+          type: boolean
         failedTemplatePath:
           type: string
           nullable: true
@@ -102,8 +105,18 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RunWarning"
-        outputSummary:
-          $ref: "#/components/schemas/OutputSummary"
+        instructions:
+          type: object
+          nullable: true
+        skills:
+          type: object
+          nullable: true
+        subagents:
+          type: object
+          nullable: true
+        commands:
+          type: object
+          nullable: true
 
     ScriptExecution:
       type: object
