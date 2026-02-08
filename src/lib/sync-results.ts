@@ -1,11 +1,42 @@
 import type { TargetName } from "./sync-targets.js";
 
 export type SyncStatus = "synced" | "skipped" | "failed";
+export type ScriptExecutionStatus = "pending" | "running" | "succeeded" | "failed";
+export type ScriptResultKind = "string" | "json" | "coerced" | "empty";
+export type RunWarningCode = "still_running" | "sync_warning";
 
 export type SyncSourceCounts = {
 	shared: number;
 	local: number;
 	excludedLocal: boolean;
+};
+
+export type ScriptExecution = {
+	blockId: string;
+	templatePath: string;
+	status: ScriptExecutionStatus;
+	resultKind?: ScriptResultKind | null;
+	renderedPreview?: string | null;
+	errorMessage?: string | null;
+	durationMs?: number | null;
+	reusedAcrossTargets: boolean;
+};
+
+export type RunWarning = {
+	code: RunWarningCode;
+	message: string;
+	templatePath?: string | null;
+	blockId?: string | null;
+};
+
+export type SyncRunMetadata = {
+	runId: string;
+	status: "running" | "completed" | "failed";
+	failedTemplatePath: string | null;
+	failedBlockId: string | null;
+	partialOutputsWritten: boolean;
+	scriptExecutions: ScriptExecution[];
+	warnings: RunWarning[];
 };
 
 export type SyncResult = {

@@ -57,7 +57,11 @@ TypeScript 5.x, Node.js 18+: Enforced by Biome (formatting and linting)
 
 
 <!-- MANUAL ADDITIONS START -->
-  (skills, subagents, slash commands) and must be supported by future syncable features.
-  tool-specific directories so we don't publish junk.
-  CLI shim E2E docs: docs/cli-shim-e2e.md
+- Dynamic template scripts (`<nodejs>`) are a shared sync runtime feature and apply across all
+  syncable template surfaces (skills, subagents, slash commands, and instruction templates).
+- Any future syncable surface must integrate with the shared template-script runtime instead of
+  introducing surface-specific script execution behavior.
+- Keep ignore and publish rules aligned with tool-specific directories so package publishes stay
+  clean.
+- CLI shim E2E docs: `docs/cli-shim-e2e.md`.
 <!-- MANUAL ADDITIONS END -->

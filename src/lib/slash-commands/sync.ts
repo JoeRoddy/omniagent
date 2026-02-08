@@ -38,6 +38,11 @@ import {
 } from "../targets/output-resolver.js";
 import { resolveTargets } from "../targets/resolve-targets.js";
 import { resolveWriter, type WriterRegistry, writeFileOutput } from "../targets/writers.js";
+import {
+	createTemplateScriptRuntime,
+	evaluateTemplateScripts,
+	type TemplateScriptRuntime,
+} from "../template-scripts.js";
 import { loadCommandCatalog, type SlashCommandDefinition } from "./catalog.js";
 import { renderMarkdownCommand, renderSkillFromCommand, renderTomlCommand } from "./formatting.js";
 import { extractFrontmatter } from "./frontmatter.js";
@@ -68,6 +73,7 @@ export type SyncRequest = {
 	useDefaults?: boolean;
 	validAgents?: string[];
 	excludeLocal?: boolean;
+	templateScriptRuntime?: TemplateScriptRuntime;
 };
 
 export type SyncRequestV2 = {
@@ -83,6 +89,7 @@ export type SyncRequestV2 = {
 	excludeLocal?: boolean;
 	resolveTargetName?: (value: string) => string | null;
 	hooks?: SyncHooks;
+	templateScriptRuntime?: TemplateScriptRuntime;
 };
 
 export type SyncPlanAction = {
@@ -513,13 +520,21 @@ function buildInvalidTargetWarnings(commands: SlashCommandDefinition[]): string[
 	return warnings;
 }
 
-function applyTemplatingToCommand(
+async function applyTemplatingToCommand(
 	command: SlashCommandDefinition,
 	targetName: TargetName,
 	validAgents: string[],
-): SlashCommandDefinition {
+	runtime?: TemplateScriptRuntime,
+): Promise<SlashCommandDefinition> {
+	const withScripts = runtime
+		? await evaluateTemplateScripts({
+				templatePath: command.sourcePath,
+				content: command.rawContents,
+				runtime,
+			})
+		: command.rawContents;
 	const templatedContents = applyAgentTemplating({
-		content: command.rawContents,
+		content: withScripts,
 		target: targetName,
 		validAgents,
 		sourcePath: command.sourcePath,
@@ -745,7 +760,12 @@ async function buildTargetPlan(
 	const legacyCleanupPaths = new Set<string>();
 
 	for (const command of targetCommands) {
-		const templatedCommand = applyTemplatingToCommand(command, targetName, validAgents);
+		const templatedCommand = await applyTemplatingToCommand(
+			command,
+			targetName,
+			validAgents,
+			request.templateScriptRuntime,
+		);
 		const nameKey = normalizeName(command.name);
 		catalogNames.add(nameKey);
 
@@ -977,6 +997,8 @@ async function buildTargetPlan(
 }
 
 export async function planSlashCommandSync(request: SyncRequest): Promise<SyncPlanDetails> {
+	const templateScriptRuntime =
+		request.templateScriptRuntime ?? createTemplateScriptRuntime({ cwd: request.repoRoot });
 	const resolvedTargets =
 		request.resolvedTargets ??
 		resolveTargets({
@@ -1019,6 +1041,7 @@ export async function planSlashCommandSync(request: SyncRequest): Promise<SyncPl
 				request: {
 					...request,
 					removeMissing,
+					templateScriptRuntime,
 				},
 				commands: catalog.commands,
 				conflictResolution,
@@ -1318,6 +1341,8 @@ async function ensureBackupPath(outputPath: string): Promise<string> {
 }
 
 export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSummary> {
+	const templateScriptRuntime =
+		request.templateScriptRuntime ?? createTemplateScriptRuntime({ cwd: request.repoRoot });
 	const catalog = await loadCommandCatalog(request.repoRoot, {
 		includeLocal: !request.excludeLocal,
 		agentsDir: request.agentsDir,
@@ -1501,7 +1526,12 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 					commandPaths.push({ location: "user", path: resolved });
 				}
 			}
-			const templated = applyTemplatingToCommand(command, target.id, validAgents);
+			const templated = await applyTemplatingToCommand(
+				command,
+				target.id,
+				validAgents,
+				templateScriptRuntime,
+			);
 			const writer = resolveWriter(commandDef.writer, writerRegistry);
 			const converter = resolveConverter(commandDef.converter, converterRegistry);
 			for (const entry of commandPaths) {
@@ -1645,6 +1675,7 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 						outputType: "commands",
 						commandLocation: selected.location,
 						validAgents,
+						templateScriptRuntime,
 					},
 				});
 				const checksum = writeResult.contentHash ?? (await hashOutputPath(selected.outputPath));

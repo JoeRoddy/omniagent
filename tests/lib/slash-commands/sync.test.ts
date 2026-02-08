@@ -107,6 +107,22 @@ async function createTemplatedCommand(root: string, name = "templated"): Promise
 	await writeFile(path.join(commandsDir, `${name}.md`), contents);
 }
 
+async function createScriptedCommand(root: string, name = "scripted"): Promise<void> {
+	const commandsDir = path.join(root, "agents", "commands");
+	await mkdir(commandsDir, { recursive: true });
+	const contents = [
+		"---",
+		'description: "dynamic"',
+		"---",
+		"Prefix",
+		"<nodejs>",
+		"return ' GENERATED ';",
+		"</nodejs>",
+		"Suffix",
+	].join("\n");
+	await writeFile(path.join(commandsDir, `${name}.md`), contents, "utf8");
+}
+
 describe("slash command sync planning", () => {
 	it("syncs only the selected targets", async () => {
 		await withTempRepo(async (root) => {
@@ -450,6 +466,47 @@ describe("slash command sync planning", () => {
 			expect(geminiOutput).toContain("GEMINI");
 			expect(geminiOutput).not.toContain("Hello Claude");
 			expect(geminiOutput).not.toContain("CLAUDE");
+		});
+	});
+
+	it("preserves command output when no script blocks are present", async () => {
+		await withTempRepo(async (root) => {
+			await createCanonicalCommand(root, "plain");
+			const before = await readFile(path.join(root, "agents", "commands", "plain.md"), "utf8");
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["claude"],
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+			await applySlashCommandSync(plan);
+
+			const after = await readFile(path.join(root, ".claude", "commands", "plain.md"), "utf8");
+			expect(after).toContain(before);
+		});
+	});
+
+	it("renders nodejs content before command output rendering", async () => {
+		await withTempRepo(async (root) => {
+			await createScriptedCommand(root);
+
+			const plan = await planSlashCommandSync({
+				repoRoot: root,
+				targets: ["claude"],
+				conflictResolution: "skip",
+				removeMissing: true,
+			});
+			await applySlashCommandSync(plan);
+
+			const rendered = await readFile(
+				path.join(root, ".claude", "commands", "scripted.md"),
+				"utf8",
+			);
+			expect(rendered).toContain("Prefix");
+			expect(rendered).toContain("GENERATED");
+			expect(rendered).toContain("Suffix");
+			expect(rendered).not.toContain("<nodejs>");
 		});
 	});
 

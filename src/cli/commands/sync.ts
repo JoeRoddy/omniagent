@@ -11,7 +11,10 @@ import {
 	buildAgentsIgnoreRules,
 	getIgnoreRuleStatus,
 } from "../../lib/ignore-rules.js";
-import { scanInstructionTemplateSources } from "../../lib/instructions/catalog.js";
+import {
+	loadInstructionTemplateCatalog,
+	scanInstructionTemplateSources,
+} from "../../lib/instructions/catalog.js";
 import { scanRepoInstructionSources } from "../../lib/instructions/scan.js";
 import {
 	buildInstructionResultMessage,
@@ -50,12 +53,15 @@ import {
 import {
 	buildSummary,
 	formatSummary,
+	type RunWarning,
 	type SyncResult,
+	type SyncRunMetadata,
 	type SyncSummary,
 } from "../../lib/sync-results.js";
 import {
 	createTargetNameResolver,
 	InvalidFrontmatterTargetsError,
+	resolveEffectiveTargets,
 } from "../../lib/sync-targets.js";
 import {
 	BUILTIN_TARGETS,
@@ -66,12 +72,20 @@ import {
 	validateTargetConfig,
 } from "../../lib/targets/index.js";
 import { normalizeCommandOutputDefinition } from "../../lib/targets/output-resolver.js";
+import {
+	createTemplateScriptRuntime,
+	evaluateTemplateScripts,
+	listTemplateScriptExecutions,
+	TemplateScriptExecutionError,
+	type TemplateScriptRuntime,
+} from "../../lib/template-scripts.js";
 
 type SyncArgs = {
 	skip?: string | string[];
 	only?: string | string[];
 	agentsDir?: string;
 	json?: boolean;
+	verbose?: boolean;
 	yes?: boolean;
 	removeMissing?: boolean;
 	conflicts?: string;
@@ -263,6 +277,194 @@ function formatLocalItemsOutput(
 		}
 	}
 	return lines.join("\n");
+}
+
+type TemplateScriptSource = {
+	templatePath: string;
+	content: string;
+};
+
+type ScriptPreflightOptions = {
+	repoRoot: string;
+	agentsDir: string | null;
+	allTargetIds: string[];
+	resolveTargetName?: (value: string) => string | null;
+	overrideOnly?: string[];
+	overrideSkip?: string[];
+	excludeLocalSkills: boolean;
+	excludeLocalCommands: boolean;
+	excludeLocalAgents: boolean;
+	excludeLocalInstructions: boolean;
+	selectedSkillTargets: ResolvedTarget[];
+	selectedCommandTargets: ResolvedTarget[];
+	selectedSubagentTargets: ResolvedTarget[];
+	selectedInstructionTargets: ResolvedTarget[];
+	skillsAvailable: boolean;
+	commandsAvailable: boolean;
+};
+
+function hasTemplateScripts(content: string): boolean {
+	return content.includes("<nodejs>");
+}
+
+function addTemplateScriptSource(
+	sources: Map<string, string>,
+	templatePath: string,
+	content: string,
+): void {
+	if (!hasTemplateScripts(content)) {
+		return;
+	}
+	if (sources.has(templatePath)) {
+		return;
+	}
+	sources.set(templatePath, content);
+}
+
+function intersectsTargets(targets: string[], selectedTargetIds: Set<string>): boolean {
+	return targets.some((target) => selectedTargetIds.has(target));
+}
+
+async function listAllFiles(root: string): Promise<string[]> {
+	const entries = await readdir(root, { withFileTypes: true });
+	const files: string[] = [];
+	for (const entry of entries) {
+		const entryPath = path.join(root, entry.name);
+		if (entry.isDirectory()) {
+			files.push(...(await listAllFiles(entryPath)));
+			continue;
+		}
+		if (entry.isFile()) {
+			files.push(entryPath);
+		}
+	}
+	return files;
+}
+
+async function gatherTemplateScriptSources(
+	options: ScriptPreflightOptions,
+): Promise<TemplateScriptSource[]> {
+	const selectedSkillTargetIds = new Set(options.selectedSkillTargets.map((target) => target.id));
+	const selectedCommandTargetIds = new Set(
+		options.selectedCommandTargets.map((target) => target.id),
+	);
+	const selectedSubagentTargetIds = new Set(
+		options.selectedSubagentTargets.map((target) => target.id),
+	);
+	const selectedInstructionTargetIds = new Set(
+		options.selectedInstructionTargets.map((target) => target.id),
+	);
+	const sources = new Map<string, string>();
+
+	if (options.commandsAvailable && options.selectedCommandTargets.length > 0) {
+		const commandCatalog = await loadCommandCatalog(options.repoRoot, {
+			includeLocal: !options.excludeLocalCommands,
+			agentsDir: options.agentsDir,
+			resolveTargetName: options.resolveTargetName,
+		});
+		for (const command of commandCatalog.commands) {
+			const effectiveTargets = resolveEffectiveTargets({
+				defaultTargets: command.targetAgents,
+				overrideOnly: options.overrideOnly,
+				overrideSkip: options.overrideSkip,
+				allTargets: options.allTargetIds,
+			});
+			if (!intersectsTargets(effectiveTargets, selectedCommandTargetIds)) {
+				continue;
+			}
+			addTemplateScriptSource(sources, command.sourcePath, command.rawContents);
+		}
+	}
+
+	if (options.selectedSubagentTargets.length > 0) {
+		const subagentCatalog = await loadSubagentCatalog(options.repoRoot, {
+			includeLocal: !options.excludeLocalAgents,
+			agentsDir: options.agentsDir,
+			resolveTargetName: options.resolveTargetName,
+		});
+		for (const subagent of subagentCatalog.subagents) {
+			const effectiveTargets = resolveEffectiveTargets({
+				defaultTargets: subagent.targetAgents,
+				overrideOnly: options.overrideOnly,
+				overrideSkip: options.overrideSkip,
+				allTargets: options.allTargetIds,
+			});
+			if (!intersectsTargets(effectiveTargets, selectedSubagentTargetIds)) {
+				continue;
+			}
+			addTemplateScriptSource(sources, subagent.sourcePath, subagent.rawContents);
+		}
+	}
+
+	if (options.selectedInstructionTargets.length > 0) {
+		const templateCatalog = await loadInstructionTemplateCatalog({
+			repoRoot: options.repoRoot,
+			includeLocal: !options.excludeLocalInstructions,
+			agentsDir: options.agentsDir,
+			resolveTargetName: options.resolveTargetName,
+		});
+		for (const template of templateCatalog.templates) {
+			const effectiveTargets = resolveEffectiveTargets({
+				defaultTargets: template.targets,
+				overrideOnly: options.overrideOnly,
+				overrideSkip: options.overrideSkip,
+				allTargets: options.allTargetIds,
+			});
+			if (!intersectsTargets(effectiveTargets, selectedInstructionTargetIds)) {
+				continue;
+			}
+			addTemplateScriptSource(sources, template.sourcePath, template.body);
+		}
+	}
+
+	if (options.skillsAvailable && options.selectedSkillTargets.length > 0) {
+		const skillCatalog = await loadSkillCatalog(options.repoRoot, {
+			includeLocal: !options.excludeLocalSkills,
+			agentsDir: options.agentsDir,
+			resolveTargetName: options.resolveTargetName,
+		});
+		for (const skill of skillCatalog.skills) {
+			const effectiveTargets = resolveEffectiveTargets({
+				defaultTargets: skill.targetAgents,
+				overrideOnly: options.overrideOnly,
+				overrideSkip: options.overrideSkip,
+				allTargets: options.allTargetIds,
+			});
+			if (!intersectsTargets(effectiveTargets, selectedSkillTargetIds)) {
+				continue;
+			}
+			const files = await listAllFiles(skill.directoryPath);
+			for (const filePath of files) {
+				const buffer = await readFile(filePath);
+				const decoded = decodeUtf8(buffer);
+				if (decoded === null) {
+					continue;
+				}
+				addTemplateScriptSource(sources, filePath, decoded);
+			}
+		}
+	}
+
+	return [...sources.entries()]
+		.map(([templatePath, content]) => ({ templatePath, content }))
+		.sort((left, right) => left.templatePath.localeCompare(right.templatePath));
+}
+
+function buildSyncRunMetadata(options: {
+	runtime: TemplateScriptRuntime;
+	status: "running" | "completed" | "failed";
+	partialOutputsWritten: boolean;
+}): SyncRunMetadata {
+	const warnings: RunWarning[] = [...options.runtime.warnings];
+	return {
+		runId: options.runtime.runId,
+		status: options.status,
+		failedTemplatePath: options.runtime.failedTemplatePath,
+		failedBlockId: options.runtime.failedBlockId,
+		partialOutputsWritten: options.partialOutputsWritten,
+		scriptExecutions: listTemplateScriptExecutions(options.runtime),
+		warnings,
+	};
 }
 
 async function assertSourceDirectory(sourcePath: string): Promise<boolean> {
@@ -771,6 +973,34 @@ function buildInstructionsSummary(
 	};
 }
 
+function buildSubagentSummary(
+	targets: Array<ResolvedTarget | string>,
+	status: "failed",
+	message: string,
+	excludedLocal: boolean,
+	sourcePath: string,
+): SubagentSyncSummary {
+	const results = normalizeTargets(targets).map((target) => ({
+		targetName: target.id,
+		status,
+		message: `${status === "failed" ? "Failed" : "Skipped"} ${target.displayName}: ${message}`,
+		error: message,
+		counts: { created: 0, updated: 0, removed: 0, converted: 0, skipped: 0 },
+		warnings: [],
+	}));
+	return {
+		sourcePath,
+		results,
+		warnings: [],
+		hadFailures: status === "failed",
+		sourceCounts: {
+			shared: 0,
+			local: 0,
+			excludedLocal,
+		},
+	};
+}
+
 type AvailabilitySkip = {
 	target: ResolvedTarget;
 	reason: string;
@@ -784,6 +1014,7 @@ type CombinedSyncSummary = {
 	commands: CommandSyncSummary;
 	hadFailures: boolean;
 	missingIgnoreRules: boolean;
+	syncRun: SyncRunMetadata;
 };
 
 function mergeWarnings(existing: string[], additions: string[]): string[] {
@@ -872,9 +1103,33 @@ function emitSyncSummary(options: {
 }): void {
 	const { combined, jsonOutput, repoRoot, agentsDir, ignoreRules } = options;
 	if (jsonOutput) {
-		console.log(JSON.stringify(combined, null, 2));
+		console.log(
+			JSON.stringify(
+				{
+					...combined,
+					runId: combined.syncRun.runId,
+					status: combined.syncRun.status,
+					failedTemplatePath: combined.syncRun.failedTemplatePath,
+					failedBlockId: combined.syncRun.failedBlockId,
+					partialOutputsWritten: combined.syncRun.partialOutputsWritten,
+					scriptExecutions: combined.syncRun.scriptExecutions,
+					warnings: combined.syncRun.warnings,
+				},
+				null,
+				2,
+			),
+		);
 	} else {
 		const outputs: string[] = [];
+		if (
+			combined.syncRun.status === "failed" &&
+			combined.syncRun.failedTemplatePath &&
+			combined.syncRun.failedBlockId
+		) {
+			outputs.push(
+				`Failed template script: ${combined.syncRun.failedTemplatePath} (${combined.syncRun.failedBlockId})`,
+			);
+		}
 		const instructionOutput = formatInstructionSummary(combined.instructions, false);
 		if (instructionOutput.length > 0) {
 			outputs.push(instructionOutput);
@@ -894,6 +1149,9 @@ function emitSyncSummary(options: {
 		if (combined.missingIgnoreRules) {
 			const warningRules = ignoreRules ?? buildAgentsIgnoreRules(repoRoot, agentsDir);
 			outputs.push(`Warning: Missing ignore rules for local sources (${warningRules.join(", ")}).`);
+		}
+		for (const warning of combined.syncRun.warnings) {
+			outputs.push(`Warning: ${warning.message}`);
 		}
 		if (outputs.length > 0) {
 			console.log(outputs.join("\n"));
@@ -957,6 +1215,11 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				choices: ["overwrite", "rename", "skip"],
 				describe: "Conflict resolution strategy for slash commands",
 			})
+			.option("verbose", {
+				type: "boolean",
+				default: false,
+				describe: "Show per-script execution telemetry during sync",
+			})
 			.option("json", {
 				type: "boolean",
 				default: false,
@@ -977,6 +1240,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			)
 			.example("omniagent sync --list-local", "List detected local items")
 			.example("omniagent sync --yes", "Accept defaults and apply changes")
+			.example("omniagent sync --verbose", "Show per-script execution telemetry")
 			.example("omniagent sync --json", "Output a JSON summary"),
 	handler: async (argv) => {
 		try {
@@ -1002,9 +1266,21 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const excludeLocalInstructions = excludeLocalCategories.has("instructions");
 
 			const jsonOutput = argv.json ?? false;
+			const verboseOutput = argv.verbose ?? false;
 			const yes = argv.yes ?? false;
 			const removeMissing = argv.removeMissing ?? true;
 			const listLocal = argv.listLocal ?? false;
+			let partialOutputsWritten = false;
+			const scriptRuntime = createTemplateScriptRuntime({
+				verbose: verboseOutput,
+				cwd: process.cwd(),
+				onWarning: (warning) => {
+					logWithChannel(`Warning: ${warning.message}`, jsonOutput);
+				},
+				onVerbose: (message) => {
+					logWithChannel(message, jsonOutput);
+				},
+			});
 
 			const startDir = process.cwd();
 			const repoRoot = await findRepoRoot(startDir);
@@ -1016,6 +1292,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				process.exit(1);
 				return;
 			}
+			scriptRuntime.cwd = repoRoot;
 
 			const agentsDirResolution = resolveAgentsDir(repoRoot, argv.agentsDir);
 			if (agentsDirResolution.source === "override") {
@@ -1257,6 +1534,11 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					commands: commandsSummary,
 					hadFailures: false,
 					missingIgnoreRules: false,
+					syncRun: buildSyncRunMetadata({
+						runtime: scriptRuntime,
+						status: "completed",
+						partialOutputsWritten,
+					}),
 				};
 
 				emitSyncSummary({
@@ -1330,6 +1612,92 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				return;
 			}
 
+			try {
+				const scriptSources = await gatherTemplateScriptSources({
+					repoRoot,
+					agentsDir,
+					allTargetIds: resolved.targets.map((target) => target.id),
+					resolveTargetName,
+					overrideOnly,
+					overrideSkip,
+					excludeLocalSkills,
+					excludeLocalCommands,
+					excludeLocalAgents,
+					excludeLocalInstructions,
+					selectedSkillTargets,
+					selectedCommandTargets,
+					selectedSubagentTargets,
+					selectedInstructionTargets,
+					skillsAvailable: hasSkillsToSync,
+					commandsAvailable: hasCommandsToSync,
+				});
+				for (const source of scriptSources) {
+					await evaluateTemplateScripts({
+						templatePath: source.templatePath,
+						content: source.content,
+						runtime: scriptRuntime,
+					});
+				}
+			} catch (error) {
+				if (error instanceof TemplateScriptExecutionError) {
+					const warning: RunWarning = {
+						code: "sync_warning",
+						message: error.message,
+						templatePath: error.templatePath,
+						blockId: error.blockId,
+					};
+					scriptRuntime.warnings.push(warning);
+
+					const combined: CombinedSyncSummary = {
+						instructions: buildInstructionsSummary(
+							repoRoot,
+							selectedInstructionTargets,
+							"failed",
+							error.message,
+							excludeLocalInstructions,
+						),
+						skills: buildSkillsSummary(
+							repoRoot,
+							skillsSourcePath,
+							selectedSkillTargets,
+							"failed",
+							error.message,
+							excludeLocalSkills,
+						),
+						subagents: buildSubagentSummary(
+							selectedSubagentTargets,
+							"failed",
+							error.message,
+							excludeLocalAgents,
+							subagentsSourcePath,
+						),
+						commands: buildCommandSummary(
+							commandsSourcePath,
+							selectedCommandTargets,
+							"failed",
+							error.message,
+							excludeLocalCommands,
+						),
+						hadFailures: true,
+						missingIgnoreRules: false,
+						syncRun: buildSyncRunMetadata({
+							runtime: scriptRuntime,
+							status: "failed",
+							partialOutputsWritten,
+						}),
+					};
+					emitSyncSummary({
+						combined,
+						jsonOutput,
+						repoRoot,
+						agentsDir,
+						ignoreRules: null,
+					});
+					return;
+				}
+				throw error;
+			}
+
 			let missingIgnoreRules = false;
 			let ignoreRules: string[] | null = null;
 			if (hasLocalItems) {
@@ -1362,6 +1730,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					}
 				}
 			}
+			partialOutputsWritten = true;
 
 			let commandsSummary: CommandSyncSummary;
 			if (selectedCommandTargets.length === 0) {
@@ -1402,6 +1771,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					excludeLocal: excludeLocalCommands,
 					resolveTargetName,
 					hooks: globalHooks,
+					templateScriptRuntime: scriptRuntime,
 				} satisfies CommandSyncRequestV2);
 			}
 
@@ -1426,6 +1796,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				includeLocalSkills,
 				resolveTargetName,
 				hooks: globalHooks,
+				templateScriptRuntime: scriptRuntime,
 			} satisfies SubagentSyncRequestV2);
 
 			if (availabilitySubagentSkips.length > 0) {
@@ -1479,6 +1850,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 						validAgents,
 						resolveTargetName,
 						hooks: globalHooks,
+						templateScriptRuntime: scriptRuntime,
 						confirmRemoval,
 					});
 				} catch (error) {
@@ -1540,6 +1912,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					removeMissing,
 					resolveTargetName,
 					hooks: globalHooks,
+					templateScriptRuntime: scriptRuntime,
 				});
 			}
 
@@ -1555,17 +1928,23 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				};
 			}
 
-			const combined = {
+			const hadFailures =
+				instructionsSummary.hadFailures ||
+				skillsSummary.hadFailures ||
+				subagentSummary.hadFailures ||
+				commandsSummary.hadFailures;
+			const combined: CombinedSyncSummary = {
 				instructions: instructionsSummary,
 				skills: skillsSummary,
 				subagents: subagentSummary,
 				commands: commandsSummary,
-				hadFailures:
-					instructionsSummary.hadFailures ||
-					skillsSummary.hadFailures ||
-					subagentSummary.hadFailures ||
-					commandsSummary.hadFailures,
+				hadFailures,
 				missingIgnoreRules,
+				syncRun: buildSyncRunMetadata({
+					runtime: scriptRuntime,
+					status: hadFailures ? "failed" : "completed",
+					partialOutputsWritten,
+				}),
 			};
 
 			emitSyncSummary({
@@ -1577,6 +1956,11 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			});
 		} catch (error) {
 			if (error instanceof InvalidFrontmatterTargetsError) {
+				console.error(`Error: ${error.message}`);
+				process.exit(1);
+				return;
+			}
+			if (error instanceof TemplateScriptExecutionError) {
 				console.error(`Error: ${error.message}`);
 				process.exit(1);
 				return;
