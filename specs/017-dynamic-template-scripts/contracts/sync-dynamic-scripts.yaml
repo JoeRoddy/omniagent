@@ -1,0 +1,182 @@
+openapi: 3.0.3
+info:
+  title: Sync Dynamic Template Scripts API
+  version: 1.0.0
+  description: >-
+    Contract for sync runs that evaluate dynamic template scripts, reuse per-template
+    results across targets, and fail fast on script errors.
+paths:
+  /sync/runs:
+    post:
+      summary: Start a sync run
+      operationId: startSyncRun
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartSyncRunRequest"
+      responses:
+        "200":
+          description: Sync run finished (success or failure)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncRunResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /sync/runs/{runId}:
+    get:
+      summary: Get sync run details
+      operationId: getSyncRun
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Sync run state and script execution details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncRunResult"
+        "404":
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  schemas:
+    StartSyncRunRequest:
+      type: object
+      properties:
+        explicitTargets:
+          type: array
+          items:
+            type: string
+          description: Explicit target IDs to sync.
+        removeMissing:
+          type: boolean
+          default: false
+        verbose:
+          type: boolean
+          default: false
+          description: Enables per-script execution telemetry.
+      additionalProperties: false
+
+    SyncRunResult:
+      type: object
+      required:
+        - runId
+        - status
+        - partialOutputsWritten
+        - scriptExecutions
+        - warnings
+      properties:
+        runId:
+          type: string
+        status:
+          type: string
+          enum: [running, completed, failed]
+        failedTemplatePath:
+          type: string
+          nullable: true
+        failedBlockId:
+          type: string
+          nullable: true
+        partialOutputsWritten:
+          type: boolean
+          description: Must be false when failure is caused by script evaluation.
+        scriptExecutions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScriptExecution"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/RunWarning"
+        outputSummary:
+          $ref: "#/components/schemas/OutputSummary"
+
+    ScriptExecution:
+      type: object
+      required:
+        - blockId
+        - templatePath
+        - status
+        - reusedAcrossTargets
+      properties:
+        blockId:
+          type: string
+        templatePath:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, succeeded, failed]
+        resultKind:
+          type: string
+          nullable: true
+          enum: [string, json, coerced, empty]
+        renderedPreview:
+          type: string
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
+        durationMs:
+          type: integer
+          format: int64
+          nullable: true
+        reusedAcrossTargets:
+          type: boolean
+          description: True when one execution result is reused for all target renders.
+
+    RunWarning:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum: [still_running, sync_warning]
+        message:
+          type: string
+        templatePath:
+          type: string
+          nullable: true
+        blockId:
+          type: string
+          nullable: true
+
+    OutputSummary:
+      type: object
+      required:
+        - created
+        - updated
+        - removed
+        - skipped
+      properties:
+        created:
+          type: integer
+        updated:
+          type: integer
+        removed:
+          type: integer
+        skipped:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
