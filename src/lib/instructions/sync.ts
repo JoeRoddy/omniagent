@@ -118,6 +118,11 @@ function formatDisplayPath(repoRoot: string, absolutePath: string): string {
 	return isWithinRepo ? relative : absolutePath;
 }
 
+function isWithinDirectory(root: string, candidate: string): boolean {
+	const relative = path.relative(root, candidate);
+	return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
 function sortCandidates(candidates: InstructionOutputCandidate[]): InstructionOutputCandidate[] {
 	return [...candidates].sort((left, right) =>
 		left.source.sourcePath.localeCompare(right.source.sourcePath),
@@ -732,8 +737,12 @@ export async function syncInstructions(
 
 	for (const [key, entry] of previousEntries) {
 		const group = resolveInstructionTargetGroup(entry.targetName);
+		if (isWithinDirectory(agentsRoot, entry.outputPath)) {
+			mergedEntries.set(key, entry);
+			continue;
+		}
 		const groupSelected = activeGroups.has(group);
-		if (!groupSelected) {
+		if (!groupSelected && !removeMissing) {
 			mergedEntries.set(key, entry);
 			continue;
 		}
@@ -842,17 +851,26 @@ export async function syncInstructions(
 	if (managedManifest.entries.length > 0 || nextManaged.size > 0) {
 		const updatedEntries: ManagedOutputRecord[] = [];
 		for (const entry of managedManifest.entries) {
-			if (entry.sourceType !== "instruction" || !selectedTargetIds.has(entry.targetId)) {
+			if (entry.sourceType !== "instruction") {
 				updatedEntries.push(entry);
 				continue;
 			}
+			if (isWithinDirectory(agentsRoot, entry.outputPath)) {
+				updatedEntries.push(entry);
+				continue;
+			}
+			const targetSelected = selectedTargetIds.has(entry.targetId);
 			const key = buildManagedOutputKey(entry);
 			if (nextManaged.has(key)) {
 				continue;
 			}
+			if (!targetSelected && !removeMissing) {
+				updatedEntries.push(entry);
+				continue;
+			}
 			const activeSources = activeSourcesByTarget.get(entry.targetId);
 			const sourceStillActive = activeSources?.has(entry.sourceId) ?? false;
-			if (!removeMissing || sourceStillActive) {
+			if (targetSelected && (!removeMissing || sourceStillActive)) {
 				updatedEntries.push(entry);
 				continue;
 			}

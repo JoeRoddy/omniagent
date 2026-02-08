@@ -212,11 +212,35 @@ describe("instruction sync", () => {
 		});
 	});
 
-	it("warns and skips templates missing outPutPath outside /agents/AGENTS.md", async () => {
+	it("warns and skips nested templates missing outPutPath", async () => {
 		await withTempRepo(async (root) => {
 			await writeInstruction(
 				root,
-				path.join("agents", "sub", "missing.AGENTS.md"),
+				path.join("agents", "skills", "clickup-api", "actions", "create-task", "AGENTS.md"),
+				"Action instructions",
+			);
+
+			const summary = await syncInstructions({
+				repoRoot: root,
+				targets: ["claude"],
+				validAgents: VALID_AGENTS,
+				nonInteractive: true,
+			});
+
+			expect(summary.warnings.some((warning) => warning.includes("missing outPutPath"))).toBe(true);
+			expect(
+				await pathExists(
+					path.join(root, "agents", "skills", "clickup-api", "actions", "create-task", "CLAUDE.md"),
+				),
+			).toBe(false);
+		});
+	});
+
+	it("warns and skips templates missing outPutPath in unsupported nested directories", async () => {
+		await withTempRepo(async (root) => {
+			await writeInstruction(
+				root,
+				path.join("agents", "custom", "missing.AGENTS.md"),
 				"Missing output path",
 			);
 
@@ -388,6 +412,78 @@ describe("instruction sync", () => {
 			expect(await pathExists(path.join(root, "docs", "GEMINI.md"))).toBe(false);
 			const claude = await readFile(path.join(root, "docs", "CLAUDE.md"), "utf8");
 			expect(claude).toBe("Untracked output");
+		});
+	});
+
+	it("removes omitted target outputs only when they were previously managed", async () => {
+		await withTempRepo(async (root) => {
+			await writeInstruction(root, path.join("docs", "AGENTS.md"), "Repo instructions");
+
+			await syncInstructions({
+				repoRoot: root,
+				targets: ["claude", "gemini"],
+				overrideOnly: ["gemini"],
+				validAgents: VALID_AGENTS,
+				removeMissing: true,
+				nonInteractive: true,
+			});
+
+			expect(await pathExists(path.join(root, "docs", "GEMINI.md"))).toBe(true);
+			await writeInstruction(root, path.join("docs", "CLAUDE.md"), "Unmanaged output");
+
+			await syncInstructions({
+				repoRoot: root,
+				targets: ["codex"],
+				validAgents: VALID_AGENTS,
+				removeMissing: true,
+				nonInteractive: true,
+			});
+
+			expect(await pathExists(path.join(root, "docs", "GEMINI.md"))).toBe(false);
+			const claude = await readFile(path.join(root, "docs", "CLAUDE.md"), "utf8");
+			expect(claude).toBe("Unmanaged output");
+		});
+	});
+
+	it("never removes managed instruction outputs inside agents dir", async () => {
+		await withTempRepo(async (root) => {
+			const template = [
+				"---",
+				"targets: gemini",
+				"outPutPath: agents/skills/clickup-api/actions/create-task-comment",
+				"---",
+				"Generated instructions",
+			].join("\n");
+			await writeInstruction(root, path.join("agents", "create-task-comment.AGENTS.md"), template);
+
+			await syncInstructions({
+				repoRoot: root,
+				targets: ["gemini"],
+				validAgents: VALID_AGENTS,
+				removeMissing: true,
+				nonInteractive: true,
+			});
+
+			const outputPath = path.join(
+				root,
+				"agents",
+				"skills",
+				"clickup-api",
+				"actions",
+				"create-task-comment",
+				"GEMINI.md",
+			);
+			expect(await pathExists(outputPath)).toBe(true);
+
+			await syncInstructions({
+				repoRoot: root,
+				targets: ["codex"],
+				validAgents: VALID_AGENTS,
+				removeMissing: true,
+				nonInteractive: true,
+			});
+
+			expect(await pathExists(outputPath)).toBe(true);
 		});
 	});
 
