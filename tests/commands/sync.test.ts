@@ -530,6 +530,100 @@ describe.sequential("sync command", () => {
 		});
 	});
 
+	it("updates script output when repository content changes between sync runs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await mkdir(path.join(root, "docs"), { recursive: true });
+			await writeFile(path.join(root, "docs", "alpha.md"), "# alpha", "utf8");
+			await writeScriptedCommand(
+				root,
+				"docs-index",
+				[
+					'const fs = await import("node:fs/promises");',
+					"const entries = await fs.readdir('docs');",
+					"return entries",
+					"  .filter((entry) => entry.endsWith('.md'))",
+					"  .sort()",
+					"  .map((entry) => '- ' + entry)",
+					"  .join('\\n');",
+				].join("\n"),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			const firstOutput = await readFile(
+				path.join(root, ".claude", "commands", "docs-index.md"),
+				"utf8",
+			);
+			expect(firstOutput).toContain("- alpha.md");
+			expect(firstOutput).not.toContain("- beta.md");
+
+			await writeFile(path.join(root, "docs", "beta.md"), "# beta", "utf8");
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			const secondOutput = await readFile(
+				path.join(root, ".claude", "commands", "docs-index.md"),
+				"utf8",
+			);
+			expect(secondOutput).toContain("- alpha.md");
+			expect(secondOutput).toContain("- beta.md");
+		});
+	});
+
+	it("renders oa-script blocks for skill and subagent templates", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeCanonicalSkillFile(
+				root,
+				"dynamic-skill",
+				[
+					"Skill before",
+					"<oa-script>",
+					"return ' skill content ';",
+					"</oa-script>",
+					"Skill after",
+				].join("\n"),
+			);
+			await writeSubagent(
+				root,
+				"dynamic-helper",
+				[
+					"Subagent before",
+					"<oa-script>",
+					"return ' helper content ';",
+					"</oa-script>",
+					"Subagent after",
+				].join("\n"),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			const skillOutput = await readFile(
+				path.join(root, ".claude", "skills", "dynamic-skill", "SKILL.md"),
+				"utf8",
+			);
+			expect(skillOutput).toContain("Skill before");
+			expect(skillOutput).toContain("skill content");
+			expect(skillOutput).toContain("Skill after");
+			expect(skillOutput).not.toContain("<oa-script>");
+
+			const subagentOutput = await readFile(
+				path.join(root, ".claude", "agents", "dynamic-helper.md"),
+				"utf8",
+			);
+			expect(subagentOutput).toContain("Subagent before");
+			expect(subagentOutput).toContain("helper content");
+			expect(subagentOutput).toContain("Subagent after");
+			expect(subagentOutput).not.toContain("<oa-script>");
+		});
+	});
+
 	it("evaluates each script block once per template and reuses result across targets", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
@@ -565,6 +659,35 @@ describe.sequential("sync command", () => {
 		});
 	});
 
+	it("keeps renderer output authoritative over script side effects on managed outputs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeScriptedCommand(
+				root,
+				"authoritative",
+				[
+					'const fs = await import("node:fs/promises");',
+					'await fs.mkdir(".claude/commands", { recursive: true });',
+					'await fs.writeFile(".claude/commands/authoritative.md", "side effect", "utf8");',
+					"return 'renderer output';",
+				].join("\n"),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			const output = await readFile(
+				path.join(root, ".claude", "commands", "authoritative.md"),
+				"utf8",
+			);
+			expect(output).toContain("Before");
+			expect(output).toContain("renderer output");
+			expect(output).toContain("After");
+			expect(output.trim()).not.toBe("side effect");
+		});
+	});
+
 	it("fails before writing managed outputs when a template script errors", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
@@ -589,6 +712,30 @@ describe.sequential("sync command", () => {
 			expect(
 				parsed.scriptExecutions.some((entry: { status: string }) => entry.status === "failed"),
 			).toBe(true);
+		});
+	});
+
+	it("retains unmanaged side effects when script evaluation fails", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeScriptedCommand(
+				root,
+				"failing-side-effect",
+				[
+					'const fs = await import("node:fs/promises");',
+					'await fs.writeFile("outside-managed.txt", "persisted", "utf8");',
+					"throw new Error('boom');",
+				].join("\n"),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			expect(await readFile(path.join(root, "outside-managed.txt"), "utf8")).toBe("persisted");
+			expect(
+				await pathExists(path.join(root, ".claude", "commands", "failing-side-effect.md")),
+			).toBe(false);
 		});
 	});
 

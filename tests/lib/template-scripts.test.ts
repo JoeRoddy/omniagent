@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -81,6 +82,133 @@ describe("template script runtime", () => {
 			expect(executions).toHaveLength(1);
 			expect(executions[0]?.reusedAcrossTargets).toBe(true);
 		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	it("uses fresh repository state across separate sync runs", async () => {
+		const root = await mkdtemp(path.join(os.tmpdir(), "omniagent-template-scripts-state-"));
+		try {
+			await writeFile(path.join(root, "value.txt"), "first", "utf8");
+			const content = [
+				"<oa-script>",
+				'const fs = await import("node:fs/promises");',
+				'return (await fs.readFile("value.txt", "utf8")).trim();',
+				"</oa-script>",
+			].join("\n");
+			const templatePath = path.join(root, "agents", "commands", "state.md");
+
+			const firstRun = await evaluateTemplateScripts({
+				templatePath,
+				content,
+				runtime: createTemplateScriptRuntime({ cwd: root }),
+			});
+			expect(firstRun).toBe("first");
+
+			await writeFile(path.join(root, "value.txt"), "second", "utf8");
+			const secondRun = await evaluateTemplateScripts({
+				templatePath,
+				content,
+				runtime: createTemplateScriptRuntime({ cwd: root }),
+			});
+			expect(secondRun).toBe("second");
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	it("stops executing later script blocks after the first failure", async () => {
+		const root = await mkdtemp(path.join(os.tmpdir(), "omniagent-template-scripts-failfast-"));
+		try {
+			const runtime = createTemplateScriptRuntime({ cwd: root });
+			await expect(
+				evaluateTemplateScripts({
+					templatePath: "agents/commands/fail-fast.md",
+					content: [
+						"<oa-script>",
+						"throw new Error('boom');",
+						"</oa-script>",
+						"<oa-script>",
+						'const fs = await import("node:fs/promises");',
+						'await fs.writeFile("should-not-exist.txt", "ran", "utf8");',
+						"return 'late';",
+						"</oa-script>",
+					].join("\n"),
+					runtime,
+				}),
+			).rejects.toBeInstanceOf(TemplateScriptExecutionError);
+
+			await expect(readFile(path.join(root, "should-not-exist.txt"), "utf8")).rejects.toMatchObject(
+				{
+					code: "ENOENT",
+				},
+			);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	it("runs each block in an isolated runtime context", async () => {
+		const runtime = createTemplateScriptRuntime();
+		const rendered = await evaluateTemplateScripts({
+			templatePath: "agents/commands/isolation.md",
+			content: [
+				"<oa-script>",
+				"globalThis.__omniagentShared = 'set';",
+				"return 'first';",
+				"</oa-script>",
+				"<oa-script>",
+				"return String(globalThis.__omniagentShared ?? 'unset');",
+				"</oa-script>",
+			].join("\n"),
+			runtime,
+		});
+
+		expect(rendered).toContain("first");
+		expect(rendered).toContain("unset");
+	});
+
+	it("allows filesystem, network, and subprocess access inside scripts", async () => {
+		const root = await mkdtemp(path.join(os.tmpdir(), "omniagent-template-scripts-capabilities-"));
+		const server = createServer((_request, response) => {
+			response.writeHead(200, { "content-type": "text/plain" });
+			response.end("network-ok");
+		});
+		try {
+			await writeFile(path.join(root, "capability.txt"), "file-ok", "utf8");
+			await new Promise<void>((resolve) => {
+				server.listen(0, "127.0.0.1", () => resolve());
+			});
+			const address = server.address();
+			if (!address || typeof address === "string") {
+				throw new Error("Expected server address with a numeric port.");
+			}
+
+			const runtime = createTemplateScriptRuntime({ cwd: root });
+			const rendered = await evaluateTemplateScripts({
+				templatePath: "agents/commands/capabilities.md",
+				content: [
+					"<oa-script>",
+					'const fs = await import("node:fs/promises");',
+					'const { execFile } = await import("node:child_process");',
+					'const { promisify } = await import("node:util");',
+					"const run = promisify(execFile);",
+					'const fileValue = (await fs.readFile("capability.txt", "utf8")).trim();',
+					"const child = await run(process.execPath, [",
+					"  '-e',",
+					"  \"process.stdout.write('subprocess-ok')\",",
+					"]);",
+					`const response = await fetch("http://127.0.0.1:${address.port}/status");`,
+					"const networkValue = (await response.text()).trim();",
+					"return fileValue + '-' + child.stdout + '-' + networkValue;",
+					"</oa-script>",
+				].join("\n"),
+				runtime,
+			});
+
+			expect(rendered).toBe("file-ok-subprocess-ok-network-ok");
+		} finally {
+			server.close();
 			await rm(root, { recursive: true, force: true });
 		}
 	});
