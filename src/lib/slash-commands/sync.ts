@@ -1493,37 +1493,25 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 				});
 				commandPaths = [{ location: "project", path: path.join(basePath, "SKILL.md") }];
 			} else {
-				if (commandDef.projectPath) {
+				const preferredLocation: "project" | "user" = commandDef.projectPath ? "project" : "user";
+				const preferredTemplate =
+					preferredLocation === "project" ? commandDef.projectPath : commandDef.userPath;
+				const baseDir = preferredLocation === "project" ? request.repoRoot : homeDir;
+				if (preferredTemplate) {
 					const resolved = resolveCommandOutputPath({
-						template: commandDef.projectPath,
+						template: preferredTemplate,
 						context: {
 							repoRoot: request.repoRoot,
 							agentsDir: agentsDirPath,
 							homeDir,
 							targetId: target.id,
 							itemName: command.name,
-							commandLocation: "project",
+							commandLocation: preferredLocation,
 						},
 						item: command,
-						baseDir: request.repoRoot,
+						baseDir,
 					});
-					commandPaths.push({ location: "project", path: resolved });
-				}
-				if (commandDef.userPath) {
-					const resolved = resolveCommandOutputPath({
-						template: commandDef.userPath,
-						context: {
-							repoRoot: request.repoRoot,
-							agentsDir: agentsDirPath,
-							homeDir,
-							targetId: target.id,
-							itemName: command.name,
-							commandLocation: "user",
-						},
-						item: command,
-						baseDir: homeDir,
-					});
-					commandPaths.push({ location: "user", path: resolved });
+					commandPaths.push({ location: preferredLocation, path: resolved });
 				}
 			}
 			const templated = await applyTemplatingToCommand(

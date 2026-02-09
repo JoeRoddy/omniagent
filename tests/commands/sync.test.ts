@@ -985,7 +985,7 @@ describe.sequential("sync command", () => {
 
 			const output = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
 			expect(output).toContain(
-				"Claude Code commands will be written to project and user locations.",
+				"Claude Code commands prefer the project location (user path is fallback-only).",
 			);
 			expect(output).not.toContain(
 				"GitHub Copilot CLI commands are configured to convert to skills.",
