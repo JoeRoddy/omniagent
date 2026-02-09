@@ -1,6 +1,6 @@
 {
   "name": "omniagent",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Unified agent configuration CLI that compiles canonical agent configs to multiple runtimes.",
   "type": "module",
   "bin": {
@@ -9,6 +9,8 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "npm run check && vite build",
+    "patch": "npm version patch --no-git-tag-version",
+    "prepublish": "npm run patch && npm run build",
     "postbuild": "chmod +x dist/cli.js",
     "dev": "npm run build && node dist/cli.js",
     "check": "biome check .",
