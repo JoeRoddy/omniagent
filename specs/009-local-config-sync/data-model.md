@@ -5,7 +5,9 @@
 Represents a single skill, agent, or command in shared or local sources.
 
 - **Fields**:
-  - `name` (string): Canonical item name used for conflict resolution.
+  - `identityKey` (string): Canonical identity used for conflict resolution (for
+    example normalized relative path or output key).
+  - `name` (string): Display name for reporting.
   - `category` (enum): `skills`, `agents`, `commands`.
   - `sourceType` (enum): `shared`, `local`.
   - `sourcePath` (string): Absolute or repo-relative origin path.
@@ -22,7 +24,7 @@ Describes how an item was designated as local.
 
 - **Fields**:
   - `markerType` (enum): `path`, `suffix`.
-  - `path` (string): `agents/.local/...` directory or filename/directory with
+  - `path` (string): `agents/.local/...` segment or filename/directory with
     `.local`.
 
 - **Relationships**:
@@ -68,3 +70,16 @@ Stores per-project user choices about ignore prompts.
 
 - **Relationships**:
   - Applied to multiple **Sync Runs** for the same project.
+
+## Carried Skill File
+
+Represents non-primary files copied from a skill directory during sync.
+
+- **Fields**:
+  - `relativePath` (string): Source-relative path within the skill directory.
+  - `normalizedOutputPath` (string): Output path after removing `.local` markers.
+  - `sourceType` (enum): `shared`, `local`.
+  - `markerType` (enum): `path`, `suffix`, `none`.
+
+- **Relationships**:
+  - Belongs to one **Config Item** in `skills`.

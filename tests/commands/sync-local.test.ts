@@ -508,17 +508,18 @@ describe.sequential("sync command local config", () => {
 			const notesOutput = await readFile(path.join(outputRoot, "notes.md"), "utf8");
 			const runOutput = await readFile(path.join(outputRoot, "scripts", "run.sh"), "utf8");
 			const flagsOutput = await readFile(path.join(outputRoot, "flags"), "utf8");
+			const envOutput = await readFile(path.join(outputRoot, ".env"), "utf8");
 
 			expect(skillOutput).toContain("local body wins");
 			expect(skillOutput).toContain("name: joes-thing");
 			expect(notesOutput).toBe("local notes");
 			expect(runOutput).toBe("local run");
 			expect(flagsOutput).toBe("local flags");
+			expect(envOutput).toBe("LOCAL_ENV=1");
 
 			expect(await pathExists(path.join(outputRoot, "notes.local.md"))).toBe(false);
 			expect(await pathExists(path.join(outputRoot, "scripts", "run.local.sh"))).toBe(false);
 			expect(await pathExists(path.join(outputRoot, "flags.local"))).toBe(false);
-			expect(await pathExists(path.join(outputRoot, ".env"))).toBe(false);
 			expect(await pathExists(path.join(outputRoot, ".env.local"))).toBe(false);
 		});
 	});

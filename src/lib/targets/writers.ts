@@ -119,11 +119,6 @@ function markerRank(markerType: LocalMarkerType | null): number {
 	return 0;
 }
 
-function isEnvFileName(fileName: string): boolean {
-	const lower = fileName.toLowerCase();
-	return lower === ".env" || lower.startsWith(".env.");
-}
-
 function normalizeLocalRelativeFilePath(relativePath: string): {
 	normalizedPath: string;
 	markerType: LocalMarkerType | null;
@@ -197,9 +192,6 @@ async function collectSkillCopyCandidates(options: {
 				continue;
 			}
 			if (!entry.isFile()) {
-				continue;
-			}
-			if (isEnvFileName(entry.name)) {
 				continue;
 			}
 
