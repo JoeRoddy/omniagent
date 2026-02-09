@@ -814,7 +814,7 @@ function logNonInteractiveNotices(options: { targets: ResolvedTarget[]; jsonOutp
 			logWithChannel(`${target.displayName} commands are user-only.`, options.jsonOutput);
 		} else if (hasUser && hasProject) {
 			logWithChannel(
-				`${target.displayName} commands will be written to project and user locations.`,
+				`${target.displayName} commands prefer the project location (user path is fallback-only).`,
 				options.jsonOutput,
 			);
 		}

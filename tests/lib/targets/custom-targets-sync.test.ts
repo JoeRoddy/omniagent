@@ -143,17 +143,13 @@ describe("custom target sync", () => {
 				path.join(root, ".acme", "commands", "hello.md"),
 				"utf8",
 			);
-			const commandUser = await readFile(
-				path.join(homeDir, ".acme", "commands", "hello.md"),
-				"utf8",
-			);
 			const rootInstructions = await readFile(path.join(root, "ACME.md"), "utf8");
 			const docsInstructions = await readFile(path.join(root, "docs", "ACME.md"), "utf8");
 
 			expect(skillOutput).toBe("Alpha skill");
 			expect(subagentOutput).toContain("Helper body");
 			expect(commandProject).toContain("Say hello.");
-			expect(commandUser).toContain("Say hello.");
+			expect(await pathExists(path.join(homeDir, ".acme", "commands", "hello.md"))).toBe(false);
 			expect(rootInstructions).toBe("Root instructions");
 			expect(docsInstructions).toBe("Docs instructions");
 		});
