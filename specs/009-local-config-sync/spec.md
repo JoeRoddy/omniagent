@@ -121,7 +121,7 @@ accept the ignore suggestion to confirm rules are added.
 - In a skill directory, both `notes.md` and `notes.local.md` exist; the synced output
   must include only `notes.md` with local content.
 - In a skill directory, `.env` and `.env.local` exist; synced output should include
-  `.env` with local override content and should not include `.env.local`.
+  both `.env` and `.env.local` as separate files.
 - No local items exist; list-local should report none and no ignore suggestion is
   shown.
 - A user passes an unknown category in --exclude-local; the tool should report the
@@ -179,8 +179,9 @@ accept the ignore suggestion to confirm rules are added.
   normalized output path, precedence MUST be `agents/.local/` marker, then `.local`
   suffix marker, then shared.
 - **FR-019**: For skill directory sync, the system MUST carry all files (including
-  `.env` and `.env.*`) and apply local marker normalization/precedence the same as
-  other carried files.
+  `.env` and `.env.*`). Exception: for filenames that start with `.env`, the
+  system MUST preserve the original filename (for example keep `.env.local` as
+  `.env.local`) instead of normalizing `.local` into `.env`.
 
 ### Key Entities *(include if feature involves data)*
 

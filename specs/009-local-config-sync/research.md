@@ -54,8 +54,10 @@
 - **Decision**: For skill directory sync, treat `.local` markers on any carried
   file path as source markers, normalize outputs to non-local paths, and apply
   precedence (`path` local > `suffix` local > shared), including `.env` files.
+  Exception: keep original filenames for `.env*` (for example `.env.local` is not
+  normalized to `.env`).
 - **Rationale**: Guarantees local overlays apply uniformly beyond `SKILL.local.md`
-  without introducing file-type exceptions that diverge from the core rule.
+  while preserving common env filename conventions in outputs.
 - **Alternatives considered**: Apply local behavior only to canonical skill files
   or exclude `.env*`. Rejected because partial behavior is surprising and
   inconsistent with "all `.local` files overlay shared equivalents."

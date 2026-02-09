@@ -77,7 +77,8 @@ Represents non-primary files copied from a skill directory during sync.
 
 - **Fields**:
   - `relativePath` (string): Source-relative path within the skill directory.
-  - `normalizedOutputPath` (string): Output path after removing `.local` markers.
+  - `normalizedOutputPath` (string): Output path after removing `.local` markers,
+    except `.env*` filenames which retain original names.
   - `sourceType` (enum): `shared`, `local`.
   - `markerType` (enum): `path`, `suffix`, `none`.
 

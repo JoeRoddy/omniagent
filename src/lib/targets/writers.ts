@@ -148,15 +148,23 @@ function normalizeLocalRelativeFilePath(relativePath: string): {
 	}
 
 	let normalizedFileName = fileName;
+	const isEnvPrefixedFile = fileName.toLowerCase().startsWith(".env");
 	const extension = path.extname(fileName);
-	const strippedSuffix = stripLocalSuffix(fileName, extension);
-	if (strippedSuffix.hadLocalSuffix) {
-		normalizedFileName = strippedSuffix.outputFileName;
-	}
-	const strippedPath = stripLocalPathSuffix(normalizedFileName);
-	if (strippedPath.hadLocalSuffix) {
-		hasPathMarker = true;
-		normalizedFileName = strippedPath.baseName;
+	let strippedSuffix: ReturnType<typeof stripLocalSuffix> = {
+		baseName: fileName,
+		outputFileName: fileName,
+		hadLocalSuffix: false,
+	};
+	if (!isEnvPrefixedFile) {
+		strippedSuffix = stripLocalSuffix(fileName, extension);
+		if (strippedSuffix.hadLocalSuffix) {
+			normalizedFileName = strippedSuffix.outputFileName;
+		}
+		const strippedPath = stripLocalPathSuffix(normalizedFileName);
+		if (strippedPath.hadLocalSuffix) {
+			hasPathMarker = true;
+			normalizedFileName = strippedPath.baseName;
+		}
 	}
 
 	const normalizedParts = [...normalizedDirectories, normalizedFileName].filter(Boolean);

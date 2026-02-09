@@ -49,7 +49,8 @@ agents/
   or skill directory), the `agents/.local/` version wins.
 - For skill directory file carry-over, any `.local`-marked file overlays its
   normalized non-local output path (`notes.local.md -> notes.md`).
-- `.env` and `.env.*` follow the same carry-over rule (`.env.local -> .env`).
+- `.env` and `.env.*` are carried over too, but keep original names
+  (`.env.local` stays `.env.local`).
 - If local items exist and ignore rules are missing, sync will prompt to update
   repo `.gitignore` (interactive only, and only once if declined).
 - Non-interactive runs never prompt and report missing ignore rules in the
