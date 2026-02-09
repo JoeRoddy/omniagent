@@ -65,8 +65,8 @@ function resolveSkillName(frontmatter: Record<string, FrontmatterValue>, fallbac
 	return fallback;
 }
 
-function normalizeSkillKey(name: string): string {
-	return name.trim().toLowerCase();
+function normalizeSkillKey(relativePath: string): string {
+	return path.normalize(relativePath).replace(/\\/g, "/").toLowerCase();
 }
 
 function resolveSkillRelativePath(
@@ -255,7 +255,7 @@ export async function loadSkillCatalog(
 		shared: sharedSkills,
 		localPath: localPathSkills,
 		localSuffix: localSuffixSkills,
-		key: (skill) => normalizeSkillKey(skill.name),
+		key: (skill) => normalizeSkillKey(skill.relativePath),
 	});
 
 	const skills = includeLocal ? [...sharedEffectiveSkills, ...localEffectiveSkills] : sharedSkills;

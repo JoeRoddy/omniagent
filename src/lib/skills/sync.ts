@@ -321,6 +321,8 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 				skillFileName: selected.skill.skillFileName,
 				outputFileName: selected.skill.outputFileName,
 				sourcePath: selected.skill.sourcePath,
+				sourceType: selected.skill.sourceType,
+				markerType: selected.skill.markerType,
 			};
 			await writer.write({
 				outputPath: selected.outputPath,
