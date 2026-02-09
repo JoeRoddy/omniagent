@@ -250,6 +250,53 @@ describe.sequential("sync command agentsDir override", () => {
 		});
 	});
 
+	it("uses a relative override for sync outputs across categories", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "agents", "default-skill", "Default skill");
+			await writeCommand(root, "agents", "default-command", "Default command");
+			await writeSubagent(root, "agents", "default-agent", "default-agent", "Default subagent");
+			await writeInstructionTemplate(root, "agents", "AGENTS.md", "Default instruction");
+
+			await writeSkill(root, "custom-agents", "custom-skill", "Custom skill");
+			await writeCommand(root, "custom-agents", "custom-command", "Custom command");
+			await writeSubagent(root, "custom-agents", "custom-agent", "custom-agent", "Custom subagent");
+			await writeInstructionTemplate(root, "custom-agents", "AGENTS.md", "Custom instruction");
+
+			await withCwd(root, async () => {
+				await runCli([
+					"node",
+					"omniagent",
+					"sync",
+					"--agentsDir",
+					"./custom-agents",
+					"--only",
+					"claude",
+					"--yes",
+				]);
+			});
+
+			const skillOutput = await readFile(
+				path.join(root, ".claude", "skills", "custom-skill", "SKILL.md"),
+				"utf8",
+			);
+			const commandOutput = await readFile(
+				path.join(root, ".claude", "commands", "custom-command.md"),
+				"utf8",
+			);
+			const subagentOutput = await readFile(
+				path.join(root, ".claude", "agents", "custom-agent.md"),
+				"utf8",
+			);
+			const instructionOutput = await readFile(path.join(root, "CLAUDE.md"), "utf8");
+
+			expect(skillOutput).toBe("Custom skill");
+			expect(commandOutput).toBe("Custom command");
+			expect(subagentOutput).toContain("Custom subagent");
+			expect(instructionOutput).toBe("Custom instruction");
+		});
+	});
+
 	it("uses an absolute override path", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
@@ -269,6 +316,33 @@ describe.sequential("sync command agentsDir override", () => {
 
 			const output = parseListLocalOutput(logSpy);
 			expect(output.skills.map((entry) => entry.name)).toEqual(["custom-skill"]);
+		});
+	});
+
+	it("uses an absolute override for sync outputs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "custom-agents", "custom-skill", "Custom skill");
+			const customAgentsPath = path.join(root, "custom-agents");
+
+			await withCwd(root, async () => {
+				await runCli([
+					"node",
+					"omniagent",
+					"sync",
+					"--agentsDir",
+					customAgentsPath,
+					"--only",
+					"claude",
+					"--yes",
+				]);
+			});
+
+			const skillOutput = await readFile(
+				path.join(root, ".claude", "skills", "custom-skill", "SKILL.md"),
+				"utf8",
+			);
+			expect(skillOutput).toBe("Custom skill");
 		});
 	});
 

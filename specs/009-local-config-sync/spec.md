@@ -13,8 +13,9 @@ review-helper.local/SKILL.md, or file-level suffixes like SKILL.local.md,
 deploy.local.md). Default behavior: omniagent sync includes shared + local and
 reports local counts. Exclude local when needed: omniagent sync --exclude-local
 for shared only; --exclude-local=skills,commands to exclude some categories. Local
-is a source marker only: outputs are clean (no .local). If local matches shared by
-name, local wins when included. When local is present, tool can offer to add ignore
+is a source marker only: outputs are clean (no .local). If local and shared map to
+the same canonical output identity (path/output key), local wins when included.
+When local is present, tool can offer to add ignore
 rules for agents/.local/, **/*.local/, and **/*.local.md. omniagent sync --list-local
 shows which files are considered local."
 
@@ -47,7 +48,8 @@ verify local content is applied and outputs are normalized without .local.
 
 **Acceptance Scenarios**:
 
-1. **Given** shared and local items with the same name, **When** I run
+1. **Given** shared and local items that resolve to the same canonical output key,
+   **When** I run
    `omniagent sync` with no flags, **Then** the local item is used in outputs and
    the output filename contains no ".local" marker.
 2. **Given** local items are present, **When** I run `omniagent sync`, **Then** the
@@ -111,9 +113,15 @@ accept the ignore suggestion to confirm rules are added.
 
 ### Edge Cases
 
-- Local and shared items share the same name in multiple categories.
+- Local and shared items resolve to the same canonical output identity in
+  multiple categories.
+- Local and shared items target the same output key even if frontmatter names differ.
 - A local item exists both in agents/.local/ and as a .local suffix (file or skill
   directory).
+- In a skill directory, both `notes.md` and `notes.local.md` exist; the synced output
+  must include only `notes.md` with local content.
+- In a skill directory, `.env` and `.env.local` exist; synced output should include
+  both `.env` and `.env.local` as separate files.
 - No local items exist; list-local should report none and no ignore suggestion is
   shown.
 - A user passes an unknown category in --exclude-local; the tool should report the
@@ -136,8 +144,9 @@ accept the ignore suggestion to confirm rules are added.
   suffixes for skills).
 - **FR-004**: System MUST include both shared and local sources by default when
   running `omniagent sync`.
-- **FR-005**: When a local item matches a shared item by name, the local item MUST
-  take precedence when local sources are included.
+- **FR-005**: When a local item matches a shared item by canonical output identity
+  (for example normalized relative path or output key), the local item MUST take
+  precedence when local sources are included, regardless of frontmatter display name.
 - **FR-006**: When `--exclude-local` is provided, the system MUST exclude all local
   items from the sync output.
 - **FR-007**: When `--exclude-local` specifies categories, the system MUST exclude
@@ -162,13 +171,26 @@ accept the ignore suggestion to confirm rules are added.
   state identifier derived from the repo root path.
 - **FR-016**: In non-interactive runs, the system MUST not prompt for ignore
   rules and MUST instead report missing ignore rules in the summary.
+- **FR-017**: For skill directory sync, the system MUST normalize `.local` markers
+  on carried files/directories to non-local output paths (for example
+  `notes.local.md -> notes.md`, `scripts/run.local.sh -> scripts/run.sh`,
+  `flags.local -> flags`).
+- **FR-018**: For skill directory sync, when multiple files resolve to the same
+  normalized output path, precedence MUST be `agents/.local/` marker, then `.local`
+  suffix marker, then shared.
+- **FR-019**: For skill directory sync, the system MUST carry all files (including
+  `.env` and `.env.*`). Exception: for filenames that start with `.env`, the
+  system MUST preserve the original filename (for example keep `.env.local` as
+  `.env.local`) instead of normalizing `.local` into `.env`.
 
 ### Key Entities *(include if feature involves data)*
 
-- **Config Item**: A skill, agent, or command with name, category, source type
-  (shared or local), and content.
+- **Config Item**: A skill, agent, or command with canonical identity key, category,
+  source type (shared or local), and content.
 - **Local Source Marker**: The indicator that a config item is local, either a
   agents/.local/ path or a .local suffix (file or skill directory).
+- **Carried Skill File**: Any non-primary file in a skill directory that is copied
+  during sync; local marker normalization and precedence apply to these files.
 - **Sync Run**: One execution of sync with options and a resulting summary of
   applied items.
 - **Ignore Suggestion**: A proposed set of ignore rules and the user's decision to
