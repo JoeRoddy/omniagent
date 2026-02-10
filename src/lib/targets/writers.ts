@@ -4,6 +4,13 @@ import path from "node:path";
 import { TextDecoder } from "node:util";
 import { applyAgentTemplating } from "../agent-templating.js";
 import { stripFrontmatterFields } from "../frontmatter-strip.js";
+import {
+	detectLocalMarkerFromPath,
+	type LocalMarkerType,
+	type SourceType,
+	stripLocalPathSuffix,
+	stripLocalSuffix,
+} from "../local-sources.js";
 import { evaluateTemplateScripts } from "../template-scripts.js";
 import type { OutputWriter, OutputWriterRef, WriterContext, WriterResult } from "./config-types.js";
 
@@ -22,6 +29,8 @@ export type SkillWriterItem = {
 	skillFileName: string;
 	outputFileName: string;
 	sourcePath: string;
+	sourceType: SourceType;
+	markerType?: LocalMarkerType;
 };
 
 export type SubagentWriterItem = {
@@ -93,6 +102,144 @@ async function writeOutputFile(
 	return { status: existing ? "updated" : "created", contentHash };
 }
 
+type SkillCopyCandidate = {
+	sourcePath: string;
+	destinationPath: string;
+	isSkillFile: boolean;
+	markerRank: number;
+};
+
+function markerRank(markerType: LocalMarkerType | null): number {
+	if (markerType === "path") {
+		return 2;
+	}
+	if (markerType === "suffix") {
+		return 1;
+	}
+	return 0;
+}
+
+function normalizeLocalRelativeFilePath(relativePath: string): {
+	normalizedPath: string;
+	markerType: LocalMarkerType | null;
+} {
+	const parts = relativePath.split(path.sep).filter(Boolean);
+	if (parts.length === 0) {
+		return { normalizedPath: relativePath, markerType: null };
+	}
+	const directoryParts = parts.slice(0, -1);
+	const fileName = parts[parts.length - 1];
+	let hasPathMarker = false;
+
+	const normalizedDirectories: string[] = [];
+	for (const part of directoryParts) {
+		if (part === ".local") {
+			hasPathMarker = true;
+			continue;
+		}
+		const { baseName, hadLocalSuffix } = stripLocalPathSuffix(part);
+		if (hadLocalSuffix) {
+			hasPathMarker = true;
+		}
+		if (!baseName) {
+			continue;
+		}
+		normalizedDirectories.push(baseName);
+	}
+
+	let normalizedFileName = fileName;
+	const isEnvPrefixedFile = fileName.toLowerCase().startsWith(".env");
+	const extension = path.extname(fileName);
+	let strippedSuffix: ReturnType<typeof stripLocalSuffix> = {
+		baseName: fileName,
+		outputFileName: fileName,
+		hadLocalSuffix: false,
+	};
+	if (!isEnvPrefixedFile) {
+		strippedSuffix = stripLocalSuffix(fileName, extension);
+		if (strippedSuffix.hadLocalSuffix) {
+			normalizedFileName = strippedSuffix.outputFileName;
+		}
+		const strippedPath = stripLocalPathSuffix(normalizedFileName);
+		if (strippedPath.hadLocalSuffix) {
+			hasPathMarker = true;
+			normalizedFileName = strippedPath.baseName;
+		}
+	}
+
+	const normalizedParts = [...normalizedDirectories, normalizedFileName].filter(Boolean);
+	const markerType: LocalMarkerType | null = hasPathMarker
+		? "path"
+		: strippedSuffix.hadLocalSuffix
+			? "suffix"
+			: null;
+	return {
+		normalizedPath: normalizedParts.join(path.sep),
+		markerType,
+	};
+}
+
+async function collectSkillCopyCandidates(options: {
+	source: string;
+	destination: string;
+	skillFileName: string;
+	outputFileName: string;
+	sourceType: SourceType;
+	markerType?: LocalMarkerType;
+}): Promise<SkillCopyCandidate[]> {
+	const selectedSkillFile = options.skillFileName.toLowerCase();
+	const candidates: SkillCopyCandidate[] = [];
+
+	const walk = async (currentSource: string, relativePrefix = ""): Promise<void> => {
+		const entries = await readdir(currentSource, { withFileTypes: true });
+		for (const entry of entries) {
+			const sourcePath = path.join(currentSource, entry.name);
+			const relativePath = relativePrefix ? path.join(relativePrefix, entry.name) : entry.name;
+			if (entry.isDirectory()) {
+				await walk(sourcePath, relativePath);
+				continue;
+			}
+			if (!entry.isFile()) {
+				continue;
+			}
+
+			const entryLowerName = entry.name.toLowerCase();
+			const isSkillFile = entryLowerName === "skill.md" || entryLowerName === "skill.local.md";
+			if (isSkillFile && entryLowerName !== selectedSkillFile) {
+				continue;
+			}
+
+			const detectedMarker =
+				detectLocalMarkerFromPath(relativePath) ??
+				(options.sourceType === "local" && options.markerType === "path" ? "path" : null);
+			if (isSkillFile) {
+				candidates.push({
+					sourcePath,
+					destinationPath: path.join(options.destination, options.outputFileName),
+					isSkillFile: true,
+					markerRank: markerRank(detectedMarker),
+				});
+				continue;
+			}
+
+			const normalized = normalizeLocalRelativeFilePath(relativePath);
+			if (!normalized.normalizedPath) {
+				continue;
+			}
+			const marker = normalized.markerType ?? detectedMarker;
+			candidates.push({
+				sourcePath,
+				destinationPath: path.join(options.destination, normalized.normalizedPath),
+				isSkillFile: false,
+				markerRank: markerRank(marker),
+			});
+		}
+	};
+
+	await walk(options.source);
+	return candidates;
+}
+
 async function copySkillDirectory(options: {
 	source: string;
 	destination: string;
@@ -100,46 +247,48 @@ async function copySkillDirectory(options: {
 	validAgents: string[];
 	skillFileName: string;
 	outputFileName: string;
+	sourceType: SourceType;
+	markerType?: LocalMarkerType;
 	templateScriptRuntime?: WriterContext["templateScriptRuntime"];
 }): Promise<void> {
 	await mkdir(options.destination, { recursive: true });
-	const entries = await readdir(options.source, { withFileTypes: true });
-	const selectedSkillFile = options.skillFileName.toLowerCase();
-	const outputSkillFile = options.outputFileName;
+	const candidates = await collectSkillCopyCandidates({
+		source: options.source,
+		destination: options.destination,
+		skillFileName: options.skillFileName,
+		outputFileName: options.outputFileName,
+		sourceType: options.sourceType,
+		markerType: options.markerType,
+	});
+	const winnerByOutputPath = new Map<string, SkillCopyCandidate>();
+	for (const candidate of candidates) {
+		const key = path.normalize(candidate.destinationPath).replace(/\\/g, "/").toLowerCase();
+		const existing = winnerByOutputPath.get(key);
+		if (
+			!existing ||
+			candidate.markerRank > existing.markerRank ||
+			(candidate.markerRank === existing.markerRank &&
+				candidate.sourcePath.localeCompare(existing.sourcePath) > 0)
+		) {
+			winnerByOutputPath.set(key, candidate);
+		}
+	}
+	const winners = [...winnerByOutputPath.values()].sort((left, right) =>
+		left.destinationPath.localeCompare(right.destinationPath),
+	);
 
-	for (const entry of entries) {
-		const sourcePath = path.join(options.source, entry.name);
-		const entryLowerName = entry.name.toLowerCase();
-		const isSkillFile = entryLowerName === "skill.md" || entryLowerName === "skill.local.md";
-		if (isSkillFile && entryLowerName !== selectedSkillFile) {
-			continue;
-		}
-		const destinationPath = isSkillFile
-			? path.join(options.destination, outputSkillFile)
-			: path.join(options.destination, entry.name);
-		if (entry.isDirectory()) {
-			await copySkillDirectory({
-				...options,
-				source: sourcePath,
-				destination: path.join(options.destination, entry.name),
-			});
-			continue;
-		}
-		if (!entry.isFile()) {
-			continue;
-		}
-
-		const buffer = await readFile(sourcePath);
+	for (const winner of winners) {
+		const buffer = await readFile(winner.sourcePath);
 		const decoded = decodeUtf8(buffer);
 		if (decoded === null) {
-			await mkdir(path.dirname(destinationPath), { recursive: true });
-			await writeFile(destinationPath, buffer);
+			await mkdir(path.dirname(winner.destinationPath), { recursive: true });
+			await writeFile(winner.destinationPath, buffer);
 			continue;
 		}
 
 		const withScripts = options.templateScriptRuntime
 			? await evaluateTemplateScripts({
-					templatePath: sourcePath,
+					templatePath: winner.sourcePath,
 					content: decoded,
 					runtime: options.templateScriptRuntime,
 				})
@@ -148,13 +297,13 @@ async function copySkillDirectory(options: {
 			content: withScripts,
 			target: options.targetId,
 			validAgents: options.validAgents,
-			sourcePath,
+			sourcePath: winner.sourcePath,
 		});
-		const output = isSkillFile
+		const output = winner.isSkillFile
 			? stripFrontmatterFields(templated, TARGET_FRONTMATTER_KEYS)
 			: templated;
-		await mkdir(path.dirname(destinationPath), { recursive: true });
-		await writeFile(destinationPath, output, "utf8");
+		await mkdir(path.dirname(winner.destinationPath), { recursive: true });
+		await writeFile(winner.destinationPath, output, "utf8");
 	}
 }
 
@@ -177,6 +326,8 @@ export const defaultSkillWriter: OutputWriter = {
 			validAgents: options.context.validAgents,
 			skillFileName: item.skillFileName,
 			outputFileName: item.outputFileName,
+			sourceType: item.sourceType,
+			markerType: item.markerType,
 			templateScriptRuntime: options.context.templateScriptRuntime,
 		});
 		return { status: "created" };

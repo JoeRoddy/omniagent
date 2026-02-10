@@ -20,6 +20,18 @@ async function writeSkill(root: string, baseDir: string, name: string, fileName:
 	await writeFile(path.join(dir, fileName), `Content for ${name}`, "utf8");
 }
 
+async function writeSkillContents(
+	root: string,
+	baseDir: string,
+	name: string,
+	fileName: string,
+	contents: string,
+) {
+	const dir = path.join(root, baseDir, name);
+	await mkdir(dir, { recursive: true });
+	await writeFile(path.join(dir, fileName), contents, "utf8");
+}
+
 async function writeCommand(root: string, baseDir: string, fileName: string, body: string) {
 	const dir = path.join(root, baseDir);
 	await mkdir(dir, { recursive: true });
@@ -102,6 +114,32 @@ describe("local catalog detection", () => {
 
 			expect(localGamma?.relativePath).toBe("gamma");
 			expect(catalog.localSkills.some((skill) => skill.name === "gamma.local")).toBe(false);
+		});
+	});
+
+	it("treats colocated SKILL.local as the local override even when frontmatter names differ", async () => {
+		await withTempRepo(async (root) => {
+			await writeSkillContents(
+				root,
+				path.join("agents", "skills"),
+				"alpha",
+				"SKILL.md",
+				["---", "name: alpha", "---", "Shared"].join("\n"),
+			);
+			await writeSkillContents(
+				root,
+				path.join("agents", "skills"),
+				"alpha",
+				"SKILL.local.md",
+				["---", "name: beta", "---", "Local"].join("\n"),
+			);
+
+			const catalog = await loadSkillCatalog(root);
+			expect(catalog.localEffectiveSkills).toHaveLength(1);
+			expect(catalog.localEffectiveSkills[0]?.sourceType).toBe("local");
+			expect(catalog.localEffectiveSkills[0]?.skillFileName).toBe("SKILL.local.md");
+			expect(catalog.skills).toHaveLength(1);
+			expect(catalog.skills[0]?.sourceType).toBe("local");
 		});
 	});
 
