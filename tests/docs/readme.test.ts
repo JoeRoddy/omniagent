@@ -23,6 +23,7 @@ describe("README", () => {
 		expect(contents).toContain("docs/cli-shim.md");
 		expect(contents).toContain("--agentsDir");
 		expect(contents).toContain("agents/commands/deploy.local.md");
+		expect(contents).toContain("agents/.local/commands/deploy.md");
 		expect(contents).toContain("<agents claude,codex>");
 		expect(contents).toContain("## Contributing");
 		expect(contents).toContain("CONTRIBUTING.md");

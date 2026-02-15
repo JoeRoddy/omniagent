@@ -12,6 +12,14 @@ agents/skills/review-helper.local/SKILL.md
 agents/agents/release-helper.local.md
 ```
 
+Directory-style local overrides are also supported:
+
+```text
+agents/.local/commands/deploy.md
+agents/.local/skills/review-helper/SKILL.md
+agents/.local/agents/release-helper.md
+```
+
 ## Behavior
 
 - Local items override shared items with the same logical name.

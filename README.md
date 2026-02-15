@@ -66,6 +66,14 @@ agents/commands/deploy.local.md
 agents/skills/review-helper.local/SKILL.md
 ```
 
+Directory-style overrides are also supported:
+
+```text
+agents/.local/commands/deploy.md
+agents/.local/skills/review-helper/SKILL.md
+agents/.local/agents/release-helper.md
+```
+
 If a `.local` item matches a shared item name, the local item wins for your sync run. Generated
 outputs do not keep the `.local` suffix.
 
