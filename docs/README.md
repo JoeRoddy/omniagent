@@ -12,4 +12,5 @@ Use the pages below when you need deeper behavior or advanced configuration.
 - Templating and dynamic scripts: [`docs/templating.md`](templating.md)
 - Command reference: [`docs/reference.md`](reference.md)
 - Troubleshooting: [`docs/troubleshooting.md`](troubleshooting.md)
-- CLI shim E2E guide: [`docs/cli-shim-e2e.md`](cli-shim-e2e.md)
+
+Contributor/development docs live in [`CONTRIBUTING.md`](../CONTRIBUTING.md).

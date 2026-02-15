@@ -68,15 +68,11 @@ omniagent -p "Summarize this repo" --agent codex --output json
 - Templating and dynamic scripts: [`docs/templating.md`](docs/templating.md)
 - Command reference: [`docs/reference.md`](docs/reference.md)
 - Troubleshooting: [`docs/troubleshooting.md`](docs/troubleshooting.md)
-- CLI shim E2E guide: [`docs/cli-shim-e2e.md`](docs/cli-shim-e2e.md)
 
 ## Requirements
 
 - Node.js 18+
 
-## Validation
+## Contributing
 
-```bash
-npm run check
-npm test
-```
+Development and test workflows are documented in [`CONTRIBUTING.md`](CONTRIBUTING.md).

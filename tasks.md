@@ -7,3 +7,12 @@
 - [x] Add a docs index and link advanced docs from `README.md`.
 - [x] Update docs tests to match the new README/docs structure.
 - [x] Run validation (`npm run check` and `npm test`).
+
+# Contributor/Consumer Split Follow-up
+
+- [x] Remove development-only validation details from root `README.md`.
+- [x] Add `CONTRIBUTING.md` with local development and validation guidance.
+- [x] Move CLI shim E2E guidance under contributing docs flow.
+- [x] Remove contributor-only links from end-user docs indexes.
+- [x] Update docs tests for the new contributing boundary.
+- [x] Run validation (`npm run check` and `npm test`).

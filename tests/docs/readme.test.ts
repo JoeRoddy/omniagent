@@ -20,6 +20,10 @@ describe("README", () => {
 		expect(contents).toContain("docs/templating.md");
 		expect(contents).toContain("docs/cli-shim.md");
 		expect(contents).toContain("--agentsDir");
+		expect(contents).toContain("## Contributing");
+		expect(contents).toContain("CONTRIBUTING.md");
+		expect(contents).not.toContain("## Validation");
+		expect(contents).not.toContain("docs/cli-shim-e2e.md");
 	});
 
 	it("keeps advanced templating details in docs pages", async () => {
@@ -42,6 +46,8 @@ describe("README", () => {
 		expect(docsIndex).toContain("docs/custom-targets.md");
 		expect(docsIndex).toContain("docs/templating.md");
 		expect(docsIndex).toContain("docs/reference.md");
+		expect(docsIndex).toContain("CONTRIBUTING.md");
+		expect(docsIndex).not.toContain("docs/cli-shim-e2e.md");
 		expect(quickstart).toContain("Current docs pages:");
 		expect(quickstart).toContain('const docsDir = path.join(process.cwd(), "docs")');
 		expect(quickstart).toContain('return pages.join("\\n");');
