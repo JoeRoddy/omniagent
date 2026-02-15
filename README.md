@@ -16,7 +16,7 @@ description: "Help draft release plans and checklists."
 Draft a release plan with milestones and owners.
 AGENT
 
-npx omniagent@latest sync
+npx omniagent@latest sync --only claude,codex
 ```
 
 Typical outputs:
@@ -26,14 +26,6 @@ Typical outputs:
   agents/
     release-helper.md
 .codex/
-  skills/
-    release-helper/
-      SKILL.md
-.gemini/
-  skills/
-    release-helper/
-      SKILL.md
-.copilot/
   skills/
     release-helper/
       SKILL.md
@@ -55,7 +47,7 @@ npx omniagent@latest sync
 npx omniagent@latest sync --only claude,codex
 
 # Skip a target for this run
-npx omniagent@latest sync --skip gemini
+npx omniagent@latest sync --skip codex
 
 # Use a non-default agents directory
 npx omniagent@latest sync --agentsDir ./my-custom-agents
