@@ -11,11 +11,10 @@ Author once in `agents/`, sync everywhere.
 Subagents example:
 
 ```md
-<!-- ./agents/agents/release-helper.md -->
-
+# ./agents/agents/release-helper.md 
+---
 name: release-helper
 description: "Help draft release plans and checklists."
-
 ---
 
 Draft a release plan with milestones and owners.
