@@ -15,7 +15,7 @@ describe("README", () => {
 		expect(contents).toContain("## Quickstart");
 		expect(contents).toContain("## How It Works");
 		expect(contents).toContain("## Common Commands");
-		expect(contents).toContain("## Shim for Automation");
+		expect(contents).toContain("## Agent CLI Shim");
 		expect(contents).toContain("## Local Overrides (`.local`)");
 		expect(contents).toContain("## Basic Templating");
 		expect(contents).toContain("## Documentation");
@@ -24,10 +24,10 @@ describe("README", () => {
 		expect(contents).toContain("docs/cli-shim.md");
 		expect(contents).toContain("--agentsDir");
 		expect(contents).toContain("deploy.local.md");
-		expect(contents).toContain("review-helper.local/");
+		expect(contents).toContain("SKILL.local.md");
 		expect(contents).toContain(".local/");
-		expect(contents).toContain("    commands/");
-		expect(contents).toContain("      deploy.md");
+		expect(contents).toContain("deploy.md");
+		expect(contents).toContain("my-personal-command.md");
 		expect(contents).toContain("<agents claude,codex>");
 		expect(contents).toMatch(/agent="\$\{1:-claude\}"/);
 		expect(contents).toContain("## Contributing");

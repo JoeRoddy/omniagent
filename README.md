@@ -6,20 +6,20 @@ Define canonical agent files once in `agents/`, then run `sync` to compile targe
 
 ## Quickstart
 
-```bash
-mkdir -p agents/agents
-cat > agents/agents/release-helper.md <<'AGENT'
+Author once in `agents/`, sync everywhere.
+
+Canonical source example:
+
+```md
+<!-- agents/agents/release-helper.md -->
 ---
 name: release-helper
 description: "Help draft release plans and checklists."
 ---
 Draft a release plan with milestones and owners.
-AGENT
-
-npx omniagent@latest sync --only claude,codex
 ```
 
-Typical outputs:
+After `sync`, outputs include:
 
 ```text
 .claude/
@@ -30,6 +30,10 @@ Typical outputs:
     release-helper/
       SKILL.md
 ```
+
+Subagents are Claude-native. Codex does not support subagents, so omniagent automatically
+converts the same canonical file into Codex's skill format (and the equivalent format for other
+supported CLIs).
 
 ## How It Works
 
