@@ -40,7 +40,7 @@ Typical outputs:
 ## Common Commands
 
 ```bash
-# Sync all active targets
+# Sync all supported agent CLIs installed on your system
 npx omniagent@latest sync
 
 # Sync specific targets
@@ -58,6 +58,25 @@ npx omniagent@latest sync --list-local
 # Shim mode (no subcommand)
 omniagent --agent codex
 omniagent -p "Summarize this repo" --agent codex --output json
+```
+
+## Shim for Automation
+
+The CLI shim (`omniagent` without a subcommand) is useful for CI/CD and shell scripts because it
+provides one command surface across supported agent CLIs.
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent="${1:-claude}"
+if [ "$#" -gt 0 ]; then
+  shift
+fi
+
+prompt="${*:-Summarize changes from this build and list action items.}"
+
+omniagent -p "$prompt" --agent "$agent" --output json
 ```
 
 ## Local Overrides (`.local`)
