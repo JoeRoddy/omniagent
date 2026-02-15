@@ -17,7 +17,7 @@ This folder keeps the Silicon Valley cast image + agent icon overlay pipeline in
 From repo root:
 
 ```bash
-./design/sv-cast/render.sh
+./design/sync-hero-image/render.sh
 ```
 
 Prerequisites: `ffmpeg`, `python3`, and the Python `Pillow` package.
@@ -25,7 +25,7 @@ Prerequisites: `ffmpeg`, `python3`, and the Python `Pillow` package.
 Optional custom output path:
 
 ```bash
-./design/sv-cast/render.sh ./design/sv-cast/source/siliconvalley04.webp ./design/sv-cast/output/sv-cast-with-agents.png
+./design/sync-hero-image/render.sh ./design/sync-hero-image/source/siliconvalley04.webp ./design/sync-hero-image/output/sv-cast-with-agents.png
 ```
 
 ## Render Stages

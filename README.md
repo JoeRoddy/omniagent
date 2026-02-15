@@ -1,8 +1,13 @@
 # omniagent
 
-One source of truth for agent content across Claude, Codex, Gemini, and Copilot.
+One source of truth for agent config across Claude, Codex, Gemini, and Copilot (and [any other agent](docs/custom-targets.md))
 
 Define canonical agent files once in `agents/`, then run `sync` to compile target-specific outputs.
+
+- Teams can keep one shared agent configuration while each teammate uses their preferred CLI.
+- Agent enthusiasts can try out the newest agents, and switch back, without manually porting all their config.
+
+![Sync hero image](./design/sync-hero-image/output/sv-cast-with-agents.png)
 
 ## Quickstart
 
@@ -11,10 +16,13 @@ Author once in `agents/`, sync everywhere.
 Subagents example:
 
 ```md
-# ./agents/agents/release-helper.md 
+# ./agents/agents/release-helper.md
+
 ---
+
 name: release-helper
 description: "Help draft release plans and checklists."
+
 ---
 
 Draft a release plan with milestones and owners.

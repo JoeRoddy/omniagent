@@ -52,3 +52,12 @@ export default config;
 
 - Core sync behavior: [`docs/sync-basics.md`](sync-basics.md)
 - Full flag list: [`docs/reference.md`](reference.md)
+
+## Target implementation references
+
+For examples and implementation reference, see [`/src/lib/targets/builtins/`](../src/lib/targets/builtins/):
+
+- [Claude Code](../src/lib/targets/builtins/claude-code/target.ts)
+- [Codex](../src/lib/targets/builtins/codex/target.ts)
+- [Copilot](../src/lib/targets/builtins/copilot-cli/target.ts)
+- [Gemini](../src/lib/targets/builtins/gemini-cli/target.ts)

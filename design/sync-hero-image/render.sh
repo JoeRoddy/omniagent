@@ -154,29 +154,37 @@ meta_font = load_font(22)
 
 draw.text((96, panel_top + 74), "<repo>/agents/", fill=(255, 255, 255), font=title_font)
 draw.text((104, panel_top + 132), "skills/", fill=(191, 219, 254), font=section_font)
-draw.text((130, panel_top + 172), "  - hello-world/SKILL.md", fill=(255, 255, 255), font=body_font)
+draw.text((130, panel_top + 172), "  - docx-creator/SKILL.md", fill=(255, 255, 255), font=body_font)
 draw.text((104, panel_top + 214), "commands/", fill=(191, 219, 254), font=section_font)
 draw.text(
 	(130, panel_top + 254),
-	"  - omniagent-example-slash.md",
+	"  - refactor.md",
 	fill=(255, 255, 255),
 	font=body_font,
 )
 draw.text((104, panel_top + 296), "agents/", fill=(191, 219, 254), font=section_font)
-draw.text((130, panel_top + 336), "  - code-improver.md", fill=(255, 255, 255), font=body_font)
+draw.text((130, panel_top + 336), "  - marketing-expert.md", fill=(255, 255, 255), font=body_font)
 
 draw.text((width - 710, panel_top + 74), "npx omniagent sync", fill=(255, 255, 255), font=header_font)
-draw.text((width - 710, panel_top + 134), "dinesh   => claude", fill=(254, 243, 199), font=body_font)
-draw.text((width - 710, panel_top + 179), "gilfoyle => codex", fill=(219, 234, 254), font=body_font)
-draw.text((width - 710, panel_top + 224), "richard  => codex", fill=(219, 234, 254), font=body_font)
-draw.text((width - 710, panel_top + 269), "jared    => copilot", fill=(220, 252, 231), font=body_font)
-draw.text((width - 710, panel_top + 314), "erlich   => claude", fill=(254, 243, 199), font=body_font)
-draw.text(
-	(width - 710, panel_top + 346),
-	"source => /agents/* + ~/.omniagent/state/*",
-	fill=(153, 246, 228),
-	font=meta_font,
-)
+sync_mappings = [
+	("dinesh", "--only claude", ".claude/"),
+	("gilfoyle", "--only codex", ".codex/"),
+	("richard", "--only codex", ".codex/"),
+	("jared", "--only copilot", ".github/"),
+	("erlich", "--only claude", ".claude/"),
+]
+sync_colors = [
+	(254, 243, 199),
+	(219, 234, 254),
+	(219, 234, 254),
+	(220, 252, 231),
+	(254, 243, 199),
+]
+sync_x = width - 710
+for idx, (name, only, target) in enumerate(sync_mappings):
+	y = panel_top + 134 + (idx * 45)
+	text = f"{name:<8} => {only:<14} => {target}"
+	draw.text((sync_x, y), text, fill=sync_colors[idx], font=body_font)
 
 # Arrowed lines fan out from the top-center of the sync-config card.
 icon_radius = 56
