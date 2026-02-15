@@ -66,24 +66,36 @@ Use `.local` files for personal variants that should not become team defaults.
 
 ```text
 agents/
+  AGENTS.local.md    # opinionated personal override
   commands/
-    deploy.md       # committed to git
-    deploy.local.md # personal override, ignored by git
+    deploy.md        # committed to git
+    deploy.local.md  # opinionated personal override
+  skills/
+    ppt/
+      SKILL.md       # committed to git
+      SKILL.local.md # opinionated personal override
 ```
 
-Directory-style overrides are also supported via `./agents/.local/`:
+`./agents/.local/` is also supported. This can be used for libraries for your personal tooling, that should not be shared with the team:
 
 ```text
 agents/
   .local/
-    commands/...
-    skills/example/SKILL.md
+    commands/my-personal-command.md
+    skills/my-personal-skill/SKILL.md
 ```
 
 If a `.local` item matches a shared item name, the local item wins for your sync run. Generated
 outputs do not keep the `.local` suffix.
 
 Use `--list-local` to see active local items, or `--exclude-local` to ignore them for a run.
+
+Example `.gitignore` entries:
+
+```gitignore
+agents/.local/
+agents/**/*.local*
+```
 
 ## Basic Templating
 
