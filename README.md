@@ -60,25 +60,6 @@ omniagent --agent codex
 omniagent -p "Summarize this repo" --agent codex --output json
 ```
 
-## Shim for Automation
-
-The CLI shim (`omniagent` without a subcommand) is useful for CI/CD and shell scripts because it
-provides one command surface across supported agent CLIs.
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-agent="${1:-claude}"
-if [ "$#" -gt 0 ]; then
-  shift
-fi
-
-prompt="${*:-Summarize changes from this build and list action items.}"
-
-omniagent -p "$prompt" --agent "$agent" --output json
-```
-
 ## Local Overrides (`.local`)
 
 Use `.local` files for personal variants that should not become team defaults.
@@ -86,24 +67,17 @@ Use `.local` files for personal variants that should not become team defaults.
 ```text
 agents/
   commands/
-    deploy.local.md
-  skills/
-    review-helper.local/
-      SKILL.md
+    deploy.md       # committed to git
+    deploy.local.md # personal override, ignored by git
 ```
 
-Directory-style overrides are also supported:
+Directory-style overrides are also supported via `./agents/.local/`:
 
 ```text
 agents/
   .local/
-    commands/
-      deploy.md
-    skills/
-      review-helper/
-        SKILL.md
-    agents/
-      release-helper.md
+    commands/...
+    skills/example/SKILL.md
 ```
 
 If a `.local` item matches a shared item name, the local item wins for your sync run. Generated
@@ -125,6 +99,28 @@ Extra instructions only for Claude and Codex.
 
 For advanced templating and dynamic scripts (`<nodejs>`, `<shell>`), see
 [`docs/templating.md`](docs/templating.md).
+
+## Agent CLI Shim
+
+Omniagent provides a CLI shim (`omniagent` without a subcommand) for working with agent CLIs via a unified interface.
+
+This can be useful for CI/CD and shell scripts, while maintaining full portability between agents:
+
+```bash
+# code-review.sh
+#!/usr/bin/env bash
+set -euo pipefail
+agent="${1:-claude}"
+
+omniagent -p "Perform comprehensive code review for this branch against main" --agent "$agent"
+```
+
+Example usage:
+
+```bash
+./code-review.sh
+./code-review.sh codex
+```
 
 ## Documentation
 
