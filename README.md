@@ -57,6 +57,35 @@ omniagent --agent codex
 omniagent -p "Summarize this repo" --agent codex --output json
 ```
 
+## Local Overrides (`.local`)
+
+Use `.local` files for personal variants that should not become team defaults.
+
+```text
+agents/commands/deploy.local.md
+agents/skills/review-helper.local/SKILL.md
+```
+
+If a `.local` item matches a shared item name, the local item wins for your sync run. Generated
+outputs do not keep the `.local` suffix.
+
+Use `--list-local` to see active local items, or `--exclude-local` to ignore them for a run.
+
+## Basic Templating
+
+Use `<agents ...>` blocks when some text should render only for specific targets.
+
+```md
+Shared guidance for all targets.
+
+<agents claude,codex>
+Extra instructions only for Claude and Codex.
+</agents>
+```
+
+For advanced templating and dynamic scripts (`<nodejs>`, `<shell>`), see
+[`docs/templating.md`](docs/templating.md).
+
 ## Documentation
 
 - Docs index: [`docs/README.md`](docs/README.md)

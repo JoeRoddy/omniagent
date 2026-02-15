@@ -16,3 +16,10 @@
 - [x] Remove contributor-only links from end-user docs indexes.
 - [x] Update docs tests for the new contributing boundary.
 - [x] Run validation (`npm run check` and `npm test`).
+
+# README Basics Follow-up
+
+- [x] Add simple `.local` override explanation to root `README.md`.
+- [x] Add simple basic templating explanation to root `README.md`.
+- [x] Update docs tests to assert these root README basics.
+- [x] Run validation (`npm run check` and `npm test`).

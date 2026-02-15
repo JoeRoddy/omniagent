@@ -15,11 +15,15 @@ describe("README", () => {
 		expect(contents).toContain("## Quickstart");
 		expect(contents).toContain("## How It Works");
 		expect(contents).toContain("## Common Commands");
+		expect(contents).toContain("## Local Overrides (`.local`)");
+		expect(contents).toContain("## Basic Templating");
 		expect(contents).toContain("## Documentation");
 		expect(contents).toContain("docs/custom-targets.md");
 		expect(contents).toContain("docs/templating.md");
 		expect(contents).toContain("docs/cli-shim.md");
 		expect(contents).toContain("--agentsDir");
+		expect(contents).toContain("agents/commands/deploy.local.md");
+		expect(contents).toContain("<agents claude,codex>");
 		expect(contents).toContain("## Contributing");
 		expect(contents).toContain("CONTRIBUTING.md");
 		expect(contents).not.toContain("## Validation");
