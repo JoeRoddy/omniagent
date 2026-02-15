@@ -7,17 +7,28 @@ Local overrides let each developer customize behavior without changing shared ca
 Examples:
 
 ```text
-agents/commands/deploy.local.md
-agents/skills/review-helper.local/SKILL.md
-agents/agents/release-helper.local.md
+agents/
+  commands/
+    deploy.local.md
+  skills/
+    review-helper.local/
+      SKILL.md
+  agents/
+    release-helper.local.md
 ```
 
 Directory-style local overrides are also supported:
 
 ```text
-agents/.local/commands/deploy.md
-agents/.local/skills/review-helper/SKILL.md
-agents/.local/agents/release-helper.md
+agents/
+  .local/
+    commands/
+      deploy.md
+    skills/
+      review-helper/
+        SKILL.md
+    agents/
+      release-helper.md
 ```
 
 ## Behavior

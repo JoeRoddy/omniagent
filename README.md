@@ -22,10 +22,21 @@ npx omniagent@latest sync
 Typical outputs:
 
 ```text
-.claude/agents/release-helper.md
-.codex/skills/release-helper/SKILL.md
-.gemini/skills/release-helper/SKILL.md
-.copilot/skills/release-helper/SKILL.md
+.claude/
+  agents/
+    release-helper.md
+.codex/
+  skills/
+    release-helper/
+      SKILL.md
+.gemini/
+  skills/
+    release-helper/
+      SKILL.md
+.copilot/
+  skills/
+    release-helper/
+      SKILL.md
 ```
 
 ## How It Works
@@ -62,16 +73,26 @@ omniagent -p "Summarize this repo" --agent codex --output json
 Use `.local` files for personal variants that should not become team defaults.
 
 ```text
-agents/commands/deploy.local.md
-agents/skills/review-helper.local/SKILL.md
+agents/
+  commands/
+    deploy.local.md
+  skills/
+    review-helper.local/
+      SKILL.md
 ```
 
 Directory-style overrides are also supported:
 
 ```text
-agents/.local/commands/deploy.md
-agents/.local/skills/review-helper/SKILL.md
-agents/.local/agents/release-helper.md
+agents/
+  .local/
+    commands/
+      deploy.md
+    skills/
+      review-helper/
+        SKILL.md
+    agents/
+      release-helper.md
 ```
 
 If a `.local` item matches a shared item name, the local item wins for your sync run. Generated
