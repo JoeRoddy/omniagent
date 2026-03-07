@@ -1,5 +1,8 @@
 # CLI Shim E2E (Baseline-First)
 
+This is a contributor/maintainer workflow. For overall development guidance, start with
+[`CONTRIBUTING.md`](../CONTRIBUTING.md).
+
 This suite treats the real agent CLIs as the ground truth. It records their stdout/stderr first,
 then verifies the shim produces identical output and invokes the expected command/args.
 
