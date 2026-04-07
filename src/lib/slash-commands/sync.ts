@@ -690,7 +690,7 @@ async function buildTargetPlan(
 		});
 		destinationDir = path.dirname(templatePath);
 		scope = isWithinDir(homeDir, destinationDir) ? "global" : "project";
-		if (commandDef) {
+		if (commandDef?.projectPath || commandDef?.userPath) {
 			const fallbackScope: Scope = commandDef.projectPath ? "project" : "global";
 			const commandTemplate = resolveCommandTemplatePath({
 				commandDef,
@@ -1405,11 +1405,17 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 	const managedManifest = (await readManagedOutputs(request.repoRoot, homeDir)) ?? { entries: [] };
 	const nextManaged = new Map<string, ManagedOutputRecord>();
 	const activeOutputPaths = new Set<string>();
+	const activeSourcesWithOutputs = new Map<string, Set<string>>();
 	const countsByTarget = new Map<string, SyncResult["counts"]>();
 	const getCounts = (targetId: string): SyncResult["counts"] => {
 		const existing = countsByTarget.get(targetId) ?? emptyResultCounts();
 		countsByTarget.set(targetId, existing);
 		return existing;
+	};
+	const recordSourceOutput = (targetId: string, sourceId: string) => {
+		const sources = activeSourcesWithOutputs.get(targetId) ?? new Set<string>();
+		sources.add(sourceId);
+		activeSourcesWithOutputs.set(targetId, sources);
 	};
 	const converterRegistry: ConverterRegistry = new Map();
 	const writerRegistry: WriterRegistry = new Map();
@@ -1572,6 +1578,7 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 			const managedKey = buildManagedOutputKey(entry);
 			nextManaged.set(managedKey, entry);
 			activeOutputPaths.add(normalizeManagedOutputPath(entry.outputPath));
+			recordSourceOutput(entry.targetId, entry.sourceId);
 		};
 		const counts = getCounts(target.id);
 
@@ -1763,14 +1770,16 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 			if (nextManaged.has(key)) {
 				continue;
 			}
-			const activeSources = activeSourcesByTarget.get(entry.targetId);
-			const sourceStillActive = activeSources?.has(entry.sourceId) ?? false;
-			if (!removeMissing || sourceStillActive) {
-				updatedEntries.push(entry);
-				continue;
-			}
 			const outputKey = normalizeManagedOutputPath(entry.outputPath);
 			if (activeOutputPaths.has(outputKey)) {
+				continue;
+			}
+			const activeSources = activeSourcesByTarget.get(entry.targetId);
+			const sourceStillActive = activeSources?.has(entry.sourceId) ?? false;
+			const currentSources = activeSourcesWithOutputs.get(entry.targetId);
+			const sourceHasCurrentOutput = currentSources?.has(entry.sourceId) ?? false;
+			if (!removeMissing || (sourceStillActive && !sourceHasCurrentOutput)) {
+				updatedEntries.push(entry);
 				continue;
 			}
 			const existingHash = await hashOutputPath(entry.outputPath);

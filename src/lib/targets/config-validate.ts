@@ -312,7 +312,9 @@ function validateCommandOutputDefinition(
 		errors.push(`${label} must be a string or an object.`);
 		return;
 	}
-	if (!output.projectPath && !output.userPath) {
+	const fallbackConvertsToSkills =
+		output.fallback?.mode === "convert" && output.fallback.targetType === "skills";
+	if (!output.projectPath && !output.userPath && !fallbackConvertsToSkills) {
 		errors.push(`${label} must include projectPath or userPath.`);
 	}
 	if (output.projectPath) {

@@ -3,7 +3,6 @@ import {
 	normalizeCommandOutputDefinition,
 	normalizeInstructionOutputDefinition,
 	normalizeOutputDefinition,
-	resolveCommandOutputPath,
 	resolveInstructionFilename,
 	resolveOutputPath,
 } from "../../output-resolver.js";
@@ -61,21 +60,14 @@ describe("codex builtin target", () => {
 		expect(subagentPath).toBe(path.join(repoRoot, ".codex", "skills", itemName));
 	});
 
-	it("writes commands only to user prompts", () => {
+	it("converts commands into skills", () => {
 		const commands = expectDefined(
 			normalizeCommandOutputDefinition(codexTarget.outputs?.commands),
 			"commands",
 		);
 		expect(commands.projectPath).toBeUndefined();
-		expect(commands.userPath).toBe("{homeDir}/.codex/prompts/{itemName}.md");
-		const userPath = expectDefined(commands.userPath, "commands.userPath");
-		const commandPath = resolveCommandOutputPath({
-			template: userPath,
-			context: { ...context, commandLocation: "user" },
-			item: {},
-			baseDir: homeDir,
-		});
-		expect(commandPath).toBe(path.join(homeDir, ".codex", "prompts", `${itemName}.md`));
+		expect(commands.userPath).toBeUndefined();
+		expect(commands.fallback).toEqual({ mode: "convert", targetType: "skills" });
 	});
 
 	it("writes instructions to AGENTS.md in the agents group", () => {
