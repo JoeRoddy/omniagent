@@ -867,7 +867,7 @@ describe.sequential("sync command", () => {
 		});
 	});
 
-	it("surfaces Codex scope limitations in non-interactive runs", async () => {
+	it("surfaces Codex command conversion notices in non-interactive runs", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
 			await createCanonicalSkills(root);
@@ -878,7 +878,9 @@ describe.sequential("sync command", () => {
 			});
 
 			const warning = logSpy.mock.calls.find(
-				([message]) => typeof message === "string" && message.includes("commands are user-only"),
+				([message]) =>
+					typeof message === "string" &&
+					message.includes("OpenAI Codex commands are configured to convert to skills."),
 			);
 			expect(warning).toBeTruthy();
 		});
@@ -1245,7 +1247,7 @@ describe.sequential("sync command", () => {
 			);
 			await writeCanonicalCommand(
 				root,
-				"targeted",
+				"targeted-command",
 				["---", "targets:", "  - claude", "  - gemini", "---", "Run it."].join("\n"),
 			);
 			await writeCanonicalCommand(root, "global", "Run everywhere.");
@@ -1280,11 +1282,11 @@ describe.sequential("sync command", () => {
 				true,
 			);
 
-			const claudeCommand = path.join(root, ".claude", "commands", "targeted.md");
-			const geminiCommand = path.join(root, ".gemini", "commands", "targeted.toml");
-			const codexCommand = path.join(root, "home", ".codex", "prompts", "targeted.md");
-			const copilotCommand = path.join(root, ".github", "agents", "targeted.agent.md");
-			const copilotPrompt = path.join(root, ".github", "prompts", "targeted.prompt.md");
+			const claudeCommand = path.join(root, ".claude", "commands", "targeted-command.md");
+			const geminiCommand = path.join(root, ".gemini", "commands", "targeted-command.toml");
+			const codexCommand = path.join(root, ".codex", "skills", "targeted-command", "SKILL.md");
+			const copilotCommand = path.join(root, ".github", "agents", "targeted-command.agent.md");
+			const copilotPrompt = path.join(root, ".github", "prompts", "targeted-command.prompt.md");
 			expect(await pathExists(claudeCommand)).toBe(true);
 			expect(await pathExists(geminiCommand)).toBe(true);
 			expect(await pathExists(codexCommand)).toBe(false);
@@ -1297,7 +1299,7 @@ describe.sequential("sync command", () => {
 
 			const globalClaude = path.join(root, ".claude", "commands", "global.md");
 			const globalGemini = path.join(root, ".gemini", "commands", "global.toml");
-			const globalCodex = path.join(root, "home", ".codex", "prompts", "global.md");
+			const globalCodex = path.join(root, ".codex", "skills", "global", "SKILL.md");
 			const globalCopilot = path.join(root, ".github", "agents", "global.agent.md");
 			const globalCopilotPrompt = path.join(root, ".github", "prompts", "global.prompt.md");
 

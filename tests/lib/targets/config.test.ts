@@ -122,6 +122,27 @@ describe("target config validation", () => {
 		expect(validation.valid).toBe(false);
 		expect(validation.errors).toContain("defaultAgent must be a non-empty string when provided.");
 	});
+
+	it("allows command outputs that convert directly into skills", () => {
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "codex",
+					inherits: "codex",
+					outputs: {
+						commands: {
+							fallback: { mode: "convert", targetType: "skills" },
+						},
+					},
+				},
+			],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(true);
+		expect(validation.errors).toEqual([]);
+	});
 });
 
 describe("target resolution", () => {

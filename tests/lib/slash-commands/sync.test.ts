@@ -4,7 +4,10 @@ import path from "node:path";
 import {
 	applySlashCommandSync,
 	planSlashCommandSync,
+	syncSlashCommands,
 } from "../../../src/lib/slash-commands/sync.js";
+import { BUILTIN_TARGETS } from "../../../src/lib/targets/builtins.js";
+import { resolveTargets } from "../../../src/lib/targets/resolve-targets.js";
 
 async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> {
 	const root = await mkdtemp(path.join(os.tmpdir(), "omniagent-slash-commands-"));
@@ -164,7 +167,7 @@ describe("slash command sync planning", () => {
 		});
 	});
 
-	it("defaults Codex command scope to global", async () => {
+	it("defaults Codex command conversions to project skills", async () => {
 		await withTempRepo(async (root) => {
 			await createCanonicalCommand(root);
 
@@ -175,7 +178,8 @@ describe("slash command sync planning", () => {
 				removeMissing: true,
 			});
 
-			expect(plan.targetPlans[0]?.scope).toBe("global");
+			expect(plan.targetPlans[0]?.mode).toBe("skills");
+			expect(plan.targetPlans[0]?.scope).toBe("project");
 		});
 	});
 
@@ -599,6 +603,54 @@ describe("slash command sync planning", () => {
 
 			expect(await pathExists(obsoletePath)).toBe(false);
 			expect(await readFile(path.join(destinationDir, "manual.md"), "utf8")).toBe("Manual file");
+		});
+	});
+
+	it("removes legacy Codex prompt outputs after migrating commands to skills", async () => {
+		await withTempRepo(async (root) => {
+			await createCanonicalCommand(root, "migrate");
+
+			const legacyTargets = resolveTargets({
+				config: {
+					targets: [
+						{
+							id: "codex",
+							inherits: "codex",
+							outputs: {
+								commands: {
+									userPath: "{homeDir}/.codex/prompts/{itemName}.md",
+								},
+							},
+						},
+					],
+				},
+				builtIns: BUILTIN_TARGETS,
+			}).targets.filter((target) => target.id === "codex");
+
+			await syncSlashCommands({
+				repoRoot: root,
+				targets: legacyTargets,
+				removeMissing: true,
+			});
+
+			const legacyPromptPath = path.join(os.homedir(), ".codex", "prompts", "migrate.md");
+			expect(await pathExists(legacyPromptPath)).toBe(true);
+
+			const currentTargets = resolveTargets({
+				config: null,
+				builtIns: BUILTIN_TARGETS,
+			}).targets.filter((target) => target.id === "codex");
+
+			await syncSlashCommands({
+				repoRoot: root,
+				targets: currentTargets,
+				removeMissing: true,
+			});
+
+			expect(await pathExists(legacyPromptPath)).toBe(false);
+			expect(await pathExists(path.join(root, ".codex", "skills", "migrate", "SKILL.md"))).toBe(
+				true,
+			);
 		});
 	});
 

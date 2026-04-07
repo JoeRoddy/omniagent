@@ -51,7 +51,7 @@ export const codexTarget: TargetDefinition = {
 			fallback: { mode: "convert", targetType: "skills" },
 		},
 		commands: {
-			userPath: "{homeDir}/.codex/prompts/{itemName}.md",
+			fallback: { mode: "convert", targetType: "skills" },
 		},
 		instructions: {
 			filename: "AGENTS.md",
