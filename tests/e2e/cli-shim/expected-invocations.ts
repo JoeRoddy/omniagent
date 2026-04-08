@@ -271,10 +271,10 @@ function buildCopilot(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation
 			break;
 		case "output-json":
 		case "output-flag-json":
-			warnings.push(formatWarning(agent.agentId, "--output", "json"));
+			flags = ["--output-format", "json"];
 			break;
 		case "output-stream-json":
-			warnings.push(formatWarning(agent.agentId, "--output", "stream-json"));
+			flags = ["--output-format", "json"];
 			break;
 		case "web-on":
 			warnings.push(formatWarning(agent.agentId, "--web", "on"));

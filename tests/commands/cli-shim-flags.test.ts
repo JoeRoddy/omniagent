@@ -131,7 +131,7 @@ describe("CLI shim flag parsing", () => {
 		}
 	});
 
-	it("warns when stream-json output is unsupported", async () => {
+	it("warns when copilot json output is requested in interactive mode", async () => {
 		const invocation = await buildInvocation(["--agent", "copilot", "--output", "stream-json"]);
 		const result = buildAgentArgs(invocation);
 
@@ -139,6 +139,36 @@ describe("CLI shim flag parsing", () => {
 			"Warning: copilot does not support --output (stream-json); ignoring.",
 		);
 		expect(result.args).toEqual([]);
+	});
+
+	it("maps copilot json output to output-format json in one-shot mode", async () => {
+		const invocation = await buildInvocation([
+			"--agent",
+			"copilot",
+			"--output",
+			"json",
+			"-p",
+			"Hello",
+		]);
+		const result = buildAgentArgs(invocation);
+
+		expect(result.warnings).toEqual([]);
+		expect(result.args).toEqual(["--output-format", "json", "-p", "Hello"]);
+	});
+
+	it("maps copilot stream-json to the same jsonl output flag in one-shot mode", async () => {
+		const invocation = await buildInvocation([
+			"--agent",
+			"copilot",
+			"--output",
+			"stream-json",
+			"-p",
+			"Hello",
+		]);
+		const result = buildAgentArgs(invocation);
+
+		expect(result.warnings).toEqual([]);
+		expect(result.args).toEqual(["--output-format", "json", "-p", "Hello"]);
 	});
 
 	it("forwards --web only as the corresponding agent flag", async () => {

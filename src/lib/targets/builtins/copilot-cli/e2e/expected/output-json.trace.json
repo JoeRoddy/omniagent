@@ -1,11 +1,10 @@
 {
   "command": "copilot",
   "args": [
+    "--output-format",
+    "json",
     "-p",
     "Output exactly: 5",
     "--silent"
-  ],
-  "warnings": [
-    "Warning: copilot does not support --output (json); ignoring."
   ]
 }

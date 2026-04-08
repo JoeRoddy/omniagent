@@ -168,6 +168,7 @@ function parseJsonAgentMessages(output: string): { messages: string[]; parseErro
 			const parsed = JSON.parse(line) as {
 				type?: string;
 				item?: { type?: string; text?: string };
+				data?: { content?: string };
 			};
 			if (
 				parsed?.type === "item.completed" &&
@@ -175,6 +176,10 @@ function parseJsonAgentMessages(output: string): { messages: string[]; parseErro
 				typeof parsed.item.text === "string"
 			) {
 				messages.push(parsed.item.text);
+				continue;
+			}
+			if (parsed?.type === "assistant.message" && typeof parsed.data?.content === "string") {
+				messages.push(parsed.data.content);
 			}
 		} catch {
 			parseErrors += 1;

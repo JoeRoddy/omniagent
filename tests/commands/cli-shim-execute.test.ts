@@ -64,6 +64,30 @@ describe("CLI shim execution", () => {
 		expect(result).toEqual({ exitCode: 0, reason: "success" });
 	});
 
+	it.each([
+		"json",
+		"stream-json",
+	])("maps copilot %s output to jsonl with stdio inherit", async (format) => {
+		const invocation = await buildInvocation([
+			"--agent",
+			"copilot",
+			"--output",
+			format,
+			"-p",
+			"Hello",
+		]);
+		const spawn = createSpawnStub(0);
+		const stderr = { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream;
+
+		const result = await executeInvocation(invocation, { spawn, stderr });
+
+		const [command, args, options] = spawn.mock.calls[0] as SpawnCall;
+		expect(command).toBe("copilot");
+		expect(args).toEqual(["--output-format", "json", "-p", "Hello"]);
+		expect(options).toEqual({ stdio: "inherit" });
+		expect(result).toEqual({ exitCode: 0, reason: "success" });
+	});
+
 	it("warns when output is unsupported but still executes with stdio inherit", async () => {
 		const invocation = await buildInvocation(["--agent", "claude", "--output", "stream-json"]);
 		const spawn = createSpawnStub(0);
