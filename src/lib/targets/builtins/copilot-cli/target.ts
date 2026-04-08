@@ -38,6 +38,15 @@ export const copilotTarget: TargetDefinition = {
 					yolo: ["--allow-all-tools"],
 				},
 			},
+			output: {
+				byMode: {
+					"one-shot": {
+						text: [],
+						json: ["--output-format", "json"],
+						"stream-json": ["--output-format", "json"],
+					},
+				},
+			},
 			model: { flag: ["--model"] },
 		},
 	},

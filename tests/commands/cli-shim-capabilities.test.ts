@@ -79,6 +79,23 @@ describe("CLI shim capability warnings", () => {
 		expect(spawn).toHaveBeenCalledTimes(1);
 	});
 
+	it("passes copilot json output through in one-shot mode without warning", async () => {
+		const spawn = createSpawnStub(0);
+		await runCli(["node", "omniagent", "--agent", "copilot", "--output", "json", "-p", "Hi"], {
+			shim: {
+				stdinIsTTY: true,
+				spawn,
+			},
+		});
+
+		const output = stderrSpy.mock.calls.map(([chunk]) => String(chunk)).join("");
+		expect(output).not.toContain("does not support --output (json)");
+
+		const [, args] = spawn.mock.calls[0] as SpawnCall;
+		expect(args).toEqual(["--output-format", "json", "-p", "Hi"]);
+		expect(spawn).toHaveBeenCalledTimes(1);
+	});
+
 	it("uses per-agent prompt flag mappings", async () => {
 		const spawn = createSpawnStub(0);
 		await runCli(["node", "omniagent", "-p", "Hello Gemini", "--agent", "gemini"], {

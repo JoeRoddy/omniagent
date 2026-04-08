@@ -35,7 +35,7 @@ You can set `defaultAgent` in `agents/omniagent.config.*` to avoid repeating `--
 | codex   | ✓        | ✓       | ✓      | ✓     | ✓   |
 | claude  | ✓        | ✗       | ✓      | ✓     | ✗   |
 | gemini  | ✓        | ✓       | ✓      | ✓     | ✓   |
-| copilot | ✓        | ✗       | ✗      | ✓     | ✗   |
+| copilot | ✓        | ✗       | ✓      | ✓     | ✗   |
 
 ## Notes
 
@@ -44,3 +44,4 @@ You can set `defaultAgent` in `agents/omniagent.config.*` to avoid repeating `--
 - Output is passed through unmodified.
 - Some approval values are agent-specific.
 - Some output formats are one-shot only for specific CLIs.
+- Copilot exposes JSONL via `--output-format json`, so `--output json` and `--output stream-json` both map to that flag in one-shot mode.
