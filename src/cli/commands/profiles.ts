@@ -1,16 +1,26 @@
 import type { CommandModule } from "yargs";
 import { DEFAULT_AGENTS_DIR, resolveAgentsDir, validateAgentsDir } from "../../lib/agents-dir.js";
 import {
+	createProfileItemFilter,
 	DEFAULT_PROFILE_NAME,
 	formatValidationIssues,
 	listProfileDirectory,
 	listProfiles,
 	loadProfileFiles,
 	profileExists,
+	type ResolvedProfile,
 	resolveProfiles,
 	validateProfile,
 } from "../../lib/profiles/index.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
+import { loadSkillCatalog } from "../../lib/skills/catalog.js";
+import { loadCommandCatalog } from "../../lib/slash-commands/catalog.js";
+import { loadSubagentCatalog } from "../../lib/subagents/catalog.js";
+import { createTargetNameResolver } from "../../lib/sync-targets.js";
+import { BUILTIN_TARGETS } from "../../lib/targets/builtins.js";
+import { loadTargetConfig } from "../../lib/targets/config-loader.js";
+import { validateTargetConfig } from "../../lib/targets/config-validate.js";
+import { resolveTargets } from "../../lib/targets/resolve-targets.js";
 
 type BaseArgs = {
 	agentsDir?: string;
@@ -27,6 +37,13 @@ type ValidateArgs = BaseArgs & {
 
 type ListArgs = BaseArgs & {
 	json?: boolean;
+};
+
+type ProfileValidationCatalog = {
+	resolveTargetName: (value: string) => string | null;
+	skillNames: string[];
+	commandNames: string[];
+	subagentNames: string[];
 };
 
 async function resolveRepoAndAgentsDir(
@@ -70,6 +87,61 @@ function formatAnnotations(entry: {
 		annotations.push("[local override]");
 	}
 	return annotations;
+}
+
+async function loadProfileValidationCatalog(
+	repoRoot: string,
+	agentsDir: string,
+): Promise<ProfileValidationCatalog> {
+	const { config } = await loadTargetConfig({ repoRoot, agentsDir });
+	const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+	if (!validation.valid) {
+		throw new Error(`Invalid target configuration:\n- ${validation.errors.join("\n- ")}`);
+	}
+
+	const resolvedTargets = resolveTargets({
+		config: validation.config,
+		builtIns: BUILTIN_TARGETS,
+	});
+	const { resolveTargetName } = createTargetNameResolver(resolvedTargets.targets);
+	const [skillCatalog, commandCatalog, subagentCatalog] = await Promise.all([
+		loadSkillCatalog(repoRoot, { agentsDir, resolveTargetName }),
+		loadCommandCatalog(repoRoot, { agentsDir, resolveTargetName }),
+		loadSubagentCatalog(repoRoot, { agentsDir, resolveTargetName }),
+	]);
+
+	return {
+		resolveTargetName,
+		skillNames: skillCatalog.skills.map((skill) => skill.name),
+		commandNames: commandCatalog.commands.map((command) => command.name),
+		subagentNames: subagentCatalog.subagents.map((subagent) => subagent.resolvedName),
+	};
+}
+
+function collectProfileReferenceIssues(
+	profileName: string,
+	resolvedProfile: ResolvedProfile,
+	catalog: ProfileValidationCatalog,
+): string[] {
+	const filter = createProfileItemFilter(resolvedProfile);
+	for (const skillName of catalog.skillNames) {
+		filter.includes("skills", skillName);
+	}
+	for (const commandName of catalog.commandNames) {
+		filter.includes("commands", commandName);
+	}
+	for (const subagentName of catalog.subagentNames) {
+		filter.includes("subagents", subagentName);
+	}
+
+	const issues = filter.collectUnknownWarnings();
+	for (const targetName of Object.keys(resolvedProfile.targets)) {
+		if (catalog.resolveTargetName(targetName)) {
+			continue;
+		}
+		issues.push(`profile "${profileName}" references unknown target "${targetName}"`);
+	}
+	return issues;
 }
 
 const listSubcommand: CommandModule = {
@@ -157,6 +229,7 @@ const showSubcommand: CommandModule = {
 				targets: resolvedProfile.targets,
 				enable: resolvedProfile.enable,
 				disable: resolvedProfile.disable,
+				variables: resolvedProfile.variables,
 				notices: resolvedProfile.notices,
 			};
 			console.log(JSON.stringify(output, null, 2));
@@ -187,6 +260,14 @@ const validateSubcommand: CommandModule = {
 			return;
 		}
 		let hasIssues = false;
+		let validationCatalog: ProfileValidationCatalog | null = null;
+		try {
+			validationCatalog = await loadProfileValidationCatalog(resolved.repoRoot, resolved.agentsDir);
+		} catch (error) {
+			hasIssues = true;
+			const message = error instanceof Error ? error.message : String(error);
+			console.error(`Error: Failed to load catalogs for profile validation: ${message}`);
+		}
 		for (const entry of listing) {
 			const loaded = await loadProfileFiles(resolved.repoRoot, entry.name, resolved.agentsDir);
 			if (!profileExists(loaded)) {
@@ -212,6 +293,20 @@ const validateSubcommand: CommandModule = {
 					repoRoot: resolved.repoRoot,
 					agentsDir: resolved.agentsDir,
 				});
+				if (validationCatalog) {
+					const issues = collectProfileReferenceIssues(
+						entry.name,
+						resolvedProfile,
+						validationCatalog,
+					);
+					if (issues.length > 0) {
+						hasIssues = true;
+						console.error(`Profile "${entry.name}":`);
+						for (const issue of issues) {
+							console.error(`  - ${issue}`);
+						}
+					}
+				}
 				for (const notice of resolvedProfile.notices) {
 					console.error(`Profile "${entry.name}" notice: ${notice}`);
 				}
