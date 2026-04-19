@@ -28,6 +28,15 @@ import {
 	resolveSharedCategoryRoot,
 	stripLocalPathSuffix,
 } from "../../lib/local-sources.js";
+import {
+	createProfileItemFilter,
+	DEFAULT_PROFILE_NAME,
+	loadProfileFiles,
+	profileExists,
+	resolveProfiles,
+	type ProfileItemFilter,
+	type ResolvedProfile,
+} from "../../lib/profiles/index.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
 import { loadSkillCatalog } from "../../lib/skills/catalog.js";
 import { syncSkills as syncSkillTargets } from "../../lib/skills/sync.js";
@@ -92,6 +101,7 @@ type SyncArgs = {
 	conflicts?: string;
 	excludeLocal?: string | string[] | boolean;
 	listLocal?: boolean;
+	profile?: string | string[];
 };
 
 const DEFAULT_SUPPORTED_TARGETS = BUILTIN_TARGETS.map((target) => target.id).join(", ");
@@ -117,6 +127,17 @@ function parseList(value?: string | string[]): string[] {
 	return rawValues
 		.flatMap((entry) => entry.split(","))
 		.map((entry) => entry.trim().toLowerCase())
+		.filter(Boolean);
+}
+
+function parseProfileList(value?: string | string[]): string[] {
+	if (!value) {
+		return [];
+	}
+	const rawValues = Array.isArray(value) ? value : [value];
+	return rawValues
+		.flatMap((entry) => entry.split(","))
+		.map((entry) => entry.trim())
 		.filter(Boolean);
 }
 
@@ -302,6 +323,9 @@ type ScriptPreflightOptions = {
 	selectedInstructionTargets: ResolvedTarget[];
 	skillsAvailable: boolean;
 	commandsAvailable: boolean;
+	includeSkill?: (name: string) => boolean;
+	includeSubagent?: (name: string) => boolean;
+	includeCommand?: (name: string) => boolean;
 };
 
 function hasTemplateScripts(content: string): boolean {
@@ -364,6 +388,9 @@ async function gatherTemplateScriptSources(
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const command of commandCatalog.commands) {
+			if (options.includeCommand && !options.includeCommand(command.name)) {
+				continue;
+			}
 			const effectiveTargets = resolveEffectiveTargets({
 				defaultTargets: command.targetAgents,
 				overrideOnly: options.overrideOnly,
@@ -384,6 +411,9 @@ async function gatherTemplateScriptSources(
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const subagent of subagentCatalog.subagents) {
+			if (options.includeSubagent && !options.includeSubagent(subagent.resolvedName)) {
+				continue;
+			}
 			const effectiveTargets = resolveEffectiveTargets({
 				defaultTargets: subagent.targetAgents,
 				overrideOnly: options.overrideOnly,
@@ -425,6 +455,9 @@ async function gatherTemplateScriptSources(
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const skill of skillCatalog.skills) {
+			if (options.includeSkill && !options.includeSkill(skill.name)) {
+				continue;
+			}
 			const effectiveTargets = resolveEffectiveTargets({
 				defaultTargets: skill.targetAgents,
 				overrideOnly: options.overrideOnly,
@@ -1221,6 +1254,13 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				default: false,
 				describe: "Show per-script execution telemetry during sync",
 			})
+			.option("profile", {
+				type: "string",
+				array: true,
+				describe:
+					"Sync profile(s) to apply. Pass a name (or comma-separated names, or repeat the flag). " +
+					"With no value, agents/profiles/default.json is used when present.",
+			})
 			.option("json", {
 				type: "boolean",
 				default: false,
@@ -1242,7 +1282,12 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			.example("omniagent sync --list-local", "List detected local items")
 			.example("omniagent sync --yes", "Accept defaults and apply changes")
 			.example("omniagent sync --verbose", "Show per-script execution telemetry")
-			.example("omniagent sync --json", "Output a JSON summary"),
+			.example("omniagent sync --json", "Output a JSON summary")
+			.example("omniagent sync --profile code-reviewer", "Apply a named profile")
+			.example(
+				"omniagent sync --profile base,code-reviewer",
+				"Merge multiple profiles (later wins)",
+			),
 	handler: async (argv) => {
 		try {
 			const skipList = parseList(argv.skip);
@@ -1320,6 +1365,36 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const globalHooks = validation.config?.hooks;
 			const supportedLabel = buildSupportedTargetLabel(resolved.targets);
 
+			const profileNamesArg = parseProfileList(argv.profile);
+			const profileExplicitlyRequested = profileNamesArg.length > 0;
+			let profileNamesToApply = profileNamesArg;
+			if (!profileExplicitlyRequested) {
+				const defaultLoaded = await loadProfileFiles(repoRoot, DEFAULT_PROFILE_NAME, agentsDir);
+				if (profileExists(defaultLoaded)) {
+					profileNamesToApply = [DEFAULT_PROFILE_NAME];
+				}
+			}
+
+			let activeProfile: ResolvedProfile | null = null;
+			if (profileNamesToApply.length > 0) {
+				try {
+					activeProfile = await resolveProfiles(profileNamesToApply, {
+						repoRoot,
+						agentsDir,
+					});
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					console.error(`Error: ${message}`);
+					process.exit(1);
+					return;
+				}
+				for (const notice of activeProfile.notices) {
+					if (verboseOutput) {
+						logWithChannel(notice, jsonOutput);
+					}
+				}
+			}
+
 			const resolveSelection = (list: string[]): { ids: string[]; unknown: string[] } => {
 				const ids: string[] = [];
 				const unknown: string[] = [];
@@ -1348,7 +1423,31 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				return;
 			}
 
-			const skipSet = new Set(resolvedSkip.ids);
+			const profileDisabledTargets: string[] = [];
+			const profileUnknownTargets: string[] = [];
+			if (activeProfile) {
+				for (const [targetKey, setting] of Object.entries(activeProfile.targets)) {
+					if (setting.enabled !== false) {
+						continue;
+					}
+					const resolvedName = targetResolver.resolveTargetName(targetKey);
+					if (!resolvedName) {
+						profileUnknownTargets.push(targetKey);
+						continue;
+					}
+					if (!profileDisabledTargets.includes(resolvedName)) {
+						profileDisabledTargets.push(resolvedName);
+					}
+				}
+			}
+			for (const name of profileUnknownTargets) {
+				scriptRuntime.warnings.push({
+					code: "profile_warning",
+					message: `profile references unknown target "${name}"`,
+				});
+			}
+
+			const skipSet = new Set([...resolvedSkip.ids, ...profileDisabledTargets]);
 			const onlySet = new Set(resolvedOnly.ids);
 			const filteredTargets = resolved.targets.filter((target) => {
 				if (onlySet.size > 0 && !onlySet.has(target.id)) {
@@ -1360,8 +1459,19 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				return true;
 			});
 			const overrideOnly = resolvedOnly.ids.length > 0 ? resolvedOnly.ids : undefined;
-			const overrideSkip = resolvedSkip.ids.length > 0 ? resolvedSkip.ids : undefined;
+			const effectiveSkip = [...resolvedSkip.ids, ...profileDisabledTargets];
+			const overrideSkip = effectiveSkip.length > 0 ? effectiveSkip : undefined;
 			const validAgents = buildSupportedAgentNames(resolved.targets);
+
+			const profileItemFilter: ProfileItemFilter = createProfileItemFilter(activeProfile);
+			const includeItemFor = (
+				category: "skills" | "subagents" | "commands",
+			): ((name: string) => boolean) | undefined => {
+				if (!profileItemFilter.enabled) {
+					return undefined;
+				}
+				return (name) => profileItemFilter.includes(category, name);
+			};
 
 			if (filteredTargets.length === 0 && !listLocal) {
 				console.error("Error: No targets selected after applying filters.");
@@ -1631,6 +1741,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					selectedInstructionTargets,
 					skillsAvailable: hasSkillsToSync,
 					commandsAvailable: hasCommandsToSync,
+					includeSkill: includeItemFor("skills"),
+					includeSubagent: includeItemFor("subagents"),
+					includeCommand: includeItemFor("commands"),
 				});
 				for (const source of scriptSources) {
 					await evaluateTemplateScripts({
@@ -1773,6 +1886,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					resolveTargetName,
 					hooks: globalHooks,
 					templateScriptRuntime: scriptRuntime,
+					includeItem: includeItemFor("commands"),
 				} satisfies CommandSyncRequestV2);
 			}
 
@@ -1798,6 +1912,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				resolveTargetName,
 				hooks: globalHooks,
 				templateScriptRuntime: scriptRuntime,
+				includeItem: includeItemFor("subagents"),
 			} satisfies SubagentSyncRequestV2);
 
 			if (availabilitySubagentSkips.length > 0) {
@@ -1914,6 +2029,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					resolveTargetName,
 					hooks: globalHooks,
 					templateScriptRuntime: scriptRuntime,
+					includeItem: includeItemFor("skills"),
 				});
 			}
 
@@ -1927,6 +2043,12 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					...skillsSummary,
 					results: [...skillsSummary.results, ...availabilitySkillResults],
 				};
+			}
+
+			if (profileItemFilter.enabled) {
+				for (const message of profileItemFilter.collectUnknownWarnings()) {
+					scriptRuntime.warnings.push({ code: "profile_warning", message });
+				}
 			}
 
 			const hadFailures =
@@ -1947,6 +2069,11 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					partialOutputsWritten,
 				}),
 			};
+
+			if (activeProfile && activeProfile.names.length > 0 && !jsonOutput) {
+				const label = activeProfile.names.join(", ");
+				console.log(`Active profile: ${label}`);
+			}
 
 			emitSyncSummary({
 				combined,

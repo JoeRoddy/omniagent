@@ -9,6 +9,7 @@ Use the pages below when you need deeper behavior or advanced configuration.
 - CLI shim details: [`docs/cli-shim.md`](cli-shim.md)
 - Custom targets (custom agents): [`docs/custom-targets.md`](custom-targets.md)
 - Local overrides: [`docs/local-overrides.md`](local-overrides.md)
+- Sync profiles: [`docs/profiles.md`](profiles.md)
 - Templating and dynamic scripts: [`docs/templating.md`](templating.md)
 - Command reference: [`docs/reference.md`](reference.md)
 - Troubleshooting: [`docs/troubleshooting.md`](troubleshooting.md)

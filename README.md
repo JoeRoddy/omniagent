@@ -68,6 +68,9 @@ npx omniagent@latest sync --agentsDir ./my-custom-agents
 # Show local-only overrides and exit
 npx omniagent@latest sync --list-local
 
+# Apply a sync profile (see docs/profiles.md)
+npx omniagent@latest sync --profile code-reviewer
+
 # Shim mode (no subcommand)
 omniagent --agent codex
 omniagent -p "Summarize this repo" --agent codex --output json
@@ -155,6 +158,7 @@ Example usage:
 - CLI shim details: [`docs/cli-shim.md`](docs/cli-shim.md)
 - Custom targets (custom agents): [`docs/custom-targets.md`](docs/custom-targets.md)
 - Local overrides: [`docs/local-overrides.md`](docs/local-overrides.md)
+- Sync profiles: [`docs/profiles.md`](docs/profiles.md)
 - Templating and dynamic scripts: [`docs/templating.md`](docs/templating.md)
 - Command reference: [`docs/reference.md`](docs/reference.md)
 - Troubleshooting: [`docs/troubleshooting.md`](docs/troubleshooting.md)

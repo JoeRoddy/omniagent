@@ -3,7 +3,7 @@ import type { TargetName } from "./sync-targets.js";
 export type SyncStatus = "synced" | "skipped" | "failed";
 export type ScriptExecutionStatus = "pending" | "running" | "succeeded" | "failed";
 export type ScriptResultKind = "string" | "json" | "coerced" | "empty";
-export type RunWarningCode = "still_running" | "sync_warning";
+export type RunWarningCode = "still_running" | "sync_warning" | "profile_warning";
 
 export type SyncSourceCounts = {
 	shared: number;
