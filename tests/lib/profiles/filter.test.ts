@@ -1,8 +1,8 @@
 import {
 	createProfileItemFilter,
 	emptyResolvedProfile,
-	targetEnabledByProfile,
 	type ResolvedProfile,
+	targetEnabledByProfile,
 } from "../../../src/lib/profiles/index.js";
 
 function profile(partial: Partial<ResolvedProfile>): ResolvedProfile {

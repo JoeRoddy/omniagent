@@ -1,5 +1,6 @@
 import { loadProfileFiles, profileExists } from "./load.js";
 import {
+	emptyResolvedProfile,
 	PROFILE_CATEGORIES,
 	type Profile,
 	type ProfileCategory,
@@ -7,7 +8,6 @@ import {
 	type ProfileLoadResult,
 	type ProfileTargetSetting,
 	type ResolvedProfile,
-	emptyResolvedProfile,
 } from "./types.js";
 
 type LoadOptions = {

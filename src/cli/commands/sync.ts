@@ -32,10 +32,10 @@ import {
 	createProfileItemFilter,
 	DEFAULT_PROFILE_NAME,
 	loadProfileFiles,
-	profileExists,
-	resolveProfiles,
 	type ProfileItemFilter,
+	profileExists,
 	type ResolvedProfile,
+	resolveProfiles,
 } from "../../lib/profiles/index.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
 import { loadSkillCatalog } from "../../lib/skills/catalog.js";
