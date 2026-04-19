@@ -215,6 +215,33 @@ describe.sequential("sync command with profiles", () => {
 		});
 	});
 
+	it("restricts sync to explicitly enabled targets", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "alpha");
+			await writeProfile(root, "profiles/claude-only.json", {
+				targets: { claude: { enabled: true } },
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--profile", "claude-only"]);
+			});
+
+			expect(await pathExists(path.join(root, ".claude", "skills", "alpha", "SKILL.md"))).toBe(
+				true,
+			);
+			expect(await pathExists(path.join(root, ".codex", "skills", "alpha", "SKILL.md"))).toBe(
+				false,
+			);
+			expect(await pathExists(path.join(root, ".gemini", "skills", "alpha", "SKILL.md"))).toBe(
+				false,
+			);
+			expect(await pathExists(path.join(root, ".github", "skills", "alpha", "SKILL.md"))).toBe(
+				false,
+			);
+		});
+	});
+
 	it("merges multiple --profile arguments in CLI order (later wins)", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);

@@ -36,6 +36,7 @@ import {
 	profileExists,
 	type ResolvedProfile,
 	resolveProfiles,
+	targetEnabledByProfile,
 } from "../../lib/profiles/index.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
 import { loadSkillCatalog } from "../../lib/skills/catalog.js";
@@ -1482,20 +1483,11 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				return;
 			}
 
-			const profileDisabledTargets: string[] = [];
 			const profileUnknownTargets: string[] = [];
 			if (activeProfile) {
-				for (const [targetKey, setting] of Object.entries(activeProfile.targets)) {
-					if (setting.enabled !== false) {
-						continue;
-					}
-					const resolvedName = targetResolver.resolveTargetName(targetKey);
-					if (!resolvedName) {
+				for (const targetKey of Object.keys(activeProfile.targets)) {
+					if (!targetResolver.resolveTargetName(targetKey)) {
 						profileUnknownTargets.push(targetKey);
-						continue;
-					}
-					if (!profileDisabledTargets.includes(resolvedName)) {
-						profileDisabledTargets.push(resolvedName);
 					}
 				}
 			}
@@ -1506,7 +1498,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				});
 			}
 
-			const skipSet = new Set([...resolvedSkip.ids, ...profileDisabledTargets]);
+			const skipSet = new Set(resolvedSkip.ids);
 			const onlySet = new Set(resolvedOnly.ids);
 			const filteredTargets = resolved.targets.filter((target) => {
 				if (onlySet.size > 0 && !onlySet.has(target.id)) {
@@ -1515,11 +1507,10 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				if (skipSet.size > 0 && skipSet.has(target.id)) {
 					return false;
 				}
-				return true;
+				return targetEnabledByProfile(activeProfile, target.id, target.aliases ?? []);
 			});
 			const overrideOnly = resolvedOnly.ids.length > 0 ? resolvedOnly.ids : undefined;
-			const effectiveSkip = [...resolvedSkip.ids, ...profileDisabledTargets];
-			const overrideSkip = effectiveSkip.length > 0 ? effectiveSkip : undefined;
+			const overrideSkip = resolvedSkip.ids.length > 0 ? resolvedSkip.ids : undefined;
 			const validAgents = buildSupportedAgentNames(resolved.targets);
 
 			const profileItemFilter: ProfileItemFilter = createProfileItemFilter(activeProfile);

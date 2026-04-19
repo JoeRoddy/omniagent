@@ -5,9 +5,12 @@ export {
 } from "./filter.js";
 export { DEFAULT_PROFILE_NAME, listProfiles, type ProfileListEntry } from "./list.js";
 export {
+	inspectProfileFiles,
 	listProfileDirectory,
 	loadProfileFiles,
 	type ProfileDirectoryListing,
+	type ProfileFileInspection,
+	type ProfileInspectionLoadResult,
 	profileExists,
 	toProfile,
 } from "./load.js";

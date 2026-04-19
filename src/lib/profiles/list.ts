@@ -15,7 +15,7 @@ export type ProfileListEntry = {
 };
 
 function pickPrimary(result: ProfileLoadResult): ProfileFileRecord | null {
-	return result.shared ?? result.localSibling ?? result.localDedicated ?? null;
+	return result.localDedicated ?? result.localSibling ?? result.shared ?? null;
 }
 
 function descriptionOf(profile: Profile): string | null {

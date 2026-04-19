@@ -47,14 +47,15 @@ describe("createProfileItemFilter", () => {
 		expect(filter.includes("skills", "security-review")).toBe(false);
 	});
 
-	it("supports * and ? globs", () => {
+	it("supports minimatch globs", () => {
 		const filter = createProfileItemFilter(
 			profile({
-				enable: { skills: ["review-*"], subagents: [], commands: [] },
+				enable: { skills: ["{review,debug}-*"], subagents: [], commands: [] },
 			}),
 		);
 		expect(filter.includes("skills", "review-pr")).toBe(true);
-		expect(filter.includes("skills", "review")).toBe(false);
+		expect(filter.includes("skills", "debug-shell")).toBe(true);
+		expect(filter.includes("skills", "other")).toBe(false);
 	});
 
 	it("warns for bare unknown names, silent for zero-match globs", () => {
@@ -83,5 +84,15 @@ describe("targetEnabledByProfile", () => {
 	it("matches aliases case-insensitively", () => {
 		const resolved = profile({ targets: { CLAUDE: { enabled: false } } });
 		expect(targetEnabledByProfile(resolved, "claude", ["claude-code"])).toBe(false);
+	});
+
+	it("treats explicit enabled targets as an allowlist", () => {
+		const resolved = profile({
+			targets: {
+				claude: { enabled: true },
+			},
+		});
+		expect(targetEnabledByProfile(resolved, "claude")).toBe(true);
+		expect(targetEnabledByProfile(resolved, "codex")).toBe(false);
 	});
 });

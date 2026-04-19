@@ -7,7 +7,7 @@ import {
 	resolveProfilesDir,
 } from "./paths.js";
 import type { Profile, ProfileFileRecord, ProfileLoadResult, ProfileSourceKind } from "./types.js";
-import { assertValidProfile } from "./validate.js";
+import { assertValidProfile, formatValidationIssues, validateProfile } from "./validate.js";
 
 const PROFILE_EXTENSION = ".json";
 const LOCAL_SUFFIX = ".local";
@@ -49,6 +49,71 @@ async function readProfileFile(
 	};
 }
 
+export type ProfileFileInspection = {
+	name: string;
+	filePath: string;
+	kind: ProfileSourceKind;
+	exists: boolean;
+	profile: Profile | null;
+	issues: string[];
+};
+
+export type ProfileInspectionLoadResult = {
+	shared: ProfileFileInspection;
+	localSibling: ProfileFileInspection;
+	localDedicated: ProfileFileInspection;
+};
+
+async function inspectProfileFile(
+	filePath: string,
+	name: string,
+	kind: ProfileSourceKind,
+): Promise<ProfileFileInspection> {
+	let raw: unknown | null;
+	try {
+		raw = await readJsonFile(filePath);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return {
+			name,
+			filePath,
+			kind,
+			exists: true,
+			profile: null,
+			issues: [message],
+		};
+	}
+	if (raw === null) {
+		return {
+			name,
+			filePath,
+			kind,
+			exists: false,
+			profile: null,
+			issues: [],
+		};
+	}
+	const validation = validateProfile(raw);
+	if (!validation.valid) {
+		return {
+			name,
+			filePath,
+			kind,
+			exists: true,
+			profile: null,
+			issues: formatValidationIssues(validation.errors),
+		};
+	}
+	return {
+		name,
+		filePath,
+		kind,
+		exists: true,
+		profile: raw as Profile,
+		issues: [],
+	};
+}
+
 export async function loadProfileFiles(
 	repoRoot: string,
 	name: string,
@@ -58,6 +123,24 @@ export async function loadProfileFiles(
 		readProfileFile(profileSharedPath(repoRoot, name, agentsDir), name, "shared"),
 		readProfileFile(profileLocalSiblingPath(repoRoot, name, agentsDir), name, "local-sibling"),
 		readProfileFile(profileLocalDedicatedPath(repoRoot, name, agentsDir), name, "local-dedicated"),
+	]);
+
+	return { shared, localSibling, localDedicated };
+}
+
+export async function inspectProfileFiles(
+	repoRoot: string,
+	name: string,
+	agentsDir?: string | null,
+): Promise<ProfileInspectionLoadResult> {
+	const [shared, localSibling, localDedicated] = await Promise.all([
+		inspectProfileFile(profileSharedPath(repoRoot, name, agentsDir), name, "shared"),
+		inspectProfileFile(profileLocalSiblingPath(repoRoot, name, agentsDir), name, "local-sibling"),
+		inspectProfileFile(
+			profileLocalDedicatedPath(repoRoot, name, agentsDir),
+			name,
+			"local-dedicated",
+		),
 	]);
 
 	return { shared, localSibling, localDedicated };

@@ -3,14 +3,11 @@ import { DEFAULT_AGENTS_DIR, resolveAgentsDir, validateAgentsDir } from "../../l
 import {
 	createProfileItemFilter,
 	DEFAULT_PROFILE_NAME,
-	formatValidationIssues,
+	inspectProfileFiles,
 	listProfileDirectory,
 	listProfiles,
-	loadProfileFiles,
-	profileExists,
 	type ResolvedProfile,
 	resolveProfiles,
-	validateProfile,
 } from "../../lib/profiles/index.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
 import { loadSkillCatalog } from "../../lib/skills/catalog.js";
@@ -269,24 +266,30 @@ const validateSubcommand: CommandModule = {
 			console.error(`Error: Failed to load catalogs for profile validation: ${message}`);
 		}
 		for (const entry of listing) {
-			const loaded = await loadProfileFiles(resolved.repoRoot, entry.name, resolved.agentsDir);
-			if (!profileExists(loaded)) {
+			const inspected = await inspectProfileFiles(
+				resolved.repoRoot,
+				entry.name,
+				resolved.agentsDir,
+			);
+			const sources = [inspected.shared, inspected.localSibling, inspected.localDedicated];
+			const hasExistingSource = sources.some((source) => source.exists);
+			if (!hasExistingSource) {
 				continue;
 			}
-			for (const record of [loaded.shared, loaded.localSibling, loaded.localDedicated]) {
-				if (!record) {
-					continue;
-				}
-				const validation = validateProfile(record.profile);
-				if (validation.valid) {
+			let hasLoadIssues = false;
+			for (const source of sources) {
+				if (!source.exists || source.issues.length === 0) {
 					continue;
 				}
 				hasIssues = true;
-				const issues = formatValidationIssues(validation.errors);
-				console.error(`Profile "${entry.name}" (${record.filePath}):`);
-				for (const issue of issues) {
+				hasLoadIssues = true;
+				console.error(`Profile "${entry.name}" (${source.filePath}):`);
+				for (const issue of source.issues) {
 					console.error(`  - ${issue}`);
 				}
+			}
+			if (hasLoadIssues) {
+				continue;
 			}
 			try {
 				const resolvedProfile = await resolveProfiles([entry.name], {

@@ -61,6 +61,7 @@ TypeScript 5.x, Node.js 18+: Enforced by Biome (formatting and linting)
   syncable template surfaces (skills, subagents, slash commands, and instruction templates).
 - Any future syncable surface must integrate with the shared template-script runtime instead of
   introducing surface-specific script execution behavior.
+- For GitHub actions, use `gh` CLI.
 - Keep ignore and publish rules aligned with tool-specific directories so package publishes stay
   clean.
 - CLI shim E2E docs: `docs/cli-shim-e2e.md`.

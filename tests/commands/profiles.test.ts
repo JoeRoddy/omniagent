@@ -101,6 +101,26 @@ describe.sequential("profiles subcommand", () => {
 		});
 	});
 
+	it("prefers the effective local description in profile listings", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeProfile(root, "profiles/reviewer.json", {
+				description: "Shared description",
+			});
+			await writeProfile(root, ".local/profiles/reviewer.json", {
+				description: "Local description",
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "profiles"]);
+			});
+
+			const output = logSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+			expect(output).toContain("Local description");
+			expect(output).not.toContain("Shared description [local override]");
+		});
+	});
+
 	it("shows fully-resolved merged profile as JSON, including variables", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
@@ -195,15 +215,37 @@ describe.sequential("profiles subcommand", () => {
 			await writeFile(filePath, JSON.stringify({ extends: 42 }), "utf8");
 
 			await withCwd(root, async () => {
-				try {
-					await runCli(["node", "omniagent", "profiles", "validate"]);
-				} catch {
-					// expected — schema errors throw during load
-				}
+				await runCli(["node", "omniagent", "profiles", "validate"]);
 			});
 
+			expect(exitSpy).toHaveBeenCalledWith(1);
 			const errOut = errorSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
 			expect(errOut).toContain("bad");
+			expect(errOut).toContain("extends: must be a non-empty string when provided.");
+		});
+	});
+
+	it("validate continues after malformed profiles and reports later issues", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "review");
+			const badJsonPath = path.join(root, "agents", "profiles", "a-bad-json.json");
+			await mkdir(path.dirname(badJsonPath), { recursive: true });
+			await writeFile(badJsonPath, "{ invalid json", "utf8");
+			await writeProfile(root, "profiles/z-unknown-ref.json", {
+				disable: { skills: ["missing-skill"] },
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "profiles", "validate"]);
+			});
+
+			expect(exitSpy).toHaveBeenCalledWith(1);
+			const errOut = errorSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+			expect(errOut).toContain("a-bad-json");
+			expect(errOut).toContain("Invalid JSON in profile");
+			expect(errOut).toContain("z-unknown-ref");
+			expect(errOut).toContain("missing-skill");
 		});
 	});
 

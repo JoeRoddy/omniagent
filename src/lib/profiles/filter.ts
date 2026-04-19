@@ -1,30 +1,16 @@
+import { Minimatch } from "minimatch";
 import { PROFILE_CATEGORIES, type ProfileCategory, type ResolvedProfile } from "./types.js";
 
-function isBareName(pattern: string): boolean {
-	return !pattern.includes("*") && !pattern.includes("?");
-}
-
-function globToRegExp(pattern: string): RegExp {
-	let regex = "^";
-	for (let i = 0; i < pattern.length; i += 1) {
-		const char = pattern[i];
-		if (char === "*") {
-			regex += "[^/]*";
-			continue;
-		}
-		if (char === "?") {
-			regex += "[^/]";
-			continue;
-		}
-		regex += char.replace(/[-/\\^$+?.()|[\]{}]/g, "\\$&");
-	}
-	regex += "$";
-	return new RegExp(regex);
-}
+const MATCH_OPTIONS = {
+	dot: true,
+	magicalBraces: true,
+	nocomment: true,
+	nonegate: true,
+} as const;
 
 type CompiledPattern = {
 	raw: string;
-	regex: RegExp;
+	matcher: Minimatch;
 	bare: boolean;
 	matched: boolean;
 };
@@ -33,18 +19,21 @@ function compilePatterns(list: string[] | undefined): CompiledPattern[] {
 	if (!list || list.length === 0) {
 		return [];
 	}
-	return list.map((raw) => ({
-		raw,
-		regex: globToRegExp(raw),
-		bare: isBareName(raw),
-		matched: false,
-	}));
+	return list.map((raw) => {
+		const matcher = new Minimatch(raw, MATCH_OPTIONS);
+		return {
+			raw,
+			matcher,
+			bare: !matcher.hasMagic(),
+			matched: false,
+		};
+	});
 }
 
 function matchAny(name: string, patterns: CompiledPattern[]): boolean {
 	let matched = false;
 	for (const pattern of patterns) {
-		if (pattern.regex.test(name)) {
+		if (pattern.matcher.match(name)) {
 			pattern.matched = true;
 			matched = true;
 		}
@@ -150,13 +139,27 @@ export function targetEnabledByProfile(
 		return true;
 	}
 	const candidates = [targetId, ...targetAliases].map((v) => v.toLowerCase());
+	const hasExplicitEnabledTarget = Object.values(resolved.targets).some(
+		(setting) => setting.enabled === true,
+	);
+	let explicitlyEnabled = false;
+	let explicitlyDisabled = false;
 	for (const [key, setting] of Object.entries(resolved.targets)) {
 		if (!candidates.includes(key.toLowerCase())) {
 			continue;
 		}
 		if (setting.enabled === false) {
-			return false;
+			explicitlyDisabled = true;
 		}
+		if (setting.enabled === true) {
+			explicitlyEnabled = true;
+		}
+	}
+	if (explicitlyDisabled) {
+		return false;
+	}
+	if (hasExplicitEnabledTarget) {
+		return explicitlyEnabled;
 	}
 	return true;
 }
