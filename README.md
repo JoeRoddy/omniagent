@@ -113,6 +113,43 @@ agents/.local/
 agents/**/*.local*
 ```
 
+## Sync Profiles
+
+Profiles let each dev pick a named, checked-in filter that `sync` applies to
+the shared `agents/` directory — so a ten-person team can share one source of
+truth while each member opts in to exactly the skills, subagents, commands,
+and targets they want.
+
+```jsonc
+// agents/profiles/code-reviewer.json
+{
+  "description": "Focused setup for PR reviews",
+  "extends": "base",
+  "targets": { "claude": { "enabled": true }, "codex": { "enabled": true } },
+  "enable": {
+    "skills":    ["code-review", "security-review"],
+    "subagents": ["reviewer"],
+    "commands":  ["review", "diff-summary"]
+  },
+  "variables": { "REVIEW_STYLE": "terse" }
+}
+```
+
+```bash
+omniagent sync                                   # uses agents/profiles/default.json when present
+omniagent sync --profile code-reviewer
+omniagent sync --profile base,code-reviewer     # merge multiple (later wins)
+omniagent sync --var REVIEW_STYLE=thorough      # override a variable from the CLI
+```
+
+Profiles support `extends` chains, `.local` overrides (personal, gitignored),
+glob-based `enable`/`disable` lists, per-target toggles, and template
+variables. Discover and validate profiles with `omniagent profiles`,
+`omniagent profiles show <name>`, and `omniagent profiles validate`.
+
+See [`docs/profiles.md`](docs/profiles.md) for the full schema, resolution
+order, and examples.
+
 ## Basic Templating
 
 Use `<agents ...>` blocks when some text should render only for specific targets.
