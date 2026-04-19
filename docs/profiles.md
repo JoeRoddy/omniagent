@@ -35,7 +35,7 @@ emits a one-line notice so the choice is never silent.
 
 ```jsonc
 {
-  "$schema": "./profile.v1.json",
+  "$schema": "https://raw.githubusercontent.com/JoeRoddy/omniagent/master/schemas/profile.v1.json",
 
   "description": "Focused setup for PR reviews",
   "extends": "base",
@@ -61,8 +61,8 @@ emits a one-line notice so the choice is never silent.
 }
 ```
 
-The full JSON Schema ships at [`schemas/profile.v1.json`](../schemas/profile.v1.json)
-and is referenced by `$schema` for editor autocomplete.
+The full JSON Schema ships at [`schemas/profile.v1.json`](../schemas/profile.v1.json).
+Profiles can reference the raw GitHub URL in `$schema` for editor autocomplete.
 
 ## Resolution order
 

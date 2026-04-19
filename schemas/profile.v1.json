@@ -8,7 +8,7 @@
 	"properties": {
 		"$schema": {
 			"type": "string",
-			"description": "Optional reference to this JSON Schema for editor autocomplete."
+			"description": "Optional reference to this JSON Schema for editor autocomplete, for example https://raw.githubusercontent.com/JoeRoddy/omniagent/master/schemas/profile.v1.json."
 		},
 		"description": {
 			"type": "string",
