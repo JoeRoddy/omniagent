@@ -43,7 +43,11 @@ import {
 	evaluateTemplateScripts,
 	type TemplateScriptRuntime,
 } from "../template-scripts.js";
-import { loadCommandCatalog, type SlashCommandDefinition } from "./catalog.js";
+import {
+	assertSlashCommandDefinitionUsable,
+	loadCommandCatalog,
+	type SlashCommandDefinition,
+} from "./catalog.js";
 import { renderMarkdownCommand, renderSkillFromCommand, renderTomlCommand } from "./formatting.js";
 import { extractFrontmatter } from "./frontmatter.js";
 import {
@@ -74,6 +78,7 @@ export type SyncRequest = {
 	validAgents?: string[];
 	excludeLocal?: boolean;
 	templateScriptRuntime?: TemplateScriptRuntime;
+	includeItem?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
 };
 
 export type SyncRequestV2 = {
@@ -1013,6 +1018,7 @@ export async function planSlashCommandSync(request: SyncRequest): Promise<SyncPl
 		agentsDir: request.agentsDir,
 		resolveTargetName,
 	});
+	filterCommandCatalog(catalog, request.includeItem);
 	const allTargetIds = resolvedTargets.map((target) => target.id);
 	const selectedTargets: ResolvedTarget[] =
 		request.targets && request.targets.length > 0
@@ -1029,6 +1035,13 @@ export async function planSlashCommandSync(request: SyncRequest): Promise<SyncPl
 				})
 			: resolvedTargets;
 	const selectedTargetIds = selectedTargets.map((target) => target.id);
+	assertUsableCommandsForTargets({
+		commands: catalog.commands,
+		activeTargetIds: new Set(selectedTargetIds),
+		overrideOnly: request.overrideOnly,
+		overrideSkip: request.overrideSkip,
+		allTargets: allTargetIds,
+	});
 	const validAgents = request.validAgents ?? buildSupportedAgentNames(resolvedTargets);
 	const conflictResolution = request.conflictResolution ?? DEFAULT_CONFLICT_RESOLUTION;
 	const removeMissing = request.removeMissing ?? true;
@@ -1311,6 +1324,55 @@ type CommandOutputCandidate = {
 	converter: ConverterRule | null;
 };
 
+function includeCommandByDefault(
+	command: SlashCommandDefinition,
+	includeItem?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean,
+): boolean {
+	if (!includeItem) {
+		return command.enabledByDefault;
+	}
+	return includeItem({
+		canonicalName: command.name,
+		enabledByDefault: command.enabledByDefault,
+	});
+}
+
+function filterCommandCatalog(
+	catalog: Pick<
+		Awaited<ReturnType<typeof loadCommandCatalog>>,
+		"commands" | "sharedCommands" | "localCommands" | "localEffectiveCommands"
+	>,
+	includeItem?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean,
+): void {
+	const predicate = (command: SlashCommandDefinition) =>
+		includeCommandByDefault(command, includeItem);
+	catalog.commands = catalog.commands.filter(predicate);
+	catalog.sharedCommands = catalog.sharedCommands.filter(predicate);
+	catalog.localCommands = catalog.localCommands.filter(predicate);
+	catalog.localEffectiveCommands = catalog.localEffectiveCommands.filter(predicate);
+}
+
+function assertUsableCommandsForTargets(options: {
+	commands: SlashCommandDefinition[];
+	activeTargetIds: Set<string>;
+	overrideOnly?: string[] | null;
+	overrideSkip?: string[] | null;
+	allTargets: string[];
+}): void {
+	for (const command of options.commands) {
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: command.targetAgents,
+			overrideOnly: options.overrideOnly ?? undefined,
+			overrideSkip: options.overrideSkip ?? undefined,
+			allTargets: options.allTargets,
+		});
+		if (!effectiveTargets.some((targetId) => options.activeTargetIds.has(targetId))) {
+			continue;
+		}
+		assertSlashCommandDefinitionUsable(command);
+	}
+}
+
 function renderCommandOutput(
 	command: SlashCommandDefinition,
 	outputKind: "command" | "skill",
@@ -1349,18 +1411,7 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 		agentsDir: request.agentsDir,
 		resolveTargetName: request.resolveTargetName,
 	});
-	if (request.includeItem) {
-		const includeItem = request.includeItem;
-		const predicate = (command: SlashCommandDefinition) =>
-			includeItem({
-				canonicalName: command.name,
-				enabledByDefault: command.enabledByDefault,
-			});
-		catalog.commands = catalog.commands.filter(predicate);
-		catalog.sharedCommands = catalog.sharedCommands.filter(predicate);
-		catalog.localCommands = catalog.localCommands.filter(predicate);
-		catalog.localEffectiveCommands = catalog.localEffectiveCommands.filter(predicate);
-	}
+	filterCommandCatalog(catalog, request.includeItem);
 	const targets = request.targets.filter(
 		(target) => normalizeCommandOutputDefinition(target.outputs.commands) !== null,
 	);
@@ -1382,6 +1433,13 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 	const removeMissing = request.removeMissing ?? false;
 	const allTargetIds = request.targets.map((target) => target.id);
 	const activeTargetIds = new Set(targets.map((target) => target.id));
+	assertUsableCommandsForTargets({
+		commands: catalog.commands,
+		activeTargetIds,
+		overrideOnly: request.overrideOnly,
+		overrideSkip: request.overrideSkip,
+		allTargets: allTargetIds,
+	});
 	const effectiveTargetsByCommand = new Map<SlashCommandDefinition, string[]>();
 	const activeSourcesByTarget = new Map<string, Set<string>>();
 	for (const command of catalog.commands) {

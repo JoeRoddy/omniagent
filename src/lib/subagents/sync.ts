@@ -47,7 +47,11 @@ import {
 	evaluateTemplateScripts,
 	type TemplateScriptRuntime,
 } from "../template-scripts.js";
-import { loadSubagentCatalog, type SubagentDefinition } from "./catalog.js";
+import {
+	assertSubagentDefinitionUsable,
+	loadSubagentCatalog,
+	type SubagentDefinition,
+} from "./catalog.js";
 import {
 	type ManagedSubagent,
 	readManifest,
@@ -70,6 +74,7 @@ export type SubagentSyncRequest = {
 	validAgents?: string[];
 	excludeLocal?: boolean;
 	includeLocalSkills?: boolean;
+	includeItem?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
 	includeSkill?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
 	templateScriptRuntime?: TemplateScriptRuntime;
 };
@@ -339,6 +344,66 @@ function getCanonicalSkillPath(
 	skillKey: string,
 ): string | undefined {
 	return index.get(targetId)?.get(skillKey);
+}
+
+function includeSubagentByDefault(
+	subagent: SubagentDefinition,
+	includeItem?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean,
+): boolean {
+	if (!includeItem) {
+		return subagent.enabledByDefault;
+	}
+	return includeItem({
+		canonicalName: subagent.resolvedName,
+		enabledByDefault: subagent.enabledByDefault,
+	});
+}
+
+function filterSubagentCatalog(
+	catalog: Pick<
+		Awaited<ReturnType<typeof loadSubagentCatalog>>,
+		"subagents" | "sharedSubagents" | "localSubagents" | "localEffectiveSubagents"
+	>,
+	includeItem?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean,
+): void {
+	const predicate = (subagent: SubagentDefinition) =>
+		includeSubagentByDefault(subagent, includeItem);
+	catalog.subagents = catalog.subagents.filter(predicate);
+	catalog.sharedSubagents = catalog.sharedSubagents.filter(predicate);
+	catalog.localSubagents = catalog.localSubagents.filter(predicate);
+	catalog.localEffectiveSubagents = catalog.localEffectiveSubagents.filter(predicate);
+}
+
+function assertUsableSubagentsForTargets(options: {
+	subagents: SubagentDefinition[];
+	activeTargetIds: Set<string>;
+	overrideOnly?: string[] | null;
+	overrideSkip?: string[] | null;
+	allTargets: string[];
+}): void {
+	for (const subagent of options.subagents) {
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: subagent.targetAgents,
+			overrideOnly: options.overrideOnly ?? undefined,
+			overrideSkip: options.overrideSkip ?? undefined,
+			allTargets: options.allTargets,
+		});
+		if (!effectiveTargets.some((targetId) => options.activeTargetIds.has(targetId))) {
+			continue;
+		}
+		assertSubagentDefinitionUsable(subagent);
+	}
+}
+
+function targetRequiresCanonicalSkillLookup(target: ResolvedTarget): boolean {
+	const outputDef = normalizeOutputDefinition(target.outputs.subagents);
+	if (!outputDef) {
+		return false;
+	}
+	if (outputDef.fallback?.mode !== "convert" || outputDef.fallback.targetType !== "skills") {
+		return false;
+	}
+	return normalizeOutputDefinition(target.outputs.skills) !== null;
 }
 
 function areManagedSubagentsEqual(
@@ -762,6 +827,7 @@ export async function planSubagentSync(
 		agentsDir: request.agentsDir,
 		resolveTargetName,
 	});
+	filterSubagentCatalog(catalog, request.includeItem);
 	const allTargetIds = resolvedTargets.map((target) => target.id);
 	const selectedTargets: ResolvedTarget[] =
 		request.targets && request.targets.length > 0
@@ -778,16 +844,29 @@ export async function planSubagentSync(
 				})
 			: resolvedTargets;
 	const selectedTargetIds = selectedTargets.map((target) => target.id);
-	const canonicalSkills = await loadCanonicalSkillIndex(request.repoRoot, {
-		includeLocal: request.includeLocalSkills ?? true,
-		agentsDir: request.agentsDir,
-		resolveTargetName,
-		overrideOnly: request.overrideOnly ?? null,
-		overrideSkip: request.overrideSkip ?? null,
+	assertUsableSubagentsForTargets({
+		subagents: catalog.subagents,
+		activeTargetIds: new Set(selectedTargetIds),
+		overrideOnly: request.overrideOnly,
+		overrideSkip: request.overrideSkip,
 		allTargets: allTargetIds,
-		targetIds: selectedTargetIds,
-		includeSkill: request.includeSkill,
 	});
+	const targetsRequiringCanonicalSkills = selectedTargets
+		.filter(targetRequiresCanonicalSkillLookup)
+		.map((target) => target.id);
+	const canonicalSkills =
+		targetsRequiringCanonicalSkills.length === 0
+			? new Map()
+			: await loadCanonicalSkillIndex(request.repoRoot, {
+					includeLocal: request.includeLocalSkills ?? true,
+					agentsDir: request.agentsDir,
+					resolveTargetName,
+					overrideOnly: request.overrideOnly ?? null,
+					overrideSkip: request.overrideSkip ?? null,
+					allTargets: allTargetIds,
+					targetIds: targetsRequiringCanonicalSkills,
+					includeSkill: request.includeSkill,
+				});
 	const validAgents = request.validAgents ?? buildSupportedAgentNames(resolvedTargets);
 	const removeMissing = request.removeMissing ?? true;
 	const timestamp = new Date().toISOString();
@@ -1025,18 +1104,7 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 		agentsDir: request.agentsDir,
 		resolveTargetName: request.resolveTargetName,
 	});
-	if (request.includeItem) {
-		const includeItem = request.includeItem;
-		const predicate = (subagent: SubagentDefinition) =>
-			includeItem({
-				canonicalName: subagent.resolvedName,
-				enabledByDefault: subagent.enabledByDefault,
-			});
-		catalog.subagents = catalog.subagents.filter(predicate);
-		catalog.sharedSubagents = catalog.sharedSubagents.filter(predicate);
-		catalog.localSubagents = catalog.localSubagents.filter(predicate);
-		catalog.localEffectiveSubagents = catalog.localEffectiveSubagents.filter(predicate);
-	}
+	filterSubagentCatalog(catalog, request.includeItem);
 	const targets = request.targets.filter(
 		(target) => normalizeOutputDefinition(target.outputs.subagents) !== null,
 	);
@@ -1058,6 +1126,13 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 
 	const allTargetIds = request.targets.map((target) => target.id);
 	const activeTargetIds = new Set(targets.map((target) => target.id));
+	assertUsableSubagentsForTargets({
+		subagents: catalog.subagents,
+		activeTargetIds,
+		overrideOnly: request.overrideOnly,
+		overrideSkip: request.overrideSkip,
+		allTargets: allTargetIds,
+	});
 	const effectiveTargetsBySubagent = new Map<SubagentDefinition, string[]>();
 	const activeSourcesByTarget = new Map<string, Set<string>>();
 	for (const subagent of catalog.subagents) {
@@ -1104,16 +1179,22 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 	const writerRegistry: WriterRegistry = new Map([
 		[defaultSubagentWriter.id, defaultSubagentWriter],
 	]);
-	const canonicalSkills = await loadCanonicalSkillIndex(request.repoRoot, {
-		includeLocal: request.includeLocalSkills ?? true,
-		agentsDir: request.agentsDir,
-		resolveTargetName: request.resolveTargetName,
-		overrideOnly: request.overrideOnly ?? null,
-		overrideSkip: request.overrideSkip ?? null,
-		allTargets: allTargetIds,
-		targetIds: activeTargetIds,
-		includeSkill: request.includeSkill,
-	});
+	const targetsRequiringCanonicalSkills = targets
+		.filter(targetRequiresCanonicalSkillLookup)
+		.map((target) => target.id);
+	const canonicalSkills =
+		targetsRequiringCanonicalSkills.length === 0
+			? new Map()
+			: await loadCanonicalSkillIndex(request.repoRoot, {
+					includeLocal: request.includeLocalSkills ?? true,
+					agentsDir: request.agentsDir,
+					resolveTargetName: request.resolveTargetName,
+					overrideOnly: request.overrideOnly ?? null,
+					overrideSkip: request.overrideSkip ?? null,
+					allTargets: allTargetIds,
+					targetIds: targetsRequiringCanonicalSkills,
+					includeSkill: request.includeSkill,
+				});
 	const validAgents = request.validAgents ?? buildSupportedAgentNames(request.targets);
 
 	const outputDefs = new Map<string, NonNullable<ReturnType<typeof normalizeOutputDefinition>>>();

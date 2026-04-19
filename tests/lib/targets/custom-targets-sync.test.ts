@@ -266,6 +266,30 @@ describe("custom target sync", () => {
 		});
 	});
 
+	it("does not validate unrelated skills for native-only subagent targets", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "broken", ["---", "enabled: maybe", "---", "Broken"].join("\n"));
+			await writeSubagent(root, "helper", "Helper body");
+
+			const target = createTarget("acme", {
+				subagents: "{repoRoot}/.acme/agents/{itemName}.md",
+			});
+
+			const summary = await syncSubagents({
+				repoRoot: root,
+				targets: [target],
+				validAgents: VALID_AGENTS,
+				removeMissing: true,
+			});
+
+			expect(summary.hadFailures).toBe(false);
+			expect(await readFile(path.join(root, ".acme", "agents", "helper.md"), "utf8")).toContain(
+				"Helper body",
+			);
+		});
+	});
+
 	it("summarizes command converter errors with item names", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);

@@ -105,18 +105,18 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 		agentsDir: request.agentsDir,
 		resolveTargetName: request.resolveTargetName,
 	});
-	if (request.includeItem) {
-		const includeItem = request.includeItem;
-		const predicate = (skill: SkillDefinition) =>
-			includeItem({
-				canonicalName: skill.name,
-				enabledByDefault: skill.enabledByDefault,
-			});
-		catalog.skills = catalog.skills.filter(predicate);
-		catalog.sharedSkills = catalog.sharedSkills.filter(predicate);
-		catalog.localSkills = catalog.localSkills.filter(predicate);
-		catalog.localEffectiveSkills = catalog.localEffectiveSkills.filter(predicate);
-	}
+	const includeItem = request.includeItem;
+	const predicate = (skill: SkillDefinition) =>
+		includeItem
+			? includeItem({
+					canonicalName: skill.name,
+					enabledByDefault: skill.enabledByDefault,
+				})
+			: skill.enabledByDefault;
+	catalog.skills = catalog.skills.filter(predicate);
+	catalog.sharedSkills = catalog.sharedSkills.filter(predicate);
+	catalog.localSkills = catalog.localSkills.filter(predicate);
+	catalog.localEffectiveSkills = catalog.localEffectiveSkills.filter(predicate);
 	const warnings = buildInvalidTargetWarnings(catalog.skills);
 	const allTargetIds = request.targets.map((target) => target.id);
 	const targetNames = new Set(skillTargets.map((target) => target.id));

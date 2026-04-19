@@ -197,10 +197,6 @@ async function buildSubagentDefinition(options: {
 		throw new Error(`Invalid frontmatter in ${options.filePath}: ${message}`);
 	}
 
-	if (!body.trim()) {
-		throw new Error(`Subagent file has empty body: ${options.filePath}.`);
-	}
-
 	let resolvedName: string;
 	try {
 		resolvedName = resolveSubagentName(frontmatter, options.fileName);
@@ -257,6 +253,14 @@ async function buildSubagentDefinition(options: {
 		targetAgents: targets,
 		invalidTargets,
 	};
+}
+
+export function assertSubagentDefinitionUsable(
+	subagent: Pick<SubagentDefinition, "sourcePath" | "body">,
+): void {
+	if (!subagent.body.trim()) {
+		throw new Error(`Subagent file has empty body: ${subagent.sourcePath}.`);
+	}
 }
 
 function registerUniqueName(

@@ -80,9 +80,6 @@ async function buildCommandDefinition(options: {
 	const contents = await readFile(options.filePath, "utf8");
 	const { frontmatter, body } = extractFrontmatter(contents);
 	const prompt = body.trimEnd();
-	if (!prompt.trim()) {
-		throw new Error(`Slash command "${options.commandName}" has an empty prompt.`);
-	}
 	const enabledByDefault = resolveFrontmatterEnabledByDefault({
 		frontmatter,
 		itemKind: "Slash command",
@@ -131,6 +128,14 @@ async function buildCommandDefinition(options: {
 		invalidTargets,
 		frontmatter,
 	};
+}
+
+export function assertSlashCommandDefinitionUsable(
+	command: Pick<SlashCommandDefinition, "name" | "prompt">,
+): void {
+	if (!command.prompt.trim()) {
+		throw new Error(`Slash command "${command.name}" has an empty prompt.`);
+	}
 }
 
 function registerUniqueName(

@@ -1,7 +1,13 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { applySubagentSync, planSubagentSync } from "../../src/lib/subagents/sync.js";
+import {
+	applySubagentSync,
+	planSubagentSync,
+	syncSubagents,
+} from "../../src/lib/subagents/sync.js";
+import { BUILTIN_TARGETS } from "../../src/lib/targets/builtins.js";
+import { resolveTargets } from "../../src/lib/targets/resolve-targets.js";
 
 async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> {
 	const root = await mkdtemp(path.join(os.tmpdir(), "omniagent-subagents-"));
@@ -126,6 +132,65 @@ describe.sequential("subagent sync", () => {
 				entry.includes("does not support native subagents"),
 			);
 			expect(warning).toBeTruthy();
+		});
+	});
+
+	it("does not validate unrelated skills when planning native subagent sync", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeCanonicalSkill(
+				root,
+				"broken",
+				["---", "enabled: maybe", "---", "Broken"].join("\n"),
+			);
+			await writeSubagent(root, "helper", "Subagent body");
+
+			const plan = await planSubagentSync({
+				repoRoot: root,
+				targets: ["claude"],
+				removeMissing: true,
+			});
+
+			const helperAction = plan.plan.actions.find((action) => action.subagentName === "helper");
+			expect(helperAction?.action).toBe("create");
+		});
+	});
+
+	it("skips disabled draft subagents by default and fails when explicitly included", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSubagent(root, "helper", "Subagent body");
+			const catalogDir = path.join(root, "agents", "agents");
+			await writeFile(
+				path.join(catalogDir, "draft.md"),
+				["---", "name: draft", "enabled: false", "---", ""].join("\n"),
+				"utf8",
+			);
+			const claudeTargets = resolveTargets({
+				config: null,
+				builtIns: BUILTIN_TARGETS,
+			}).targets.filter((target) => target.id === "claude");
+
+			const summary = await syncSubagents({
+				repoRoot: root,
+				targets: claudeTargets,
+				validAgents: ["claude"],
+				removeMissing: true,
+			});
+
+			expect(summary.hadFailures).toBe(false);
+			expect(await pathExists(path.join(root, ".claude", "agents", "helper.md"))).toBe(true);
+			expect(await pathExists(path.join(root, ".claude", "agents", "draft.md"))).toBe(false);
+
+			await expect(
+				syncSubagents({
+					repoRoot: root,
+					targets: claudeTargets,
+					validAgents: ["claude"],
+					removeMissing: true,
+					includeItem: (item) => (item.canonicalName === "draft" ? true : item.enabledByDefault),
+				}),
+			).rejects.toThrow(/empty body/);
 		});
 	});
 
