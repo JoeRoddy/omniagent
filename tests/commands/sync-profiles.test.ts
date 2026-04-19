@@ -241,6 +241,38 @@ describe.sequential("sync command with profiles", () => {
 		});
 	});
 
+	it("skips frontmatter-disabled items during templating preflight and script evaluation", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(
+				root,
+				"hidden-skill",
+				[
+					"---",
+					"enabled: false",
+					"---",
+					"<agents nope>bad</agents>",
+					"<nodejs>",
+					"throw new Error('boom');",
+					"</nodejs>",
+				].join("\n"),
+			);
+			await writeSkill(root, "visible-skill", "visible-skill");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync"]);
+			});
+
+			expect(exitSpy).not.toHaveBeenCalled();
+			expect(
+				await pathExists(path.join(root, ".claude", "skills", "hidden-skill", "SKILL.md")),
+			).toBe(false);
+			expect(
+				await pathExists(path.join(root, ".claude", "skills", "visible-skill", "SKILL.md")),
+			).toBe(true);
+		});
+	});
+
 	it("lets profiles override frontmatter enabled=false and strips the field from outputs", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
@@ -262,13 +294,21 @@ describe.sequential("sync command with profiles", () => {
 			const skillOutputPath = path.join(root, ".claude", "skills", "hidden-skill", "SKILL.md");
 			const commandOutputPath = path.join(root, ".claude", "commands", "hidden-command.md");
 			const subagentOutputPath = path.join(root, ".claude", "agents", "hidden-agent.md");
+			const copilotCommandOutputPath = path.join(
+				root,
+				".github",
+				"agents",
+				"hidden-command.agent.md",
+			);
 			expect(await pathExists(skillOutputPath)).toBe(true);
 			expect(await pathExists(commandOutputPath)).toBe(true);
 			expect(await pathExists(subagentOutputPath)).toBe(true);
+			expect(await pathExists(copilotCommandOutputPath)).toBe(true);
 
 			expect(await readFile(skillOutputPath, "utf8")).not.toContain("enabled:");
 			expect(await readFile(commandOutputPath, "utf8")).not.toContain("enabled:");
 			expect(await readFile(subagentOutputPath, "utf8")).not.toContain("enabled:");
+			expect(await readFile(copilotCommandOutputPath, "utf8")).not.toContain("enabled:");
 		});
 	});
 

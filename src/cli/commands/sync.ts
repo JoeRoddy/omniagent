@@ -33,6 +33,7 @@ import {
 	DEFAULT_PROFILE_NAME,
 	loadProfileFiles,
 	type ProfileItemFilter,
+	type ProfileItemSelection,
 	type ProfileTargetSetting,
 	profileExists,
 	type ResolvedProfile,
@@ -448,9 +449,9 @@ type ScriptPreflightOptions = {
 	selectedInstructionTargets: ResolvedTarget[];
 	skillsAvailable: boolean;
 	commandsAvailable: boolean;
-	includeSkill?: (name: string) => boolean;
-	includeSubagent?: (name: string) => boolean;
-	includeCommand?: (name: string) => boolean;
+	includeSkill?: (item: ProfileItemSelection) => boolean;
+	includeSubagent?: (item: ProfileItemSelection) => boolean;
+	includeCommand?: (item: ProfileItemSelection) => boolean;
 };
 
 function hasTemplateScripts(content: string): boolean {
@@ -513,7 +514,13 @@ async function gatherTemplateScriptSources(
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const command of commandCatalog.commands) {
-			if (options.includeCommand && !options.includeCommand(command.name)) {
+			if (
+				options.includeCommand &&
+				!options.includeCommand({
+					canonicalName: command.name,
+					enabledByDefault: command.enabledByDefault,
+				})
+			) {
 				continue;
 			}
 			const effectiveTargets = resolveEffectiveTargets({
@@ -536,7 +543,13 @@ async function gatherTemplateScriptSources(
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const subagent of subagentCatalog.subagents) {
-			if (options.includeSubagent && !options.includeSubagent(subagent.resolvedName)) {
+			if (
+				options.includeSubagent &&
+				!options.includeSubagent({
+					canonicalName: subagent.resolvedName,
+					enabledByDefault: subagent.enabledByDefault,
+				})
+			) {
 				continue;
 			}
 			const effectiveTargets = resolveEffectiveTargets({
@@ -580,7 +593,13 @@ async function gatherTemplateScriptSources(
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const skill of skillCatalog.skills) {
-			if (options.includeSkill && !options.includeSkill(skill.name)) {
+			if (
+				options.includeSkill &&
+				!options.includeSkill({
+					canonicalName: skill.name,
+					enabledByDefault: skill.enabledByDefault,
+				})
+			) {
 				continue;
 			}
 			const effectiveTargets = resolveEffectiveTargets({
@@ -766,9 +785,9 @@ async function validateTemplatingSources(options: {
 	includeLocalInstructions: boolean;
 	instructionsAvailable: boolean;
 	resolveTargetName?: (value: string) => string | null;
-	includeSkill?: (name: string) => boolean;
-	includeSubagent?: (name: string) => boolean;
-	includeCommand?: (name: string) => boolean;
+	includeSkill?: (item: ProfileItemSelection) => boolean;
+	includeSubagent?: (item: ProfileItemSelection) => boolean;
+	includeCommand?: (item: ProfileItemSelection) => boolean;
 }): Promise<void> {
 	const validateContent = (sourcePath: string, contents: string): void => {
 		validateAgentTemplating({
@@ -785,7 +804,13 @@ async function validateTemplatingSources(options: {
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const command of commandCatalog.commands) {
-			if (options.includeCommand && !options.includeCommand(command.name)) {
+			if (
+				options.includeCommand &&
+				!options.includeCommand({
+					canonicalName: command.name,
+					enabledByDefault: command.enabledByDefault,
+				})
+			) {
 				continue;
 			}
 			validateContent(command.sourcePath, command.rawContents);
@@ -799,7 +824,13 @@ async function validateTemplatingSources(options: {
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const skill of skillCatalog.skills) {
-			if (options.includeSkill && !options.includeSkill(skill.name)) {
+			if (
+				options.includeSkill &&
+				!options.includeSkill({
+					canonicalName: skill.name,
+					enabledByDefault: skill.enabledByDefault,
+				})
+			) {
 				continue;
 			}
 			const files = await listFiles(skill.directoryPath);
@@ -824,7 +855,13 @@ async function validateTemplatingSources(options: {
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const subagent of subagentCatalog.subagents) {
-			if (options.includeSubagent && !options.includeSubagent(subagent.resolvedName)) {
+			if (
+				options.includeSubagent &&
+				!options.includeSubagent({
+					canonicalName: subagent.resolvedName,
+					enabledByDefault: subagent.enabledByDefault,
+				})
+			) {
 				continue;
 			}
 			validateContent(subagent.sourcePath, subagent.rawContents);
@@ -1609,7 +1646,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			};
 			const includeItemFor = (
 				category: "skills" | "subagents" | "commands",
-			): ((item: { canonicalName: string; enabledByDefault: boolean }) => boolean) => {
+			): ((item: ProfileItemSelection) => boolean) => {
 				return (item) => {
 					if (profileItemFilter.enabled) {
 						traversedProfileNames[category].add(item.canonicalName);
