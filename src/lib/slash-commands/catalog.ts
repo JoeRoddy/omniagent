@@ -86,6 +86,9 @@ async function buildCommandDefinition(options: {
 		itemName: options.commandName,
 		sourcePath: options.filePath,
 	});
+	if (enabledByDefault && !prompt.trim()) {
+		throw new Error(`Slash command "${options.commandName}" has an empty prompt.`);
+	}
 
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
 	const { targets, invalidTargets } = resolveFrontmatterTargets(

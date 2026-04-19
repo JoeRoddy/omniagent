@@ -337,6 +337,34 @@ describe.sequential("profiles subcommand", () => {
 		});
 	});
 
+	it("validate exits non-zero when a profile includes disabled draft commands or subagents", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeCommand(root, "draft", ["---", "enabled: false", "---", ""].join("\n"));
+			const subagentPath = path.join(root, "agents", "agents", "draft.md");
+			await mkdir(path.dirname(subagentPath), { recursive: true });
+			await writeFile(
+				subagentPath,
+				["---", "name: draft", "enabled: false", "---", ""].join("\n"),
+				"utf8",
+			);
+			await writeProfile(root, "profiles/drafts.json", {
+				enable: { commands: ["draft"], subagents: ["draft"] },
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "profiles", "validate"]);
+			});
+
+			expect(exitSpy).toHaveBeenCalledWith(1);
+			const errOut = errorSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+			expect(errOut).toContain('includes unusable command "draft"');
+			expect(errOut).toContain("empty prompt");
+			expect(errOut).toContain('includes unusable subagent "draft"');
+			expect(errOut).toContain("empty body");
+		});
+	});
+
 	it("validate stays silent for zero-match glob references", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);

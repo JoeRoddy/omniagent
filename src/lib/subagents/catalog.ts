@@ -210,6 +210,9 @@ async function buildSubagentDefinition(options: {
 		itemName: resolvedName,
 		sourcePath: options.filePath,
 	});
+	if (enabledByDefault && !body.trim()) {
+		throw new Error(`Subagent file has empty body: ${options.filePath}.`);
+	}
 
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
 	const { targets, invalidTargets } = resolveFrontmatterTargets(

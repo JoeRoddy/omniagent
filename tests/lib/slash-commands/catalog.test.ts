@@ -23,4 +23,17 @@ describe("slash command catalog", () => {
 			await expect(loadCommandCatalog(root)).rejects.toThrow(/Duplicate command name/);
 		});
 	});
+
+	it("rejects default-enabled commands with empty prompts", async () => {
+		await withTempRepo(async (root) => {
+			const commandsDir = path.join(root, "agents", "commands");
+			await mkdir(commandsDir, { recursive: true });
+			await writeFile(
+				path.join(commandsDir, "draft.md"),
+				["---", 'description: "draft"', "---", ""].join("\n"),
+			);
+
+			await expect(loadCommandCatalog(root)).rejects.toThrow(/empty prompt/);
+		});
+	});
 });

@@ -11,8 +11,16 @@ import {
 } from "../../lib/profiles/index.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
 import { loadSkillCatalog } from "../../lib/skills/catalog.js";
-import { loadCommandCatalog } from "../../lib/slash-commands/catalog.js";
-import { loadSubagentCatalog } from "../../lib/subagents/catalog.js";
+import {
+	assertSlashCommandDefinitionUsable,
+	loadCommandCatalog,
+	type SlashCommandDefinition,
+} from "../../lib/slash-commands/catalog.js";
+import {
+	assertSubagentDefinitionUsable,
+	loadSubagentCatalog,
+	type SubagentDefinition,
+} from "../../lib/subagents/catalog.js";
 import { createTargetNameResolver } from "../../lib/sync-targets.js";
 import { BUILTIN_TARGETS } from "../../lib/targets/builtins.js";
 import { loadTargetConfig } from "../../lib/targets/config-loader.js";
@@ -38,9 +46,9 @@ type ListArgs = BaseArgs & {
 
 type ProfileValidationCatalog = {
 	resolveTargetName: (value: string) => string | null;
-	skillNames: string[];
-	commandNames: string[];
-	subagentNames: string[];
+	skills: Array<{ canonicalName: string; enabledByDefault: boolean }>;
+	commands: SlashCommandDefinition[];
+	subagents: SubagentDefinition[];
 };
 
 async function resolveRepoAndAgentsDir(
@@ -109,9 +117,12 @@ async function loadProfileValidationCatalog(
 
 	return {
 		resolveTargetName,
-		skillNames: skillCatalog.skills.map((skill) => skill.name),
-		commandNames: commandCatalog.commands.map((command) => command.name),
-		subagentNames: subagentCatalog.subagents.map((subagent) => subagent.resolvedName),
+		skills: skillCatalog.skills.map((skill) => ({
+			canonicalName: skill.name,
+			enabledByDefault: skill.enabledByDefault,
+		})),
+		commands: commandCatalog.commands,
+		subagents: subagentCatalog.subagents,
 	};
 }
 
@@ -121,17 +132,45 @@ function collectProfileReferenceIssues(
 	catalog: ProfileValidationCatalog,
 ): string[] {
 	const filter = createProfileItemFilter(resolvedProfile);
-	for (const skillName of catalog.skillNames) {
-		filter.includes("skills", skillName);
+	for (const skill of catalog.skills) {
+		filter.includes("skills", skill);
 	}
-	for (const commandName of catalog.commandNames) {
-		filter.includes("commands", commandName);
+	const issues: string[] = [];
+	for (const command of catalog.commands) {
+		const included = filter.includes("commands", {
+			canonicalName: command.name,
+			enabledByDefault: command.enabledByDefault,
+		});
+		if (!included) {
+			continue;
+		}
+		try {
+			assertSlashCommandDefinitionUsable(command);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			issues.push(
+				`profile "${profileName}" includes unusable command "${command.name}": ${message}`,
+			);
+		}
 	}
-	for (const subagentName of catalog.subagentNames) {
-		filter.includes("subagents", subagentName);
+	for (const subagent of catalog.subagents) {
+		const included = filter.includes("subagents", {
+			canonicalName: subagent.resolvedName,
+			enabledByDefault: subagent.enabledByDefault,
+		});
+		if (!included) {
+			continue;
+		}
+		try {
+			assertSubagentDefinitionUsable(subagent);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			issues.push(
+				`profile "${profileName}" includes unusable subagent "${subagent.resolvedName}": ${message}`,
+			);
+		}
 	}
-
-	const issues = filter.collectUnknownWarnings();
+	issues.push(...filter.collectUnknownWarnings());
 	for (const targetName of Object.keys(resolvedProfile.targets)) {
 		if (catalog.resolveTargetName(targetName)) {
 			continue;
