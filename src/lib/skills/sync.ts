@@ -39,7 +39,7 @@ import {
 	writeFileOutput,
 } from "../targets/writers.js";
 import { createTemplateScriptRuntime, type TemplateScriptRuntime } from "../template-scripts.js";
-import { loadSkillCatalog, type SkillDefinition } from "./catalog.js";
+import { assertSkillDefinitionUsable, loadSkillCatalog, type SkillDefinition } from "./catalog.js";
 
 export type SkillSyncRequest = {
 	repoRoot: string;
@@ -74,6 +74,27 @@ function buildInvalidTargetWarnings(skills: SkillDefinition[]): string[] {
 		);
 	}
 	return warnings;
+}
+
+function assertUsableSkillsForTargets(options: {
+	skills: SkillDefinition[];
+	activeTargetIds: Set<string>;
+	overrideOnly?: TargetName[] | null;
+	overrideSkip?: TargetName[] | null;
+	allTargets: string[];
+}): void {
+	for (const skill of options.skills) {
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: skill.targetAgents,
+			overrideOnly: options.overrideOnly ?? undefined,
+			overrideSkip: options.overrideSkip ?? undefined,
+			allTargets: options.allTargets,
+		});
+		if (!effectiveTargets.some((targetId) => options.activeTargetIds.has(targetId))) {
+			continue;
+		}
+		assertSkillDefinitionUsable(skill);
+	}
 }
 
 type SkillOutputCandidate = {
@@ -117,9 +138,16 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 	catalog.sharedSkills = catalog.sharedSkills.filter(predicate);
 	catalog.localSkills = catalog.localSkills.filter(predicate);
 	catalog.localEffectiveSkills = catalog.localEffectiveSkills.filter(predicate);
-	const warnings = buildInvalidTargetWarnings(catalog.skills);
 	const allTargetIds = request.targets.map((target) => target.id);
 	const targetNames = new Set(skillTargets.map((target) => target.id));
+	assertUsableSkillsForTargets({
+		skills: catalog.skills,
+		activeTargetIds: targetNames,
+		overrideOnly: request.overrideOnly,
+		overrideSkip: request.overrideSkip,
+		allTargets: allTargetIds,
+	});
+	const warnings = buildInvalidTargetWarnings(catalog.skills);
 	const effectiveTargetsBySkill = new Map<SkillDefinition, TargetName[]>();
 	const activeSourcesByTarget = new Map<string, Set<string>>();
 	for (const skill of catalog.skills) {

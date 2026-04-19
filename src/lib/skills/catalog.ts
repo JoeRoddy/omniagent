@@ -38,6 +38,7 @@ export type SkillDefinition = {
 	body: string;
 	targetAgents: TargetName[] | null;
 	invalidTargets: string[];
+	routingError?: string | null;
 };
 
 export type SkillCatalog = {
@@ -89,6 +90,26 @@ function resolveSkillRelativePath(
 	return { relativePath: normalized, hadLocalSuffix: true };
 }
 
+function resolveSkillRoutingError(options: {
+	name: string;
+	sourcePath: string;
+	rawTargets: Array<FrontmatterValue | undefined>;
+	targets: TargetName[] | null;
+	invalidTargets: string[];
+}): string | null {
+	if (options.invalidTargets.length > 0) {
+		const invalidList = options.invalidTargets.join(", ");
+		return `Skill "${options.name}" has unsupported targets (${invalidList}) in ${options.sourcePath}.`;
+	}
+	if (
+		hasRawTargetValues(options.rawTargets) &&
+		(!options.targets || options.targets.length === 0)
+	) {
+		return `Skill "${options.name}" has empty targets in ${options.sourcePath}.`;
+	}
+	return null;
+}
+
 async function buildSkillDefinition(options: {
 	directoryPath: string;
 	skillsRoot: string;
@@ -125,14 +146,15 @@ async function buildSkillDefinition(options: {
 		rawTargets,
 		options.resolveTargetName,
 	);
-	if (invalidTargets.length > 0) {
-		const invalidList = invalidTargets.join(", ");
-		throw new InvalidFrontmatterTargetsError(
-			`Skill "${name}" has unsupported targets (${invalidList}) in ${sourcePath}.`,
-		);
-	}
-	if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
-		throw new InvalidFrontmatterTargetsError(`Skill "${name}" has empty targets in ${sourcePath}.`);
+	const routingError = resolveSkillRoutingError({
+		name,
+		sourcePath,
+		rawTargets,
+		targets,
+		invalidTargets,
+	});
+	if (enabledByDefault && routingError) {
+		throw new InvalidFrontmatterTargetsError(routingError);
 	}
 	const { outputFileName } = stripLocalSuffix(options.skillFileName, ".md");
 
@@ -152,7 +174,14 @@ async function buildSkillDefinition(options: {
 		body,
 		targetAgents: targets,
 		invalidTargets,
+		routingError,
 	};
+}
+
+export function assertSkillDefinitionUsable(skill: Pick<SkillDefinition, "routingError">): void {
+	if (skill.routingError) {
+		throw new InvalidFrontmatterTargetsError(skill.routingError);
+	}
 }
 
 export async function loadSkillCatalog(

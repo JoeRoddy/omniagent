@@ -10,7 +10,11 @@ import {
 	resolveProfiles,
 } from "../../lib/profiles/index.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
-import { loadSkillCatalog } from "../../lib/skills/catalog.js";
+import {
+	assertSkillDefinitionUsable,
+	loadSkillCatalog,
+	type SkillDefinition,
+} from "../../lib/skills/catalog.js";
 import {
 	assertSlashCommandDefinitionUsable,
 	loadCommandCatalog,
@@ -46,7 +50,7 @@ type ListArgs = BaseArgs & {
 
 type ProfileValidationCatalog = {
 	resolveTargetName: (value: string) => string | null;
-	skills: Array<{ canonicalName: string; enabledByDefault: boolean }>;
+	skills: SkillDefinition[];
 	commands: SlashCommandDefinition[];
 	subagents: SubagentDefinition[];
 };
@@ -117,10 +121,7 @@ async function loadProfileValidationCatalog(
 
 	return {
 		resolveTargetName,
-		skills: skillCatalog.skills.map((skill) => ({
-			canonicalName: skill.name,
-			enabledByDefault: skill.enabledByDefault,
-		})),
+		skills: skillCatalog.skills,
 		commands: commandCatalog.commands,
 		subagents: subagentCatalog.subagents,
 	};
@@ -132,10 +133,22 @@ function collectProfileReferenceIssues(
 	catalog: ProfileValidationCatalog,
 ): string[] {
 	const filter = createProfileItemFilter(resolvedProfile);
-	for (const skill of catalog.skills) {
-		filter.includes("skills", skill);
-	}
 	const issues: string[] = [];
+	for (const skill of catalog.skills) {
+		const included = filter.includes("skills", {
+			canonicalName: skill.name,
+			enabledByDefault: skill.enabledByDefault,
+		});
+		if (!included) {
+			continue;
+		}
+		try {
+			assertSkillDefinitionUsable(skill);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			issues.push(`profile "${profileName}" includes unusable skill "${skill.name}": ${message}`);
+		}
+	}
 	for (const command of catalog.commands) {
 		const included = filter.includes("commands", {
 			canonicalName: command.name,

@@ -35,6 +35,7 @@ export type SubagentDefinition = {
 	body: string;
 	targetAgents: SubagentTargetName[] | null;
 	invalidTargets: string[];
+	routingError?: string | null;
 };
 
 export type SubagentCatalog = {
@@ -219,16 +220,15 @@ async function buildSubagentDefinition(options: {
 		rawTargets,
 		options.resolveTargetName,
 	);
+	let routingError: string | null = null;
 	if (invalidTargets.length > 0) {
 		const invalidList = invalidTargets.join(", ");
-		throw new InvalidFrontmatterTargetsError(
-			`Subagent "${resolvedName}" has unsupported targets (${invalidList}) in ${options.filePath}.`,
-		);
+		routingError = `Subagent "${resolvedName}" has unsupported targets (${invalidList}) in ${options.filePath}.`;
+	} else if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
+		routingError = `Subagent "${resolvedName}" has empty targets in ${options.filePath}.`;
 	}
-	if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
-		throw new InvalidFrontmatterTargetsError(
-			`Subagent "${resolvedName}" has empty targets in ${options.filePath}.`,
-		);
+	if (enabledByDefault && routingError) {
+		throw new InvalidFrontmatterTargetsError(routingError);
 	}
 
 	let metadata: ReturnType<typeof buildSourceMetadata>;
@@ -255,14 +255,18 @@ async function buildSubagentDefinition(options: {
 		body,
 		targetAgents: targets,
 		invalidTargets,
+		routingError,
 	};
 }
 
 export function assertSubagentDefinitionUsable(
-	subagent: Pick<SubagentDefinition, "sourcePath" | "body">,
+	subagent: Pick<SubagentDefinition, "sourcePath" | "body" | "routingError">,
 ): void {
 	if (!subagent.body.trim()) {
 		throw new Error(`Subagent file has empty body: ${subagent.sourcePath}.`);
+	}
+	if (subagent.routingError) {
+		throw new InvalidFrontmatterTargetsError(subagent.routingError);
 	}
 }
 

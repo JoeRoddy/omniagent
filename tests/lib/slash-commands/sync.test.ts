@@ -725,4 +725,41 @@ describe("slash command sync planning", () => {
 			).rejects.toThrow(/empty prompt/);
 		});
 	});
+
+	it("skips disabled commands with invalid targets by default and fails when explicitly included", async () => {
+		await withTempRepo(async (root) => {
+			await createCanonicalCommand(root, "visible");
+			const commandsDir = path.join(root, "agents", "commands");
+			await writeFile(
+				path.join(commandsDir, "draft.md"),
+				["---", "enabled: false", "targets:", "  - nope", "---", "draft prompt"].join("\n"),
+				"utf8",
+			);
+			const claudeTargets = resolveTargets({
+				config: null,
+				builtIns: BUILTIN_TARGETS,
+			}).targets.filter((target) => target.id === "claude");
+
+			const summary = await syncSlashCommands({
+				repoRoot: root,
+				targets: claudeTargets,
+				validAgents: ["claude"],
+				removeMissing: true,
+			});
+
+			expect(summary.hadFailures).toBe(false);
+			expect(await pathExists(path.join(root, ".claude", "commands", "visible.md"))).toBe(true);
+			expect(await pathExists(path.join(root, ".claude", "commands", "draft.md"))).toBe(false);
+
+			await expect(
+				syncSlashCommands({
+					repoRoot: root,
+					targets: claudeTargets,
+					validAgents: ["claude"],
+					removeMissing: true,
+					includeItem: (item) => (item.canonicalName === "draft" ? true : item.enabledByDefault),
+				}),
+			).rejects.toThrow(/unsupported targets/);
+		});
+	});
 });

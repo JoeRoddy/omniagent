@@ -215,6 +215,46 @@ describe.sequential("subagent sync", () => {
 		});
 	});
 
+	it("skips disabled subagents with invalid targets by default and fails when explicitly included", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSubagent(root, "helper", "Subagent body");
+			const catalogDir = path.join(root, "agents", "agents");
+			await writeFile(
+				path.join(catalogDir, "draft.md"),
+				["---", "name: draft", "enabled: false", "targets:", "  - nope", "---", "Draft body"].join(
+					"\n",
+				),
+				"utf8",
+			);
+			const claudeTargets = resolveTargets({
+				config: null,
+				builtIns: BUILTIN_TARGETS,
+			}).targets.filter((target) => target.id === "claude");
+
+			const summary = await syncSubagents({
+				repoRoot: root,
+				targets: claudeTargets,
+				validAgents: ["claude"],
+				removeMissing: true,
+			});
+
+			expect(summary.hadFailures).toBe(false);
+			expect(await pathExists(path.join(root, ".claude", "agents", "helper.md"))).toBe(true);
+			expect(await pathExists(path.join(root, ".claude", "agents", "draft.md"))).toBe(false);
+
+			await expect(
+				syncSubagents({
+					repoRoot: root,
+					targets: claudeTargets,
+					validAgents: ["claude"],
+					removeMissing: true,
+					includeItem: (item) => (item.canonicalName === "draft" ? true : item.enabledByDefault),
+				}),
+			).rejects.toThrow(/unsupported targets/);
+		});
+	});
+
 	it("ignores target-mismatched invalid canonical skills during direct sync", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);

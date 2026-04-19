@@ -173,6 +173,7 @@ type CanonicalSkillCandidate = {
 	relativePath: string;
 	sourcePath: string;
 };
+type ShadowedSubagentSources = Map<string, Set<string>>;
 
 type TargetPlan = {
 	targetName: SubagentTargetName;
@@ -450,28 +451,21 @@ async function loadCanonicalSkillIndex(
 		const skillName = resolveSkillName(frontmatter, fallbackName);
 		const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
 		const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, resolveTargetName);
-		if (invalidTargets.length > 0) {
-			const invalidList = invalidTargets.join(", ");
-			throw new InvalidFrontmatterTargetsError(
-				`Skill "${skillName}" has unsupported targets (${invalidList}) in ${skill.sourcePath}.`,
-			);
-		}
-		if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
-			throw new InvalidFrontmatterTargetsError(
-				`Skill "${skillName}" has empty targets in ${skill.sourcePath}.`,
-			);
-		}
-		const effectiveTargets = resolveEffectiveTargets({
-			defaultTargets: targets,
-			overrideOnly: options.overrideOnly ?? undefined,
-			overrideSkip: options.overrideSkip ?? undefined,
-			allTargets: options.allTargets,
-		});
-		const matchingTargets = targetFilter
-			? effectiveTargets.filter((targetId) => targetFilter.has(targetId))
-			: effectiveTargets;
-		if (matchingTargets.length === 0) {
-			continue;
+		const hasEmptyTargets = hasRawTargetValues(rawTargets) && (!targets || targets.length === 0);
+		let matchingTargets: string[] | null = null;
+		if (invalidTargets.length === 0 && !hasEmptyTargets) {
+			const effectiveTargets = resolveEffectiveTargets({
+				defaultTargets: targets,
+				overrideOnly: options.overrideOnly ?? undefined,
+				overrideSkip: options.overrideSkip ?? undefined,
+				allTargets: options.allTargets,
+			});
+			matchingTargets = targetFilter
+				? effectiveTargets.filter((targetId) => targetFilter.has(targetId))
+				: effectiveTargets;
+			if (matchingTargets.length === 0) {
+				continue;
+			}
 		}
 		const enabledByDefault = resolveFrontmatterEnabledByDefault({
 			frontmatter,
@@ -486,6 +480,20 @@ async function loadCanonicalSkillIndex(
 				includeSkill: options.includeSkill,
 			})
 		) {
+			continue;
+		}
+		if (invalidTargets.length > 0) {
+			const invalidList = invalidTargets.join(", ");
+			throw new InvalidFrontmatterTargetsError(
+				`Skill "${skillName}" has unsupported targets (${invalidList}) in ${skill.sourcePath}.`,
+			);
+		}
+		if (hasEmptyTargets) {
+			throw new InvalidFrontmatterTargetsError(
+				`Skill "${skillName}" has empty targets in ${skill.sourcePath}.`,
+			);
+		}
+		if (!matchingTargets || matchingTargets.length === 0) {
 			continue;
 		}
 		const skillKey = normalizeSkillKey(skill.relativePath);
@@ -546,6 +554,16 @@ function getCanonicalSkillPath(
 	skillKey: string,
 ): string | undefined {
 	return index.get(targetId)?.get(skillKey);
+}
+
+function recordShadowedSubagentSource(
+	shadowedSources: ShadowedSubagentSources,
+	targetId: string,
+	sourceId: string,
+): void {
+	const existing = shadowedSources.get(targetId) ?? new Set<string>();
+	existing.add(normalizeName(sourceId));
+	shadowedSources.set(targetId, existing);
 }
 
 function includeSubagentByDefault(
@@ -1385,6 +1403,7 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 	const managedManifest = (await readManagedOutputs(request.repoRoot, homeDir)) ?? { entries: [] };
 	const nextManaged = new Map<string, ManagedOutputRecord>();
 	const activeOutputPaths = new Set<string>();
+	const shadowedSubagentSources: ShadowedSubagentSources = new Map();
 	const countsByTarget = new Map<string, SummaryCounts>();
 	const getCounts = (targetId: string): SummaryCounts => {
 		const existing = countsByTarget.get(targetId) ?? emptySummaryCounts();
@@ -1493,6 +1512,7 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 					canonicalSkillKey,
 				);
 				if (canonicalSkillPath) {
+					recordShadowedSubagentSource(shadowedSubagentSources, target.id, subagent.resolvedName);
 					warnings.push(
 						`Skipped ${target.displayName} skill "${subagent.resolvedName}" because canonical skill exists at ${canonicalSkillPath}.`,
 					);
@@ -1707,6 +1727,36 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 			}
 			const key = buildManagedOutputKey(entry);
 			if (nextManaged.has(key)) {
+				continue;
+			}
+			const canonicalSkillPath = getCanonicalSkillPath(
+				canonicalSkills,
+				entry.targetId,
+				normalizeSkillKey(entry.sourceId),
+			);
+			const skillDef = skillDefs.get(entry.targetId);
+			if (canonicalSkillPath && skillDef) {
+				const expectedSkillOutputPath = resolveOutputPath({
+					template: skillDef.path,
+					context: {
+						repoRoot: request.repoRoot,
+						agentsDir: agentsDirPath,
+						homeDir,
+						targetId: entry.targetId,
+						itemName: entry.sourceId,
+					},
+					item: { name: entry.sourceId },
+					baseDir: request.repoRoot,
+				});
+				if (
+					normalizeManagedOutputPath(expectedSkillOutputPath) ===
+					normalizeManagedOutputPath(entry.outputPath)
+				) {
+					continue;
+				}
+			}
+			const shadowedSources = shadowedSubagentSources.get(entry.targetId);
+			if (shadowedSources?.has(normalizeName(entry.sourceId))) {
 				continue;
 			}
 			const activeSources = activeSourcesByTarget.get(entry.targetId);
