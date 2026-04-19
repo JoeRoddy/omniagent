@@ -33,6 +33,7 @@ import {
 	DEFAULT_PROFILE_NAME,
 	loadProfileFiles,
 	type ProfileItemFilter,
+	type ProfileTargetSetting,
 	profileExists,
 	type ResolvedProfile,
 	resolveProfiles,
@@ -141,6 +142,40 @@ function parseProfileList(value?: string | string[]): string[] {
 		.flatMap((entry) => entry.split(","))
 		.map((entry) => entry.trim())
 		.filter(Boolean);
+}
+
+type KnownProfileTargetSettings = {
+	targets: Record<string, ProfileTargetSetting>;
+	unknownTargets: string[];
+};
+
+function resolveKnownProfileTargetSettings(
+	profile: ResolvedProfile | null,
+	resolveTargetName: (value: string) => string | null,
+): KnownProfileTargetSettings {
+	if (!profile) {
+		return { targets: {}, unknownTargets: [] };
+	}
+
+	const targets: Record<string, ProfileTargetSetting> = {};
+	const unknownTargets: string[] = [];
+	const seenUnknownTargets = new Set<string>();
+
+	for (const [targetKey, setting] of Object.entries(profile.targets)) {
+		const resolvedTargetName = resolveTargetName(targetKey);
+		if (!resolvedTargetName) {
+			if (!seenUnknownTargets.has(targetKey)) {
+				seenUnknownTargets.add(targetKey);
+				unknownTargets.push(targetKey);
+			}
+			continue;
+		}
+
+		const existing = targets[resolvedTargetName] ?? {};
+		targets[resolvedTargetName] = { ...existing, ...setting };
+	}
+
+	return { targets, unknownTargets };
 }
 
 type ParsedVariables = {
@@ -669,80 +704,75 @@ async function validateTemplatingSources(options: {
 	validAgents: string[];
 	commandsAvailable: boolean;
 	skillsAvailable: boolean;
+	subagentsAvailable: boolean;
 	includeLocalCommands: boolean;
 	includeLocalSkills: boolean;
 	includeLocalAgents: boolean;
 	includeLocalInstructions: boolean;
 	instructionsAvailable: boolean;
+	resolveTargetName?: (value: string) => string | null;
+	includeSkill?: (name: string) => boolean;
+	includeSubagent?: (name: string) => boolean;
+	includeCommand?: (name: string) => boolean;
 }): Promise<void> {
-	const directories: string[] = [];
+	const validateContent = (sourcePath: string, contents: string): void => {
+		validateAgentTemplating({
+			content: contents,
+			validAgents: options.validAgents,
+			sourcePath,
+		});
+	};
+
 	if (options.commandsAvailable) {
-		const commandsPath = resolveSharedCategoryRoot(options.repoRoot, "commands", options.agentsDir);
-		if (await assertSourceDirectory(commandsPath)) {
-			directories.push(commandsPath);
-		}
-	}
-	if (options.skillsAvailable) {
-		const skillsPath = resolveSharedCategoryRoot(options.repoRoot, "skills", options.agentsDir);
-		if (await assertSourceDirectory(skillsPath)) {
-			directories.push(skillsPath);
-		}
-	}
-	if (options.includeLocalCommands) {
-		const localCommandsPath = resolveLocalCategoryRoot(
-			options.repoRoot,
-			"commands",
-			options.agentsDir,
-		);
-		if (await assertSourceDirectory(localCommandsPath)) {
-			directories.push(localCommandsPath);
-		}
-	}
-	if (options.includeLocalSkills) {
-		const localSkillsPath = resolveLocalCategoryRoot(options.repoRoot, "skills", options.agentsDir);
-		if (await assertSourceDirectory(localSkillsPath)) {
-			directories.push(localSkillsPath);
-		}
-	}
-	const subagentsPath = resolveSharedCategoryRoot(options.repoRoot, "agents", options.agentsDir);
-	if (await assertSourceDirectory(subagentsPath)) {
-		directories.push(subagentsPath);
-	}
-	if (options.includeLocalAgents) {
-		const localSubagentsPath = resolveLocalCategoryRoot(
-			options.repoRoot,
-			"agents",
-			options.agentsDir,
-		);
-		if (await assertSourceDirectory(localSubagentsPath)) {
-			directories.push(localSubagentsPath);
+		const commandCatalog = await loadCommandCatalog(options.repoRoot, {
+			includeLocal: options.includeLocalCommands,
+			agentsDir: options.agentsDir,
+			resolveTargetName: options.resolveTargetName,
+		});
+		for (const command of commandCatalog.commands) {
+			if (options.includeCommand && !options.includeCommand(command.name)) {
+				continue;
+			}
+			validateContent(command.sourcePath, command.rawContents);
 		}
 	}
 
-	for (const directory of directories) {
-		const category = path.basename(directory);
-		const excludeLocal =
-			(category === "skills" && !options.includeLocalSkills) ||
-			(category === "commands" && !options.includeLocalCommands) ||
-			(category === "agents" && !options.includeLocalAgents);
-		const files =
-			path.basename(directory) === "skills"
-				? await listFiles(directory)
-				: await listMarkdownFiles(directory);
-		const filesToValidate = excludeLocal
-			? files.filter((filePath) => !hasLocalMarker(filePath))
-			: files;
-		for (const filePath of filesToValidate) {
-			const buffer = await readFile(filePath);
-			const contents = decodeUtf8(buffer);
-			if (contents === null) {
+	if (options.skillsAvailable) {
+		const skillCatalog = await loadSkillCatalog(options.repoRoot, {
+			includeLocal: options.includeLocalSkills,
+			agentsDir: options.agentsDir,
+			resolveTargetName: options.resolveTargetName,
+		});
+		for (const skill of skillCatalog.skills) {
+			if (options.includeSkill && !options.includeSkill(skill.name)) {
 				continue;
 			}
-			validateAgentTemplating({
-				content: contents,
-				validAgents: options.validAgents,
-				sourcePath: filePath,
-			});
+			const files = await listFiles(skill.directoryPath);
+			const filesToValidate = options.includeLocalSkills
+				? files
+				: files.filter((filePath) => !hasLocalMarker(filePath));
+			for (const filePath of filesToValidate) {
+				const buffer = await readFile(filePath);
+				const contents = decodeUtf8(buffer);
+				if (contents === null) {
+					continue;
+				}
+				validateContent(filePath, contents);
+			}
+		}
+	}
+
+	if (options.subagentsAvailable) {
+		const subagentCatalog = await loadSubagentCatalog(options.repoRoot, {
+			includeLocal: options.includeLocalAgents,
+			agentsDir: options.agentsDir,
+			resolveTargetName: options.resolveTargetName,
+		});
+		for (const subagent of subagentCatalog.subagents) {
+			if (options.includeSubagent && !options.includeSubagent(subagent.resolvedName)) {
+				continue;
+			}
+			validateContent(subagent.sourcePath, subagent.rawContents);
 		}
 	}
 
@@ -1483,14 +1513,17 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				return;
 			}
 
-			const profileUnknownTargets: string[] = [];
-			if (activeProfile) {
-				for (const targetKey of Object.keys(activeProfile.targets)) {
-					if (!targetResolver.resolveTargetName(targetKey)) {
-						profileUnknownTargets.push(targetKey);
+			const knownProfileTargets = resolveKnownProfileTargetSettings(
+				activeProfile,
+				targetResolver.resolveTargetName,
+			);
+			const profileForTargetSelection = activeProfile
+				? {
+						...activeProfile,
+						targets: knownProfileTargets.targets,
 					}
-				}
-			}
+				: null;
+			const profileUnknownTargets = knownProfileTargets.unknownTargets;
 			for (const name of profileUnknownTargets) {
 				scriptRuntime.warnings.push({
 					code: "profile_warning",
@@ -1507,7 +1540,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				if (skipSet.size > 0 && skipSet.has(target.id)) {
 					return false;
 				}
-				return targetEnabledByProfile(activeProfile, target.id, target.aliases ?? []);
+				return targetEnabledByProfile(profileForTargetSelection, target.id, target.aliases ?? []);
 			});
 			const overrideOnly = resolvedOnly.ids.length > 0 ? resolvedOnly.ids : undefined;
 			const overrideSkip = resolvedSkip.ids.length > 0 ? resolvedSkip.ids : undefined;
@@ -1760,11 +1793,16 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					validAgents,
 					commandsAvailable: hasCommandsToSync,
 					skillsAvailable: hasSkillsToSync,
+					subagentsAvailable: hasSubagentsToSync,
 					includeLocalCommands: includeLocalCommands && hasCommandsToSync,
 					includeLocalSkills: includeLocalSkills && hasSkillsToSync,
 					includeLocalAgents: includeLocalAgents && hasSubagentsToSync,
 					includeLocalInstructions: includeLocalInstructions && hasInstructionsToSync,
 					instructionsAvailable: hasInstructionsToSync,
+					resolveTargetName,
+					includeSkill: includeItemFor("skills"),
+					includeSubagent: includeItemFor("subagents"),
+					includeCommand: includeItemFor("commands"),
 				});
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);

@@ -263,6 +263,27 @@ describe.sequential("sync command with profiles", () => {
 		});
 	});
 
+	it("warns on unknown enabled targets without turning them into an empty allowlist", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "alpha");
+			await writeProfile(root, "profiles/typo.json", {
+				targets: { claud: { enabled: true } },
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--profile", "typo", "--only", "claude"]);
+			});
+
+			expect(await pathExists(path.join(root, ".claude", "skills", "alpha", "SKILL.md"))).toBe(
+				true,
+			);
+			expect(process.exitCode).toBeUndefined();
+			const output = logSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+			expect(output).toContain('unknown target "claud"');
+		});
+	});
+
 	it("layers CLI --skip after profile-driven target selection", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
@@ -443,6 +464,25 @@ describe.sequential("sync command with profiles", () => {
 			expect(exitSpy).toHaveBeenCalled();
 			const errOut = errorSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
 			expect(errOut).toContain("lowercase=nope");
+		});
+	});
+
+	it("skips templating validation for profile-excluded items", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "good", "Good skill");
+			await writeSkill(root, "bad", "<agents claude>\n");
+			await writeProfile(root, "profiles/focus.json", {
+				enable: { skills: ["good"] },
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--profile", "focus", "--only", "claude"]);
+			});
+
+			expect(await pathExists(path.join(root, ".claude", "skills", "good", "SKILL.md"))).toBe(true);
+			expect(await pathExists(path.join(root, ".claude", "skills", "bad", "SKILL.md"))).toBe(false);
+			expect(process.exitCode).toBeUndefined();
 		});
 	});
 

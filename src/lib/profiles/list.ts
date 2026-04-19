@@ -1,5 +1,5 @@
-import { listProfileDirectory, loadProfileFiles } from "./load.js";
-import type { Profile, ProfileFileRecord, ProfileLoadResult } from "./types.js";
+import { listProfileDirectory } from "./load.js";
+import { resolveProfiles } from "./resolve.js";
 
 export const DEFAULT_PROFILE_NAME = "default";
 
@@ -14,12 +14,7 @@ export type ProfileListEntry = {
 	isBothLocalForms: boolean;
 };
 
-function pickPrimary(result: ProfileLoadResult): ProfileFileRecord | null {
-	return result.localDedicated ?? result.localSibling ?? result.shared ?? null;
-}
-
-function descriptionOf(profile: Profile): string | null {
-	const raw = profile.description;
+function descriptionOf(raw: string | null): string | null {
 	if (typeof raw !== "string") {
 		return null;
 	}
@@ -34,11 +29,10 @@ export async function listProfiles(
 	const directory = await listProfileDirectory(repoRoot, agentsDir);
 	const entries: ProfileListEntry[] = [];
 	for (const item of directory) {
-		const loaded = await loadProfileFiles(repoRoot, item.name, agentsDir);
-		const primary = pickPrimary(loaded);
+		const resolved = await resolveProfiles([item.name], { repoRoot, agentsDir });
 		entries.push({
 			name: item.name,
-			description: primary ? descriptionOf(primary.profile) : null,
+			description: descriptionOf(resolved.description),
 			hasShared: item.hasShared,
 			hasLocalSibling: item.hasLocalSibling,
 			hasLocalDedicated: item.hasLocalDedicated,

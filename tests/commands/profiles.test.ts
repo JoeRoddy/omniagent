@@ -121,6 +121,23 @@ describe.sequential("profiles subcommand", () => {
 		});
 	});
 
+	it("retains the shared description when a local override omits that key", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeProfile(root, "profiles/default.json", {
+				description: "Team default",
+			});
+			await writeProfile(root, "profiles/default.local.json", {});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "profiles"]);
+			});
+
+			const output = logSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+			expect(output).toContain("Team default");
+		});
+	});
+
 	it("shows fully-resolved merged profile as JSON, including variables", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
