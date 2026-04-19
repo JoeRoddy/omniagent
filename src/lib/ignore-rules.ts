@@ -2,7 +2,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { resolveAgentsDirRelativePath } from "./agents-dir.js";
 
-export const LOCAL_OVERRIDE_IGNORE_RULES = ["**/*.local/", "**/*.local.md"] as const;
+export const LOCAL_OVERRIDE_IGNORE_RULES = [
+	"**/*.local/",
+	"**/*.local.md",
+	"**/*.local.json",
+] as const;
 
 export type IgnoreRuleStatus = {
 	ignoreFilePath: string;

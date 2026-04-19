@@ -1,0 +1,76 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://omniagent.dev/schema/profile.v1.json",
+	"title": "omniagent sync profile",
+	"description": "A named configuration that filters and customizes what `omniagent sync` writes to targets.",
+	"type": "object",
+	"additionalProperties": false,
+	"properties": {
+		"$schema": {
+			"type": "string",
+			"description": "Optional reference to this JSON Schema for editor autocomplete."
+		},
+		"description": {
+			"type": "string",
+			"description": "Human-readable summary shown in `omniagent profiles`."
+		},
+		"extends": {
+			"type": "string",
+			"description": "Name of another profile to inherit from. Chains are supported; cycles are detected."
+		},
+		"targets": {
+			"type": "object",
+			"description": "Per-target enablement map. Keys are target ids or configured aliases.",
+			"additionalProperties": {
+				"type": "object",
+				"additionalProperties": false,
+				"properties": {
+					"enabled": {
+						"type": "boolean",
+						"description": "When false, this target is skipped for the profile (equivalent to --skip <target>)."
+					}
+				}
+			}
+		},
+		"enable": {
+			"type": "object",
+			"description": "Allowlist of items to include. Values are glob patterns matched against canonical item names.",
+			"additionalProperties": false,
+			"properties": {
+				"skills": { "$ref": "#/$defs/patternList" },
+				"subagents": { "$ref": "#/$defs/patternList" },
+				"commands": { "$ref": "#/$defs/patternList" }
+			}
+		},
+		"disable": {
+			"type": "object",
+			"description": "Denylist applied after `enable`. Values are glob patterns matched against canonical item names.",
+			"additionalProperties": false,
+			"properties": {
+				"skills": { "$ref": "#/$defs/patternList" },
+				"subagents": { "$ref": "#/$defs/patternList" },
+				"commands": { "$ref": "#/$defs/patternList" }
+			}
+		},
+		"variables": {
+			"type": "object",
+			"description": "Template variables. Keys must match [A-Z_][A-Z0-9_]*. Values substitute `{{KEY}}` (or `{{KEY=default}}`) anywhere in rendered template content and are exposed to `<nodejs>` / `<shell>` blocks as `OMNIAGENT_VAR_KEY` env vars.",
+			"additionalProperties": {
+				"type": "string"
+			},
+			"propertyNames": {
+				"pattern": "^[A-Z_][A-Z0-9_]*$"
+			}
+		}
+	},
+	"$defs": {
+		"patternList": {
+			"type": "array",
+			"items": {
+				"type": "string",
+				"minLength": 1
+			},
+			"description": "List of glob patterns. `*` and `?` are supported. Exact names (no wildcards) emit a warning when they match zero items."
+		}
+	}
+}

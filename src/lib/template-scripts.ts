@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { substituteVariables } from "./profiles/substitute.js";
+import type { ProfileVariables } from "./profiles/types.js";
 import type { RunWarning, ScriptExecution, ScriptResultKind } from "./sync-results.js";
 
 const SCRIPT_TAG_DEFINITIONS = [
@@ -135,6 +137,8 @@ export type TemplateScriptRuntime = {
 	warnings: RunWarning[];
 	failedTemplatePath: string | null;
 	failedBlockId: string | null;
+	variables: ProfileVariables;
+	reportedUnresolvedVariables: Set<string>;
 	onWarning?: (warning: RunWarning) => void;
 	onVerbose?: (message: string) => void;
 };
@@ -144,6 +148,7 @@ export type TemplateScriptRuntimeOptions = {
 	verbose?: boolean;
 	heartbeatIntervalMs?: number;
 	cwd?: string;
+	variables?: ProfileVariables;
 	onWarning?: (warning: RunWarning) => void;
 	onVerbose?: (message: string) => void;
 };
@@ -322,6 +327,7 @@ async function executeNodeJsScriptBlock(options: {
 		cwd: runtime.cwd,
 		env: {
 			...process.env,
+			...buildVariableEnv(runtime.variables),
 			OMNIAGENT_SCRIPT_B64: Buffer.from(block.scriptBody, "utf8").toString("base64"),
 			OMNIAGENT_SCRIPT_SOURCE: options.blockLabel,
 			OMNIAGENT_SCRIPT_TEMPLATE_PATH: block.templatePath,
@@ -394,6 +400,7 @@ async function executeShellScriptBlock(options: {
 		cwd: runtime.cwd,
 		env: {
 			...process.env,
+			...buildVariableEnv(runtime.variables),
 		},
 		stdio: ["ignore", "pipe", "pipe"],
 	});
@@ -479,7 +486,11 @@ async function evaluateTemplateScriptsUncached(request: EvaluateTemplateScriptsR
 	const parsed = parseTemplateScripts(templatePath, content);
 	if (parsed.blocks.length === 0) {
 		return {
-			renderedContent: content,
+			renderedContent: applyVariablesToRenderedContent({
+				templatePath,
+				content,
+				runtime,
+			}),
 			blockIds: [],
 		} satisfies TemplateEvaluation;
 	}
@@ -536,7 +547,11 @@ async function evaluateTemplateScriptsUncached(request: EvaluateTemplateScriptsR
 	output += content.slice(cursor);
 
 	return {
-		renderedContent: output,
+		renderedContent: applyVariablesToRenderedContent({
+			templatePath,
+			content: output,
+			runtime,
+		}),
 		blockIds,
 	} satisfies TemplateEvaluation;
 }
@@ -555,9 +570,41 @@ export function createTemplateScriptRuntime(
 		warnings: [],
 		failedTemplatePath: null,
 		failedBlockId: null,
+		variables: { ...(options.variables ?? {}) },
+		reportedUnresolvedVariables: new Set(),
 		onWarning: options.onWarning,
 		onVerbose: options.onVerbose,
 	};
+}
+
+function buildVariableEnv(variables: ProfileVariables): Record<string, string> {
+	const env: Record<string, string> = {};
+	for (const [key, value] of Object.entries(variables)) {
+		env[`OMNIAGENT_VAR_${key}`] = value;
+	}
+	return env;
+}
+
+export function applyVariablesToRenderedContent(options: {
+	templatePath: string;
+	content: string;
+	runtime: TemplateScriptRuntime;
+}): string {
+	const { templatePath, content, runtime } = options;
+	const { content: substituted, unresolved } = substituteVariables(content, runtime.variables);
+	for (const issue of unresolved) {
+		const dedupeKey = `${templatePath}::${issue.name}`;
+		if (runtime.reportedUnresolvedVariables.has(dedupeKey)) {
+			continue;
+		}
+		runtime.reportedUnresolvedVariables.add(dedupeKey);
+		appendWarning(runtime, {
+			code: "profile_warning",
+			message: `unresolved template variable "${issue.name}" in ${templatePath} (use {{${issue.name}=default}} to provide a fallback)`,
+			templatePath,
+		});
+	}
+	return substituted;
 }
 
 export async function evaluateTemplateScripts(

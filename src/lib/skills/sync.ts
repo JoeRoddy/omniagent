@@ -53,6 +53,7 @@ export type SkillSyncRequest = {
 	resolveTargetName?: (value: string) => string | null;
 	hooks?: SyncHooks;
 	templateScriptRuntime?: TemplateScriptRuntime;
+	includeItem?: (canonicalName: string) => boolean;
 };
 
 function formatDisplayPath(repoRoot: string, absolutePath: string): string {
@@ -104,6 +105,14 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 		agentsDir: request.agentsDir,
 		resolveTargetName: request.resolveTargetName,
 	});
+	if (request.includeItem) {
+		const includeItem = request.includeItem;
+		const predicate = (skill: SkillDefinition) => includeItem(skill.name);
+		catalog.skills = catalog.skills.filter(predicate);
+		catalog.sharedSkills = catalog.sharedSkills.filter(predicate);
+		catalog.localSkills = catalog.localSkills.filter(predicate);
+		catalog.localEffectiveSkills = catalog.localEffectiveSkills.filter(predicate);
+	}
 	const warnings = buildInvalidTargetWarnings(catalog.skills);
 	const allTargetIds = request.targets.map((target) => target.id);
 	const targetNames = new Set(skillTargets.map((target) => target.id));

@@ -43,6 +43,7 @@
   "license": "MIT",
   "dependencies": {
     "jiti": "^2.6.1",
+    "minimatch": "^10.2.5",
     "yargs": "^17.7.2"
   },
   "devDependencies": {

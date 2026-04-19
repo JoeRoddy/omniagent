@@ -68,6 +68,9 @@ npx omniagent@latest sync --agentsDir ./my-custom-agents
 # Show local-only overrides and exit
 npx omniagent@latest sync --list-local
 
+# Apply a sync profile (see docs/profiles.md)
+npx omniagent@latest sync --profile code-reviewer
+
 # Shim mode (no subcommand)
 omniagent --agent codex
 omniagent -p "Summarize this repo" --agent codex --output json
@@ -109,6 +112,43 @@ Example `.gitignore` entries:
 agents/.local/
 agents/**/*.local*
 ```
+
+## Sync Profiles
+
+Profiles let each dev pick a named, checked-in filter that `sync` applies to
+the shared `agents/` directory — so a ten-person team can share one source of
+truth while each member opts in to exactly the skills, subagents, commands,
+and targets they want.
+
+```jsonc
+// agents/profiles/code-reviewer.json
+{
+  "description": "Focused setup for PR reviews",
+  "extends": "base",
+  "targets": { "claude": { "enabled": true }, "codex": { "enabled": true } },
+  "enable": {
+    "skills":    ["code-review", "security-review"],
+    "subagents": ["reviewer"],
+    "commands":  ["review", "diff-summary"]
+  },
+  "variables": { "REVIEW_STYLE": "terse" }
+}
+```
+
+```bash
+omniagent sync                                   # uses agents/profiles/default.json when present
+omniagent sync --profile code-reviewer
+omniagent sync --profile base,code-reviewer     # merge multiple (later wins)
+omniagent sync --var REVIEW_STYLE=thorough      # override a variable from the CLI
+```
+
+Profiles support `extends` chains, `.local` overrides (personal, gitignored),
+glob-based `enable`/`disable` lists, per-target toggles, and template
+variables. Discover and validate profiles with `omniagent profiles`,
+`omniagent profiles show <name>`, and `omniagent profiles validate`.
+
+See [`docs/profiles.md`](docs/profiles.md) for the full schema, resolution
+order, and examples.
 
 ## Basic Templating
 
@@ -155,6 +195,7 @@ Example usage:
 - CLI shim details: [`docs/cli-shim.md`](docs/cli-shim.md)
 - Custom targets (custom agents): [`docs/custom-targets.md`](docs/custom-targets.md)
 - Local overrides: [`docs/local-overrides.md`](docs/local-overrides.md)
+- Sync profiles: [`docs/profiles.md`](docs/profiles.md)
 - Templating and dynamic scripts: [`docs/templating.md`](docs/templating.md)
 - Command reference: [`docs/reference.md`](docs/reference.md)
 - Troubleshooting: [`docs/troubleshooting.md`](docs/troubleshooting.md)

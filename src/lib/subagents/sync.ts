@@ -89,6 +89,7 @@ export type SubagentSyncRequestV2 = {
 	resolveTargetName?: (value: string) => string | null;
 	hooks?: SyncHooks;
 	templateScriptRuntime?: TemplateScriptRuntime;
+	includeItem?: (canonicalName: string) => boolean;
 };
 
 export type SubagentSyncPlanAction = {
@@ -1025,6 +1026,14 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 		agentsDir: request.agentsDir,
 		resolveTargetName: request.resolveTargetName,
 	});
+	if (request.includeItem) {
+		const includeItem = request.includeItem;
+		const predicate = (subagent: SubagentDefinition) => includeItem(subagent.resolvedName);
+		catalog.subagents = catalog.subagents.filter(predicate);
+		catalog.sharedSubagents = catalog.sharedSubagents.filter(predicate);
+		catalog.localSubagents = catalog.localSubagents.filter(predicate);
+		catalog.localEffectiveSubagents = catalog.localEffectiveSubagents.filter(predicate);
+	}
 	const targets = request.targets.filter(
 		(target) => normalizeOutputDefinition(target.outputs.subagents) !== null,
 	);

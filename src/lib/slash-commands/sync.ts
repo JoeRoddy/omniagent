@@ -90,6 +90,7 @@ export type SyncRequestV2 = {
 	resolveTargetName?: (value: string) => string | null;
 	hooks?: SyncHooks;
 	templateScriptRuntime?: TemplateScriptRuntime;
+	includeItem?: (canonicalName: string) => boolean;
 };
 
 export type SyncPlanAction = {
@@ -1348,6 +1349,14 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 		agentsDir: request.agentsDir,
 		resolveTargetName: request.resolveTargetName,
 	});
+	if (request.includeItem) {
+		const includeItem = request.includeItem;
+		const predicate = (command: SlashCommandDefinition) => includeItem(command.name);
+		catalog.commands = catalog.commands.filter(predicate);
+		catalog.sharedCommands = catalog.sharedCommands.filter(predicate);
+		catalog.localCommands = catalog.localCommands.filter(predicate);
+		catalog.localEffectiveCommands = catalog.localEffectiveCommands.filter(predicate);
+	}
 	const targets = request.targets.filter(
 		(target) => normalizeCommandOutputDefinition(target.outputs.commands) !== null,
 	);

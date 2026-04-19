@@ -28,6 +28,17 @@ import {
 	resolveSharedCategoryRoot,
 	stripLocalPathSuffix,
 } from "../../lib/local-sources.js";
+import {
+	createProfileItemFilter,
+	DEFAULT_PROFILE_NAME,
+	loadProfileFiles,
+	type ProfileItemFilter,
+	type ProfileTargetSetting,
+	profileExists,
+	type ResolvedProfile,
+	resolveProfiles,
+	targetEnabledByProfile,
+} from "../../lib/profiles/index.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
 import { loadSkillCatalog } from "../../lib/skills/catalog.js";
 import { syncSkills as syncSkillTargets } from "../../lib/skills/sync.js";
@@ -92,6 +103,8 @@ type SyncArgs = {
 	conflicts?: string;
 	excludeLocal?: string | string[] | boolean;
 	listLocal?: boolean;
+	profile?: string | string[];
+	var?: string | string[];
 };
 
 const DEFAULT_SUPPORTED_TARGETS = BUILTIN_TARGETS.map((target) => target.id).join(", ");
@@ -118,6 +131,84 @@ function parseList(value?: string | string[]): string[] {
 		.flatMap((entry) => entry.split(","))
 		.map((entry) => entry.trim().toLowerCase())
 		.filter(Boolean);
+}
+
+function parseProfileList(value?: string | string[]): string[] {
+	if (!value) {
+		return [];
+	}
+	const rawValues = Array.isArray(value) ? value : [value];
+	return rawValues
+		.flatMap((entry) => entry.split(","))
+		.map((entry) => entry.trim())
+		.filter(Boolean);
+}
+
+type KnownProfileTargetSettings = {
+	targets: Record<string, ProfileTargetSetting>;
+	unknownTargets: string[];
+};
+
+function resolveKnownProfileTargetSettings(
+	profile: ResolvedProfile | null,
+	resolveTargetName: (value: string) => string | null,
+): KnownProfileTargetSettings {
+	if (!profile) {
+		return { targets: {}, unknownTargets: [] };
+	}
+
+	const targets: Record<string, ProfileTargetSetting> = {};
+	const unknownTargets: string[] = [];
+	const seenUnknownTargets = new Set<string>();
+
+	for (const [targetKey, setting] of Object.entries(profile.targets)) {
+		const resolvedTargetName = resolveTargetName(targetKey);
+		if (!resolvedTargetName) {
+			if (!seenUnknownTargets.has(targetKey)) {
+				seenUnknownTargets.add(targetKey);
+				unknownTargets.push(targetKey);
+			}
+			continue;
+		}
+
+		const existing = targets[resolvedTargetName] ?? {};
+		targets[resolvedTargetName] = { ...existing, ...setting };
+	}
+
+	return { targets, unknownTargets };
+}
+
+type ParsedVariables = {
+	variables: Record<string, string>;
+	invalid: string[];
+};
+
+function parseVariableAssignments(value?: string | string[]): ParsedVariables {
+	const variables: Record<string, string> = {};
+	const invalid: string[] = [];
+	if (!value) {
+		return { variables, invalid };
+	}
+	const rawValues = Array.isArray(value) ? value : [value];
+	for (const entry of rawValues) {
+		const trimmed = entry.trim();
+		if (!trimmed) {
+			continue;
+		}
+		const equalsIndex = trimmed.indexOf("=");
+		if (equalsIndex <= 0) {
+			invalid.push(trimmed);
+			continue;
+		}
+		const key = trimmed.slice(0, equalsIndex).trim();
+		const rawValue = trimmed.slice(equalsIndex + 1);
+		if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) {
+			invalid.push(trimmed);
+			continue;
+		}
+		variables[key] = rawValue;
+	}
+	return { variables, invalid };
 }
 
 type ExcludeLocalSelection = {
@@ -160,6 +251,12 @@ type LocalItemsByCategory = {
 	agents: LocalItem[];
 	instructions: LocalItem[];
 	total: number;
+};
+
+type ProfileTraversalNames = {
+	skills: Set<string>;
+	subagents: Set<string>;
+	commands: Set<string>;
 };
 
 function sortLocalItems(items: LocalItem[]): LocalItem[] {
@@ -280,6 +377,46 @@ function formatLocalItemsOutput(
 	return lines.join("\n");
 }
 
+function replayTraversedProfileWarnings(
+	profile: ResolvedProfile | null,
+	traversedNames: ProfileTraversalNames,
+): string[] {
+	if (!profile || profile.names.length === 0) {
+		return [];
+	}
+
+	const hasTraversedSkills = traversedNames.skills.size > 0;
+	const hasTraversedSubagents = traversedNames.subagents.size > 0;
+	const hasTraversedCommands = traversedNames.commands.size > 0;
+	if (!hasTraversedSkills && !hasTraversedSubagents && !hasTraversedCommands) {
+		return [];
+	}
+
+	const warningFilter = createProfileItemFilter({
+		...profile,
+		enable: {
+			skills: hasTraversedSkills ? profile.enable.skills : [],
+			subagents: hasTraversedSubagents ? profile.enable.subagents : [],
+			commands: hasTraversedCommands ? profile.enable.commands : [],
+		},
+		disable: {
+			skills: hasTraversedSkills ? profile.disable.skills : [],
+			subagents: hasTraversedSubagents ? profile.disable.subagents : [],
+			commands: hasTraversedCommands ? profile.disable.commands : [],
+		},
+	});
+	for (const name of traversedNames.skills) {
+		warningFilter.includes("skills", name);
+	}
+	for (const name of traversedNames.subagents) {
+		warningFilter.includes("subagents", name);
+	}
+	for (const name of traversedNames.commands) {
+		warningFilter.includes("commands", name);
+	}
+	return warningFilter.collectUnknownWarnings();
+}
+
 type TemplateScriptSource = {
 	templatePath: string;
 	content: string;
@@ -302,6 +439,9 @@ type ScriptPreflightOptions = {
 	selectedInstructionTargets: ResolvedTarget[];
 	skillsAvailable: boolean;
 	commandsAvailable: boolean;
+	includeSkill?: (name: string) => boolean;
+	includeSubagent?: (name: string) => boolean;
+	includeCommand?: (name: string) => boolean;
 };
 
 function hasTemplateScripts(content: string): boolean {
@@ -364,6 +504,9 @@ async function gatherTemplateScriptSources(
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const command of commandCatalog.commands) {
+			if (options.includeCommand && !options.includeCommand(command.name)) {
+				continue;
+			}
 			const effectiveTargets = resolveEffectiveTargets({
 				defaultTargets: command.targetAgents,
 				overrideOnly: options.overrideOnly,
@@ -384,6 +527,9 @@ async function gatherTemplateScriptSources(
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const subagent of subagentCatalog.subagents) {
+			if (options.includeSubagent && !options.includeSubagent(subagent.resolvedName)) {
+				continue;
+			}
 			const effectiveTargets = resolveEffectiveTargets({
 				defaultTargets: subagent.targetAgents,
 				overrideOnly: options.overrideOnly,
@@ -425,6 +571,9 @@ async function gatherTemplateScriptSources(
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const skill of skillCatalog.skills) {
+			if (options.includeSkill && !options.includeSkill(skill.name)) {
+				continue;
+			}
 			const effectiveTargets = resolveEffectiveTargets({
 				defaultTargets: skill.targetAgents,
 				overrideOnly: options.overrideOnly,
@@ -601,80 +750,75 @@ async function validateTemplatingSources(options: {
 	validAgents: string[];
 	commandsAvailable: boolean;
 	skillsAvailable: boolean;
+	subagentsAvailable: boolean;
 	includeLocalCommands: boolean;
 	includeLocalSkills: boolean;
 	includeLocalAgents: boolean;
 	includeLocalInstructions: boolean;
 	instructionsAvailable: boolean;
+	resolveTargetName?: (value: string) => string | null;
+	includeSkill?: (name: string) => boolean;
+	includeSubagent?: (name: string) => boolean;
+	includeCommand?: (name: string) => boolean;
 }): Promise<void> {
-	const directories: string[] = [];
+	const validateContent = (sourcePath: string, contents: string): void => {
+		validateAgentTemplating({
+			content: contents,
+			validAgents: options.validAgents,
+			sourcePath,
+		});
+	};
+
 	if (options.commandsAvailable) {
-		const commandsPath = resolveSharedCategoryRoot(options.repoRoot, "commands", options.agentsDir);
-		if (await assertSourceDirectory(commandsPath)) {
-			directories.push(commandsPath);
-		}
-	}
-	if (options.skillsAvailable) {
-		const skillsPath = resolveSharedCategoryRoot(options.repoRoot, "skills", options.agentsDir);
-		if (await assertSourceDirectory(skillsPath)) {
-			directories.push(skillsPath);
-		}
-	}
-	if (options.includeLocalCommands) {
-		const localCommandsPath = resolveLocalCategoryRoot(
-			options.repoRoot,
-			"commands",
-			options.agentsDir,
-		);
-		if (await assertSourceDirectory(localCommandsPath)) {
-			directories.push(localCommandsPath);
-		}
-	}
-	if (options.includeLocalSkills) {
-		const localSkillsPath = resolveLocalCategoryRoot(options.repoRoot, "skills", options.agentsDir);
-		if (await assertSourceDirectory(localSkillsPath)) {
-			directories.push(localSkillsPath);
-		}
-	}
-	const subagentsPath = resolveSharedCategoryRoot(options.repoRoot, "agents", options.agentsDir);
-	if (await assertSourceDirectory(subagentsPath)) {
-		directories.push(subagentsPath);
-	}
-	if (options.includeLocalAgents) {
-		const localSubagentsPath = resolveLocalCategoryRoot(
-			options.repoRoot,
-			"agents",
-			options.agentsDir,
-		);
-		if (await assertSourceDirectory(localSubagentsPath)) {
-			directories.push(localSubagentsPath);
+		const commandCatalog = await loadCommandCatalog(options.repoRoot, {
+			includeLocal: options.includeLocalCommands,
+			agentsDir: options.agentsDir,
+			resolveTargetName: options.resolveTargetName,
+		});
+		for (const command of commandCatalog.commands) {
+			if (options.includeCommand && !options.includeCommand(command.name)) {
+				continue;
+			}
+			validateContent(command.sourcePath, command.rawContents);
 		}
 	}
 
-	for (const directory of directories) {
-		const category = path.basename(directory);
-		const excludeLocal =
-			(category === "skills" && !options.includeLocalSkills) ||
-			(category === "commands" && !options.includeLocalCommands) ||
-			(category === "agents" && !options.includeLocalAgents);
-		const files =
-			path.basename(directory) === "skills"
-				? await listFiles(directory)
-				: await listMarkdownFiles(directory);
-		const filesToValidate = excludeLocal
-			? files.filter((filePath) => !hasLocalMarker(filePath))
-			: files;
-		for (const filePath of filesToValidate) {
-			const buffer = await readFile(filePath);
-			const contents = decodeUtf8(buffer);
-			if (contents === null) {
+	if (options.skillsAvailable) {
+		const skillCatalog = await loadSkillCatalog(options.repoRoot, {
+			includeLocal: options.includeLocalSkills,
+			agentsDir: options.agentsDir,
+			resolveTargetName: options.resolveTargetName,
+		});
+		for (const skill of skillCatalog.skills) {
+			if (options.includeSkill && !options.includeSkill(skill.name)) {
 				continue;
 			}
-			validateAgentTemplating({
-				content: contents,
-				validAgents: options.validAgents,
-				sourcePath: filePath,
-			});
+			const files = await listFiles(skill.directoryPath);
+			const filesToValidate = options.includeLocalSkills
+				? files
+				: files.filter((filePath) => !hasLocalMarker(filePath));
+			for (const filePath of filesToValidate) {
+				const buffer = await readFile(filePath);
+				const contents = decodeUtf8(buffer);
+				if (contents === null) {
+					continue;
+				}
+				validateContent(filePath, contents);
+			}
+		}
+	}
+
+	if (options.subagentsAvailable) {
+		const subagentCatalog = await loadSubagentCatalog(options.repoRoot, {
+			includeLocal: options.includeLocalAgents,
+			agentsDir: options.agentsDir,
+			resolveTargetName: options.resolveTargetName,
+		});
+		for (const subagent of subagentCatalog.subagents) {
+			if (options.includeSubagent && !options.includeSubagent(subagent.resolvedName)) {
+				continue;
+			}
+			validateContent(subagent.sourcePath, subagent.rawContents);
 		}
 	}
 
@@ -1221,6 +1365,19 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				default: false,
 				describe: "Show per-script execution telemetry during sync",
 			})
+			.option("profile", {
+				type: "string",
+				array: true,
+				describe:
+					"Sync profile(s) to apply. Pass a name (or comma-separated names, or repeat the flag). " +
+					"With no value, agents/profiles/default.json is used when present.",
+			})
+			.option("var", {
+				type: "string",
+				array: true,
+				describe:
+					"Set a template variable as KEY=VALUE (repeatable). CLI values override profile variables.",
+			})
 			.option("json", {
 				type: "boolean",
 				default: false,
@@ -1242,7 +1399,16 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			.example("omniagent sync --list-local", "List detected local items")
 			.example("omniagent sync --yes", "Accept defaults and apply changes")
 			.example("omniagent sync --verbose", "Show per-script execution telemetry")
-			.example("omniagent sync --json", "Output a JSON summary"),
+			.example("omniagent sync --json", "Output a JSON summary")
+			.example("omniagent sync --profile code-reviewer", "Apply a named profile")
+			.example(
+				"omniagent sync --profile base,code-reviewer",
+				"Merge multiple profiles (later wins)",
+			)
+			.example(
+				"omniagent sync --var REVIEW_STYLE=terse --var LOG_SOURCE=datadog",
+				"Override or set template variables from the CLI",
+			),
 	handler: async (argv) => {
 		try {
 			const skipList = parseList(argv.skip);
@@ -1320,6 +1486,51 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const globalHooks = validation.config?.hooks;
 			const supportedLabel = buildSupportedTargetLabel(resolved.targets);
 
+			const profileNamesArg = parseProfileList(argv.profile);
+			const profileExplicitlyRequested = profileNamesArg.length > 0;
+			let profileNamesToApply = profileNamesArg;
+			if (!profileExplicitlyRequested) {
+				const defaultLoaded = await loadProfileFiles(repoRoot, DEFAULT_PROFILE_NAME, agentsDir);
+				if (profileExists(defaultLoaded)) {
+					profileNamesToApply = [DEFAULT_PROFILE_NAME];
+				}
+			}
+
+			let activeProfile: ResolvedProfile | null = null;
+			if (profileNamesToApply.length > 0) {
+				try {
+					activeProfile = await resolveProfiles(profileNamesToApply, {
+						repoRoot,
+						agentsDir,
+					});
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					console.error(`Error: ${message}`);
+					process.exit(1);
+					return;
+				}
+				for (const notice of activeProfile.notices) {
+					if (verboseOutput) {
+						logWithChannel(notice, jsonOutput);
+					}
+				}
+			}
+
+			const cliVars = parseVariableAssignments(argv.var);
+			if (cliVars.invalid.length > 0) {
+				console.error(
+					`Error: Invalid --var value(s): ${cliVars.invalid.join(", ")}. ` +
+						"Expected KEY=VALUE with KEY matching [A-Z_][A-Z0-9_]*.",
+				);
+				process.exit(1);
+				return;
+			}
+			const mergedVariables: Record<string, string> = {
+				...(activeProfile?.variables ?? {}),
+				...cliVars.variables,
+			};
+			scriptRuntime.variables = mergedVariables;
+
 			const resolveSelection = (list: string[]): { ids: string[]; unknown: string[] } => {
 				const ids: string[] = [];
 				const unknown: string[] = [];
@@ -1348,6 +1559,24 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				return;
 			}
 
+			const knownProfileTargets = resolveKnownProfileTargetSettings(
+				activeProfile,
+				targetResolver.resolveTargetName,
+			);
+			const profileForTargetSelection = activeProfile
+				? {
+						...activeProfile,
+						targets: knownProfileTargets.targets,
+					}
+				: null;
+			const profileUnknownTargets = knownProfileTargets.unknownTargets;
+			for (const name of profileUnknownTargets) {
+				scriptRuntime.warnings.push({
+					code: "profile_warning",
+					message: `profile references unknown target "${name}"`,
+				});
+			}
+
 			const skipSet = new Set(resolvedSkip.ids);
 			const onlySet = new Set(resolvedOnly.ids);
 			const filteredTargets = resolved.targets.filter((target) => {
@@ -1357,11 +1586,29 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				if (skipSet.size > 0 && skipSet.has(target.id)) {
 					return false;
 				}
-				return true;
+				return targetEnabledByProfile(profileForTargetSelection, target.id, target.aliases ?? []);
 			});
 			const overrideOnly = resolvedOnly.ids.length > 0 ? resolvedOnly.ids : undefined;
 			const overrideSkip = resolvedSkip.ids.length > 0 ? resolvedSkip.ids : undefined;
 			const validAgents = buildSupportedAgentNames(resolved.targets);
+
+			const profileItemFilter: ProfileItemFilter = createProfileItemFilter(activeProfile);
+			const traversedProfileNames: ProfileTraversalNames = {
+				skills: new Set(),
+				subagents: new Set(),
+				commands: new Set(),
+			};
+			const includeItemFor = (
+				category: "skills" | "subagents" | "commands",
+			): ((name: string) => boolean) | undefined => {
+				if (!profileItemFilter.enabled) {
+					return undefined;
+				}
+				return (name) => {
+					traversedProfileNames[category].add(name);
+					return profileItemFilter.includes(category, name);
+				};
+			};
 
 			if (filteredTargets.length === 0 && !listLocal) {
 				console.error("Error: No targets selected after applying filters.");
@@ -1600,11 +1847,16 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					validAgents,
 					commandsAvailable: hasCommandsToSync,
 					skillsAvailable: hasSkillsToSync,
+					subagentsAvailable: hasSubagentsToSync,
 					includeLocalCommands: includeLocalCommands && hasCommandsToSync,
 					includeLocalSkills: includeLocalSkills && hasSkillsToSync,
 					includeLocalAgents: includeLocalAgents && hasSubagentsToSync,
 					includeLocalInstructions: includeLocalInstructions && hasInstructionsToSync,
 					instructionsAvailable: hasInstructionsToSync,
+					resolveTargetName,
+					includeSkill: includeItemFor("skills"),
+					includeSubagent: includeItemFor("subagents"),
+					includeCommand: includeItemFor("commands"),
 				});
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
@@ -1631,6 +1883,9 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					selectedInstructionTargets,
 					skillsAvailable: hasSkillsToSync,
 					commandsAvailable: hasCommandsToSync,
+					includeSkill: includeItemFor("skills"),
+					includeSubagent: includeItemFor("subagents"),
+					includeCommand: includeItemFor("commands"),
 				});
 				for (const source of scriptSources) {
 					await evaluateTemplateScripts({
@@ -1773,6 +2028,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					resolveTargetName,
 					hooks: globalHooks,
 					templateScriptRuntime: scriptRuntime,
+					includeItem: includeItemFor("commands"),
 				} satisfies CommandSyncRequestV2);
 			}
 
@@ -1798,6 +2054,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				resolveTargetName,
 				hooks: globalHooks,
 				templateScriptRuntime: scriptRuntime,
+				includeItem: includeItemFor("subagents"),
 			} satisfies SubagentSyncRequestV2);
 
 			if (availabilitySubagentSkips.length > 0) {
@@ -1914,6 +2171,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					resolveTargetName,
 					hooks: globalHooks,
 					templateScriptRuntime: scriptRuntime,
+					includeItem: includeItemFor("skills"),
 				});
 			}
 
@@ -1927,6 +2185,15 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					...skillsSummary,
 					results: [...skillsSummary.results, ...availabilitySkillResults],
 				};
+			}
+
+			if (profileItemFilter.enabled) {
+				for (const message of replayTraversedProfileWarnings(
+					activeProfile,
+					traversedProfileNames,
+				)) {
+					scriptRuntime.warnings.push({ code: "profile_warning", message });
+				}
 			}
 
 			const hadFailures =
@@ -1947,6 +2214,11 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					partialOutputsWritten,
 				}),
 			};
+
+			if (activeProfile && activeProfile.names.length > 0 && !jsonOutput) {
+				const label = activeProfile.names.join(", ");
+				console.log(`Active profile: ${label}`);
+			}
 
 			emitSyncSummary({
 				combined,
