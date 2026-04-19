@@ -312,6 +312,61 @@ describe.sequential("sync command with profiles", () => {
 		});
 	});
 
+	it("uses the profile-filtered skill set when checking subagent-to-skill conflicts", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "planner", "---\nenabled: false\n---\ncanonical planner");
+			await writeSubagent(root, "planner", "subagent planner");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "codex", "--json"]);
+			});
+
+			const firstRun = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0] ?? ""));
+			const firstSubagentResult = firstRun.subagents.results.find(
+				(entry: { targetName: string }) => entry.targetName === "codex",
+			);
+			expect(firstSubagentResult?.counts.converted).toBe(1);
+
+			const codexSkillPath = path.join(root, ".codex", "skills", "planner", "SKILL.md");
+			expect(await pathExists(codexSkillPath)).toBe(true);
+			expect(await readFile(codexSkillPath, "utf8")).toContain("subagent planner");
+
+			logSpy.mockClear();
+			await writeProfile(root, "profiles/focus.json", {
+				enable: { skills: ["planner"] },
+			});
+
+			await withCwd(root, async () => {
+				await runCli([
+					"node",
+					"omniagent",
+					"sync",
+					"--only",
+					"codex",
+					"--profile",
+					"focus",
+					"--json",
+				]);
+			});
+
+			const secondRun = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0] ?? ""));
+			const secondSubagentResult = secondRun.subagents.results.find(
+				(entry: { targetName: string }) => entry.targetName === "codex",
+			);
+			expect(secondSubagentResult?.counts.converted).toBe(0);
+			expect(
+				secondRun.subagents.warnings.some((warning: string) =>
+					warning.includes("canonical skill exists at"),
+				),
+			).toBe(true);
+
+			const codexSkillOutput = await readFile(codexSkillPath, "utf8");
+			expect(codexSkillOutput).toContain("canonical planner");
+			expect(codexSkillOutput).not.toContain("subagent planner");
+		});
+	});
+
 	it("disables a target via targets.<name>.enabled=false", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);

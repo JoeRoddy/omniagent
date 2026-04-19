@@ -2100,6 +2100,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				hooks: globalHooks,
 				templateScriptRuntime: scriptRuntime,
 				includeItem: includeItemFor("subagents"),
+				includeSkill: includeItemFor("skills"),
 			} satisfies SubagentSyncRequestV2);
 
 			if (availabilitySubagentSkips.length > 0) {

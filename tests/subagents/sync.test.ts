@@ -232,6 +232,35 @@ describe.sequential("subagent sync", () => {
 		});
 	});
 
+	it("does not treat frontmatter-disabled canonical skills as conversion conflicts", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeCanonicalSkill(
+				root,
+				"planner",
+				["---", "enabled: false", "---", "canonical skill"].join("\n"),
+			);
+			await writeSubagent(root, "planner", "subagent body");
+
+			const plan = await planSubagentSync({
+				repoRoot: root,
+				targets: ["codex"],
+				removeMissing: true,
+			});
+
+			expect(plan.plan.actions).toHaveLength(1);
+			const action = plan.plan.actions[0];
+			expect(action.action).toBe("convert");
+			expect(action.conflict).not.toBe(true);
+
+			await applySubagentSync(plan);
+
+			const destination = path.join(root, ".codex", "skills", "planner", "SKILL.md");
+			expect(await pathExists(destination)).toBe(true);
+			expect(await readFile(destination, "utf8")).toContain("subagent body");
+		});
+	});
+
 	it("skips conversion when a local skill exists", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
