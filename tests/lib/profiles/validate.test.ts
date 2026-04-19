@@ -21,9 +21,9 @@ describe("validateProfile", () => {
 	});
 
 	it("rejects unknown top-level keys", () => {
-		const result = validateProfile({ variables: { A: "b" } });
+		const result = validateProfile({ overrides: { foo: "bar" } });
 		expect(result.valid).toBe(false);
-		expect(result.errors.some((issue) => issue.path === "variables")).toBe(true);
+		expect(result.errors.some((issue) => issue.path === "overrides")).toBe(true);
 	});
 
 	it("rejects non-object profile", () => {
@@ -52,5 +52,24 @@ describe("validateProfile", () => {
 	it("rejects unsupported category key under enable", () => {
 		const result = validateProfile({ enable: { mcpServers: ["foo"] } });
 		expect(result.valid).toBe(false);
+	});
+
+	it("accepts a valid variables object", () => {
+		const result = validateProfile({
+			variables: { REVIEW_STYLE: "terse", LOG_SOURCE: "datadog" },
+		});
+		expect(result.valid).toBe(true);
+	});
+
+	it("rejects variable names with lowercase or invalid characters", () => {
+		const result = validateProfile({ variables: { reviewStyle: "terse" } });
+		expect(result.valid).toBe(false);
+		expect(result.errors.some((issue) => issue.path === "variables.reviewStyle")).toBe(true);
+	});
+
+	it("rejects non-string variable values", () => {
+		const result = validateProfile({ variables: { FOO: 42 } });
+		expect(result.valid).toBe(false);
+		expect(result.errors.some((issue) => issue.path === "variables.FOO")).toBe(true);
 	});
 });

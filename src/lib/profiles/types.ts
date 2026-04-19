@@ -7,6 +7,8 @@ export type ProfileTargetSetting = {
 
 export type ProfilePatternMap = Partial<Record<ProfileCategory, string[]>>;
 
+export type ProfileVariables = Record<string, string>;
+
 export type Profile = {
 	$schema?: string;
 	description?: string;
@@ -14,6 +16,7 @@ export type Profile = {
 	targets?: Record<string, ProfileTargetSetting>;
 	enable?: ProfilePatternMap;
 	disable?: ProfilePatternMap;
+	variables?: ProfileVariables;
 };
 
 export type ProfileSourceKind = "shared" | "local-sibling" | "local-dedicated";
@@ -37,6 +40,7 @@ export type ResolvedProfile = {
 	targets: Record<string, ProfileTargetSetting>;
 	enable: Record<ProfileCategory, string[]>;
 	disable: Record<ProfileCategory, string[]>;
+	variables: ProfileVariables;
 	/**
 	 * Notices produced during resolution (e.g. both .local forms present for a profile).
 	 * Printed under `--verbose` in the sync command.
@@ -61,6 +65,13 @@ export function emptyResolvedProfile(): ResolvedProfile {
 		targets: {},
 		enable: { skills: [], subagents: [], commands: [] },
 		disable: { skills: [], subagents: [], commands: [] },
+		variables: {},
 		notices: [],
 	};
+}
+
+export const VARIABLE_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
+
+export function isValidVariableName(name: string): boolean {
+	return VARIABLE_NAME_PATTERN.test(name);
 }

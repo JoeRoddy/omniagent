@@ -102,6 +102,7 @@ type SyncArgs = {
 	excludeLocal?: string | string[] | boolean;
 	listLocal?: boolean;
 	profile?: string | string[];
+	var?: string | string[];
 };
 
 const DEFAULT_SUPPORTED_TARGETS = BUILTIN_TARGETS.map((target) => target.id).join(", ");
@@ -139,6 +140,39 @@ function parseProfileList(value?: string | string[]): string[] {
 		.flatMap((entry) => entry.split(","))
 		.map((entry) => entry.trim())
 		.filter(Boolean);
+}
+
+type ParsedVariables = {
+	variables: Record<string, string>;
+	invalid: string[];
+};
+
+function parseVariableAssignments(value?: string | string[]): ParsedVariables {
+	const variables: Record<string, string> = {};
+	const invalid: string[] = [];
+	if (!value) {
+		return { variables, invalid };
+	}
+	const rawValues = Array.isArray(value) ? value : [value];
+	for (const entry of rawValues) {
+		const trimmed = entry.trim();
+		if (!trimmed) {
+			continue;
+		}
+		const equalsIndex = trimmed.indexOf("=");
+		if (equalsIndex <= 0) {
+			invalid.push(trimmed);
+			continue;
+		}
+		const key = trimmed.slice(0, equalsIndex).trim();
+		const rawValue = trimmed.slice(equalsIndex + 1);
+		if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) {
+			invalid.push(trimmed);
+			continue;
+		}
+		variables[key] = rawValue;
+	}
+	return { variables, invalid };
 }
 
 type ExcludeLocalSelection = {
@@ -1261,6 +1295,12 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					"Sync profile(s) to apply. Pass a name (or comma-separated names, or repeat the flag). " +
 					"With no value, agents/profiles/default.json is used when present.",
 			})
+			.option("var", {
+				type: "string",
+				array: true,
+				describe:
+					"Set a template variable as KEY=VALUE (repeatable). CLI values override profile variables.",
+			})
 			.option("json", {
 				type: "boolean",
 				default: false,
@@ -1287,6 +1327,10 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			.example(
 				"omniagent sync --profile base,code-reviewer",
 				"Merge multiple profiles (later wins)",
+			)
+			.example(
+				"omniagent sync --var REVIEW_STYLE=terse --var LOG_SOURCE=datadog",
+				"Override or set template variables from the CLI",
 			),
 	handler: async (argv) => {
 		try {
@@ -1394,6 +1438,21 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					}
 				}
 			}
+
+			const cliVars = parseVariableAssignments(argv.var);
+			if (cliVars.invalid.length > 0) {
+				console.error(
+					`Error: Invalid --var value(s): ${cliVars.invalid.join(", ")}. ` +
+						"Expected KEY=VALUE with KEY matching [A-Z_][A-Z0-9_]*.",
+				);
+				process.exit(1);
+				return;
+			}
+			const mergedVariables: Record<string, string> = {
+				...(activeProfile?.variables ?? {}),
+				...cliVars.variables,
+			};
+			scriptRuntime.variables = mergedVariables;
 
 			const resolveSelection = (list: string[]): { ids: string[]; unknown: string[] } => {
 				const ids: string[] = [];

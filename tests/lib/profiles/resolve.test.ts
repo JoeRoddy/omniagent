@@ -114,4 +114,34 @@ describe("resolveProfiles", () => {
 			expect(resolved.enable.skills).toEqual(["toy"]);
 		});
 	});
+
+	it("merges variables across extends layers with later-wins semantics", async () => {
+		await withTempRepo(async (root) => {
+			await writeProfile(root, "profiles/base.json", {
+				variables: { REVIEW_STYLE: "terse", LOG_SOURCE: "stdout" },
+			});
+			await writeProfile(root, "profiles/override.json", {
+				extends: "base",
+				variables: { REVIEW_STYLE: "thorough" },
+			});
+			const resolved = await resolveProfiles(["override"], { repoRoot: root });
+			expect(resolved.variables).toEqual({
+				REVIEW_STYLE: "thorough",
+				LOG_SOURCE: "stdout",
+			});
+		});
+	});
+
+	it("merges variables across multiple CLI-order profiles, later wins", async () => {
+		await withTempRepo(async (root) => {
+			await writeProfile(root, "profiles/a.json", {
+				variables: { FOO: "a-foo", BAR: "a-bar" },
+			});
+			await writeProfile(root, "profiles/b.json", {
+				variables: { FOO: "b-foo" },
+			});
+			const resolved = await resolveProfiles(["a", "b"], { repoRoot: root });
+			expect(resolved.variables).toEqual({ FOO: "b-foo", BAR: "a-bar" });
+		});
+	});
 });

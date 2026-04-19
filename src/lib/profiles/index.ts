@@ -13,5 +13,11 @@ export {
 } from "./load.js";
 export * from "./paths.js";
 export { resolveProfiles, resolveSingleProfileRaw } from "./resolve.js";
+export {
+	hasVariablePlaceholders,
+	substituteVariables,
+	type VariableSubstitutionIssue,
+	type VariableSubstitutionResult,
+} from "./substitute.js";
 export * from "./types.js";
 export * from "./validate.js";

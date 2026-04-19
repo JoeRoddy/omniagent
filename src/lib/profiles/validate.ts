@@ -1,4 +1,5 @@
 import {
+	isValidVariableName,
 	PROFILE_CATEGORIES,
 	type Profile,
 	type ProfileCategory,
@@ -13,6 +14,7 @@ const ALLOWED_TOP_LEVEL_KEYS = new Set([
 	"targets",
 	"enable",
 	"disable",
+	"variables",
 ]);
 const ALLOWED_CATEGORY_KEYS = new Set<ProfileCategory>(PROFILE_CATEGORIES);
 const ALLOWED_TARGET_SETTING_KEYS = new Set(["enabled"]);
@@ -119,10 +121,32 @@ export function validateProfile(value: unknown): ProfileValidationResult {
 	if (value.disable !== undefined) {
 		validatePatternMap(value.disable, "disable", errors);
 	}
+	if (value.variables !== undefined) {
+		validateVariables(value.variables, errors);
+	}
 	return {
 		valid: errors.length === 0,
 		errors,
 	};
+}
+
+function validateVariables(value: unknown, errors: ProfileValidationIssue[]): void {
+	if (!isPlainObject(value)) {
+		pushError(errors, "variables", "must be an object of string values.");
+		return;
+	}
+	for (const [key, entry] of Object.entries(value)) {
+		if (!isValidVariableName(key)) {
+			pushError(
+				errors,
+				`variables.${key}`,
+				"variable names must match [A-Z_][A-Z0-9_]* (uppercase ASCII, digits, underscores).",
+			);
+		}
+		if (typeof entry !== "string") {
+			pushError(errors, `variables.${key}`, "must be a string.");
+		}
+	}
 }
 
 export function formatValidationIssues(issues: ProfileValidationIssue[]): string[] {

@@ -7,6 +7,7 @@ import {
 	type ProfileFileRecord,
 	type ProfileLoadResult,
 	type ProfileTargetSetting,
+	type ProfileVariables,
 	type ResolvedProfile,
 } from "./types.js";
 
@@ -91,6 +92,15 @@ function mergePatternMap(
 	}
 }
 
+function mergeVariables(into: ProfileVariables, from: ProfileVariables | undefined): void {
+	if (!from) {
+		return;
+	}
+	for (const [key, value] of Object.entries(from)) {
+		into[key] = value;
+	}
+}
+
 function applyProfileLayer(accumulator: ResolvedProfile, profile: Profile): void {
 	if (profile.description !== undefined) {
 		accumulator.description = profile.description;
@@ -98,6 +108,7 @@ function applyProfileLayer(accumulator: ResolvedProfile, profile: Profile): void
 	mergeTargets(accumulator.targets, profile.targets);
 	mergePatternMap(accumulator.enable, profile.enable);
 	mergePatternMap(accumulator.disable, profile.disable);
+	mergeVariables(accumulator.variables, profile.variables);
 }
 
 async function buildSingleProfileLayers(

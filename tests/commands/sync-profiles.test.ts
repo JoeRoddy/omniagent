@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { runCli } from "../../src/cli/index.js";
@@ -61,10 +61,10 @@ async function createRepoRoot(root: string): Promise<void> {
 	await writeFile(path.join(root, "package.json"), "{}");
 }
 
-async function writeSkill(root: string, name: string): Promise<void> {
+async function writeSkill(root: string, name: string, body?: string): Promise<void> {
 	const dir = path.join(root, "agents", "skills", name);
 	await mkdir(dir, { recursive: true });
-	await writeFile(path.join(dir, "SKILL.md"), `skill-${name}`, "utf8");
+	await writeFile(path.join(dir, "SKILL.md"), body ?? `skill-${name}`, "utf8");
 }
 
 async function writeCommand(root: string, name: string): Promise<void> {
@@ -318,6 +318,104 @@ describe.sequential("sync command with profiles", () => {
 
 			expect(await pathExists(path.join(root, ".claude", "agents", "reviewer.md"))).toBe(true);
 			expect(await pathExists(path.join(root, ".claude", "agents", "debugger.md"))).toBe(false);
+		});
+	});
+
+	it("substitutes profile variables into skill content", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "review", "Review style: {{REVIEW_STYLE}}");
+			await writeProfile(root, "profiles/vars.json", {
+				variables: { REVIEW_STYLE: "terse" },
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--profile", "vars"]);
+			});
+
+			const output = await readFile(
+				path.join(root, ".claude", "skills", "review", "SKILL.md"),
+				"utf8",
+			);
+			expect(output).toContain("Review style: terse");
+			expect(output).not.toContain("{{REVIEW_STYLE}}");
+		});
+	});
+
+	it("applies an inline default when the variable is not set", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "logger", "Source: {{LOG_SOURCE=stdout}}");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync"]);
+			});
+
+			const output = await readFile(
+				path.join(root, ".claude", "skills", "logger", "SKILL.md"),
+				"utf8",
+			);
+			expect(output).toContain("Source: stdout");
+		});
+	});
+
+	it("CLI --var overrides profile variables", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "review", "Style: {{REVIEW_STYLE}}");
+			await writeProfile(root, "profiles/vars.json", {
+				variables: { REVIEW_STYLE: "terse" },
+			});
+
+			await withCwd(root, async () => {
+				await runCli([
+					"node",
+					"omniagent",
+					"sync",
+					"--profile",
+					"vars",
+					"--var",
+					"REVIEW_STYLE=thorough",
+				]);
+			});
+
+			const output = await readFile(
+				path.join(root, ".claude", "skills", "review", "SKILL.md"),
+				"utf8",
+			);
+			expect(output).toContain("Style: thorough");
+		});
+	});
+
+	it("warns when an unresolved bare variable is present", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "review", "Style: {{MISSING_VAR}}");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync"]);
+			});
+
+			const combined = [
+				...logSpy.mock.calls.map(([msg]) => String(msg)),
+				...errorSpy.mock.calls.map(([msg]) => String(msg)),
+			].join("\n");
+			expect(combined).toContain("MISSING_VAR");
+		});
+	});
+
+	it("errors on malformed --var values", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "alpha");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--var", "lowercase=nope"]);
+			});
+
+			expect(exitSpy).toHaveBeenCalled();
+			const errOut = errorSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+			expect(errOut).toContain("lowercase=nope");
 		});
 	});
 

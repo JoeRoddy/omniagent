@@ -51,6 +51,16 @@
 				"subagents": { "$ref": "#/$defs/patternList" },
 				"commands": { "$ref": "#/$defs/patternList" }
 			}
+		},
+		"variables": {
+			"type": "object",
+			"description": "Template variables. Keys must match [A-Z_][A-Z0-9_]*. Values substitute `{{KEY}}` (or `{{KEY=default}}`) anywhere in rendered template content and are exposed to `<nodejs>` / `<shell>` blocks as `OMNIAGENT_VAR_KEY` env vars.",
+			"additionalProperties": {
+				"type": "string"
+			},
+			"propertyNames": {
+				"pattern": "^[A-Z_][A-Z0-9_]*$"
+			}
 		}
 	},
 	"$defs": {
