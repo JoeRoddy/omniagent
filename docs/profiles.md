@@ -98,6 +98,18 @@ Glob syntax: `*` matches any run of non-slash characters, `?` matches one.
 - If `enable` is **present**, only matching items are included, minus anything
   `disable` carves out.
 
+## Item defaults
+
+Skills, subagents, and commands can declare frontmatter `enabled: false` to
+stay out of sync by default.
+
+- With no matching profile `enable`, the item stays excluded.
+- A matching profile `enable.<type>` opts it back in.
+- Profile `disable.<type>` still wins last.
+
+`enabled` is repo-side sync metadata, so omniagent strips it from rendered
+target outputs.
+
 ## Unknown references
 
 A bare name (no wildcards) that matches zero items prints a warning:

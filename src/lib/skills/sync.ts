@@ -53,7 +53,7 @@ export type SkillSyncRequest = {
 	resolveTargetName?: (value: string) => string | null;
 	hooks?: SyncHooks;
 	templateScriptRuntime?: TemplateScriptRuntime;
-	includeItem?: (canonicalName: string) => boolean;
+	includeItem?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
 };
 
 function formatDisplayPath(repoRoot: string, absolutePath: string): string {
@@ -107,7 +107,11 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 	});
 	if (request.includeItem) {
 		const includeItem = request.includeItem;
-		const predicate = (skill: SkillDefinition) => includeItem(skill.name);
+		const predicate = (skill: SkillDefinition) =>
+			includeItem({
+				canonicalName: skill.name,
+				enabledByDefault: skill.enabledByDefault,
+			});
 		catalog.skills = catalog.skills.filter(predicate);
 		catalog.sharedSkills = catalog.sharedSkills.filter(predicate);
 		catalog.localSkills = catalog.localSkills.filter(predicate);

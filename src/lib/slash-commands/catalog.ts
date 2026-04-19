@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { normalizeName, readDirectoryStats } from "../catalog-utils.js";
+import { resolveFrontmatterEnabledByDefault } from "../frontmatter-enabled.js";
 import { resolveLocalPrecedence } from "../local-precedence.js";
 import {
 	buildSourceMetadata,
@@ -24,6 +25,7 @@ export type { FrontmatterValue } from "./frontmatter.js";
 
 export type SlashCommandDefinition = {
 	name: string;
+	enabledByDefault: boolean;
 	prompt: string;
 	sourcePath: string;
 	sourceType: SourceType;
@@ -81,6 +83,12 @@ async function buildCommandDefinition(options: {
 	if (!prompt.trim()) {
 		throw new Error(`Slash command "${options.commandName}" has an empty prompt.`);
 	}
+	const enabledByDefault = resolveFrontmatterEnabledByDefault({
+		frontmatter,
+		itemKind: "Slash command",
+		itemName: options.commandName,
+		sourcePath: options.filePath,
+	});
 
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
 	const { targets, invalidTargets } = resolveFrontmatterTargets(
@@ -112,6 +120,7 @@ async function buildCommandDefinition(options: {
 
 	return {
 		name: options.commandName,
+		enabledByDefault,
 		prompt,
 		sourcePath: options.filePath,
 		sourceType: metadata.sourceType,

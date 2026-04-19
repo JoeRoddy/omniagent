@@ -67,16 +67,26 @@ async function writeSkill(root: string, name: string, body?: string): Promise<vo
 	await writeFile(path.join(dir, "SKILL.md"), body ?? `skill-${name}`, "utf8");
 }
 
-async function writeCommand(root: string, name: string): Promise<void> {
+async function writeCommand(root: string, name: string, body?: string): Promise<void> {
 	const dir = path.join(root, "agents", "commands");
 	await mkdir(dir, { recursive: true });
-	await writeFile(path.join(dir, `${name}.md`), `command-${name}`, "utf8");
+	await writeFile(path.join(dir, `${name}.md`), body ?? `command-${name}`, "utf8");
 }
 
-async function writeSubagent(root: string, name: string): Promise<void> {
+async function writeSubagent(
+	root: string,
+	name: string,
+	body = "body",
+	frontmatterLines?: string[],
+): Promise<void> {
 	const dir = path.join(root, "agents", "agents");
 	await mkdir(dir, { recursive: true });
-	await writeFile(path.join(dir, `${name}.md`), `---\nname: ${name}\n---\nbody`, "utf8");
+	const frontmatter = frontmatterLines ?? [`name: ${name}`];
+	await writeFile(
+		path.join(dir, `${name}.md`),
+		["---", ...frontmatter, "---", body].join("\n"),
+		"utf8",
+	);
 }
 
 async function writeProfile(
@@ -197,6 +207,68 @@ describe.sequential("sync command with profiles", () => {
 				true,
 			);
 			expect(await pathExists(path.join(root, ".claude", "commands", "note.md"))).toBe(false);
+		});
+	});
+
+	it("keeps frontmatter-disabled items out by default", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "hidden-skill", "---\nenabled: false\n---\nhidden-skill");
+			await writeCommand(root, "hidden-command", "---\nenabled: false\n---\nhidden-command");
+			await writeSubagent(root, "hidden-agent", "body", ["name: hidden-agent", "enabled: false"]);
+			await writeSkill(root, "visible-skill");
+			await writeCommand(root, "visible-command");
+			await writeSubagent(root, "visible-agent");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync"]);
+			});
+
+			expect(
+				await pathExists(path.join(root, ".claude", "skills", "hidden-skill", "SKILL.md")),
+			).toBe(false);
+			expect(await pathExists(path.join(root, ".claude", "commands", "hidden-command.md"))).toBe(
+				false,
+			);
+			expect(await pathExists(path.join(root, ".claude", "agents", "hidden-agent.md"))).toBe(false);
+			expect(
+				await pathExists(path.join(root, ".claude", "skills", "visible-skill", "SKILL.md")),
+			).toBe(true);
+			expect(await pathExists(path.join(root, ".claude", "commands", "visible-command.md"))).toBe(
+				true,
+			);
+			expect(await pathExists(path.join(root, ".claude", "agents", "visible-agent.md"))).toBe(true);
+		});
+	});
+
+	it("lets profiles override frontmatter enabled=false and strips the field from outputs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "hidden-skill", "---\nenabled: false\n---\nhidden-skill");
+			await writeCommand(root, "hidden-command", "---\nenabled: false\n---\nhidden-command");
+			await writeSubagent(root, "hidden-agent", "body", ["name: hidden-agent", "enabled: false"]);
+			await writeProfile(root, "profiles/focus.json", {
+				enable: {
+					skills: ["hidden-skill"],
+					commands: ["hidden-command"],
+					subagents: ["hidden-agent"],
+				},
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--profile", "focus"]);
+			});
+
+			const skillOutputPath = path.join(root, ".claude", "skills", "hidden-skill", "SKILL.md");
+			const commandOutputPath = path.join(root, ".claude", "commands", "hidden-command.md");
+			const subagentOutputPath = path.join(root, ".claude", "agents", "hidden-agent.md");
+			expect(await pathExists(skillOutputPath)).toBe(true);
+			expect(await pathExists(commandOutputPath)).toBe(true);
+			expect(await pathExists(subagentOutputPath)).toBe(true);
+
+			expect(await readFile(skillOutputPath, "utf8")).not.toContain("enabled:");
+			expect(await readFile(commandOutputPath, "utf8")).not.toContain("enabled:");
+			expect(await readFile(subagentOutputPath, "utf8")).not.toContain("enabled:");
 		});
 	});
 

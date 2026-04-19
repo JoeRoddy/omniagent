@@ -144,7 +144,9 @@ omniagent sync --var REVIEW_STYLE=thorough      # override a variable from the C
 
 Profiles support `extends` chains, `.local` overrides (personal, gitignored),
 glob-based `enable`/`disable` lists, per-target toggles, and template
-variables. Discover and validate profiles with `omniagent profiles`,
+variables. Individual skills, subagents, and commands can also set frontmatter
+`enabled: false` to stay hidden by default until a profile opts them in.
+Discover and validate profiles with `omniagent profiles`,
 `omniagent profiles show <name>`, and `omniagent profiles validate`.
 
 See [`docs/profiles.md`](docs/profiles.md) for the full schema, resolution

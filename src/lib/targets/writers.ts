@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { TextDecoder } from "node:util";
 import { applyAgentTemplating } from "../agent-templating.js";
+import { SYNC_ROUTING_FRONTMATTER_KEYS } from "../frontmatter-enabled.js";
 import { stripFrontmatterFields } from "../frontmatter-strip.js";
 import {
 	detectLocalMarkerFromPath,
@@ -16,9 +17,8 @@ import type { OutputWriter, OutputWriterRef, WriterContext, WriterResult } from 
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
-const TARGET_FRONTMATTER_KEYS = new Set(["targets", "targetagents"]);
 const SKILL_FRONTMATTER_KEYS_TO_REMOVE = new Set([
-	...TARGET_FRONTMATTER_KEYS,
+	...SYNC_ROUTING_FRONTMATTER_KEYS,
 	"tools",
 	"model",
 	"color",
@@ -300,7 +300,7 @@ async function copySkillDirectory(options: {
 			sourcePath: winner.sourcePath,
 		});
 		const output = winner.isSkillFile
-			? stripFrontmatterFields(templated, TARGET_FRONTMATTER_KEYS)
+			? stripFrontmatterFields(templated, SYNC_ROUTING_FRONTMATTER_KEYS)
 			: templated;
 		await mkdir(path.dirname(winner.destinationPath), { recursive: true });
 		await writeFile(winner.destinationPath, output, "utf8");
@@ -362,7 +362,7 @@ export const defaultSubagentWriter: OutputWriter = {
 		const cleaned =
 			item.outputKind === "skill"
 				? stripFrontmatterFields(templated, SKILL_FRONTMATTER_KEYS_TO_REMOVE)
-				: stripFrontmatterFields(templated, TARGET_FRONTMATTER_KEYS);
+				: stripFrontmatterFields(templated, SYNC_ROUTING_FRONTMATTER_KEYS);
 		if (item.outputKind === "skill") {
 			const destinationPath = path.join(options.outputPath, "SKILL.md");
 			return writeOutputFile(destinationPath, cleaned);

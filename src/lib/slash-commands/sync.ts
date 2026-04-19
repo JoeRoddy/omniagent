@@ -90,7 +90,7 @@ export type SyncRequestV2 = {
 	resolveTargetName?: (value: string) => string | null;
 	hooks?: SyncHooks;
 	templateScriptRuntime?: TemplateScriptRuntime;
-	includeItem?: (canonicalName: string) => boolean;
+	includeItem?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
 };
 
 export type SyncPlanAction = {
@@ -1351,7 +1351,11 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 	});
 	if (request.includeItem) {
 		const includeItem = request.includeItem;
-		const predicate = (command: SlashCommandDefinition) => includeItem(command.name);
+		const predicate = (command: SlashCommandDefinition) =>
+			includeItem({
+				canonicalName: command.name,
+				enabledByDefault: command.enabledByDefault,
+			});
 		catalog.commands = catalog.commands.filter(predicate);
 		catalog.sharedCommands = catalog.sharedCommands.filter(predicate);
 		catalog.localCommands = catalog.localCommands.filter(predicate);

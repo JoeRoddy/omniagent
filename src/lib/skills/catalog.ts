@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { listSkillDirectories, readDirectoryStats } from "../catalog-utils.js";
+import { resolveFrontmatterEnabledByDefault } from "../frontmatter-enabled.js";
 import { resolveLocalPrecedence } from "../local-precedence.js";
 import {
 	buildSourceMetadata,
@@ -23,6 +24,7 @@ import { BUILTIN_TARGETS } from "../targets/builtins.js";
 
 export type SkillDefinition = {
 	name: string;
+	enabledByDefault: boolean;
 	relativePath: string;
 	directoryPath: string;
 	sourcePath: string;
@@ -112,6 +114,12 @@ async function buildSkillDefinition(options: {
 	const relativePath =
 		options.relativePath ?? path.relative(options.skillsRoot, options.directoryPath);
 	const name = resolveSkillName(frontmatter, relativePath || path.basename(options.directoryPath));
+	const enabledByDefault = resolveFrontmatterEnabledByDefault({
+		frontmatter,
+		itemKind: "Skill",
+		itemName: name,
+		sourcePath,
+	});
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
 	const { targets, invalidTargets } = resolveFrontmatterTargets(
 		rawTargets,
@@ -130,6 +138,7 @@ async function buildSkillDefinition(options: {
 
 	return {
 		name,
+		enabledByDefault,
 		relativePath,
 		directoryPath: options.directoryPath,
 		sourcePath,

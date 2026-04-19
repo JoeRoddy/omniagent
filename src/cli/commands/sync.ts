@@ -406,12 +406,21 @@ function replayTraversedProfileWarnings(
 		},
 	});
 	for (const name of traversedNames.skills) {
+		if (!name) {
+			continue;
+		}
 		warningFilter.includes("skills", name);
 	}
 	for (const name of traversedNames.subagents) {
+		if (!name) {
+			continue;
+		}
 		warningFilter.includes("subagents", name);
 	}
 	for (const name of traversedNames.commands) {
+		if (!name) {
+			continue;
+		}
 		warningFilter.includes("commands", name);
 	}
 	return warningFilter.collectUnknownWarnings();
@@ -1600,13 +1609,12 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			};
 			const includeItemFor = (
 				category: "skills" | "subagents" | "commands",
-			): ((name: string) => boolean) | undefined => {
-				if (!profileItemFilter.enabled) {
-					return undefined;
-				}
-				return (name) => {
-					traversedProfileNames[category].add(name);
-					return profileItemFilter.includes(category, name);
+			): ((item: { canonicalName: string; enabledByDefault: boolean }) => boolean) => {
+				return (item) => {
+					if (profileItemFilter.enabled) {
+						traversedProfileNames[category].add(item.canonicalName);
+					}
+					return profileItemFilter.includes(category, item);
 				};
 			};
 

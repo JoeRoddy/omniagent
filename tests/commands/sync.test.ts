@@ -337,6 +337,23 @@ describe.sequential("sync command", () => {
 		});
 	});
 
+	it("errors on invalid skill enabled values in frontmatter", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalCommands(root);
+			const contents = ["---", "enabled: maybe", "---", "Hello"].join("\n");
+			await writeCanonicalSkillFile(root, "bad-enabled", contents);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("invalid enabled value"));
+			expect(exitSpy).toHaveBeenCalledWith(1);
+			expect(await pathExists(path.join(root, ".claude", "skills"))).toBe(false);
+		});
+	});
+
 	it("errors on invalid command targets in frontmatter", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);

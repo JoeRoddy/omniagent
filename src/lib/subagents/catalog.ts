@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { normalizeName, readDirectoryStats } from "../catalog-utils.js";
+import { resolveFrontmatterEnabledByDefault } from "../frontmatter-enabled.js";
 import { resolveLocalPrecedence } from "../local-precedence.js";
 import {
 	buildSourceMetadata,
@@ -23,6 +24,7 @@ export type FrontmatterValue = string | string[];
 
 export type SubagentDefinition = {
 	resolvedName: string;
+	enabledByDefault: boolean;
 	sourcePath: string;
 	fileName: string;
 	sourceType: SourceType;
@@ -206,6 +208,12 @@ async function buildSubagentDefinition(options: {
 		const message = error instanceof Error ? error.message : String(error);
 		throw new Error(`Invalid frontmatter in ${options.filePath}: ${message}`);
 	}
+	const enabledByDefault = resolveFrontmatterEnabledByDefault({
+		frontmatter,
+		itemKind: "Subagent",
+		itemName: resolvedName,
+		sourcePath: options.filePath,
+	});
 
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
 	const { targets, invalidTargets } = resolveFrontmatterTargets(
@@ -237,6 +245,7 @@ async function buildSubagentDefinition(options: {
 
 	return {
 		resolvedName,
+		enabledByDefault,
 		sourcePath: options.filePath,
 		fileName: options.fileName,
 		sourceType: metadata.sourceType,

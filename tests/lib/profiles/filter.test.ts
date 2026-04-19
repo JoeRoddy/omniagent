@@ -21,6 +21,16 @@ describe("createProfileItemFilter", () => {
 		expect(filter.collectUnknownWarnings()).toEqual([]);
 	});
 
+	it("respects item defaults when no profile is active", () => {
+		const filter = createProfileItemFilter(null);
+		expect(
+			filter.includes("skills", { canonicalName: "hidden-skill", enabledByDefault: false }),
+		).toBe(false);
+		expect(
+			filter.includes("skills", { canonicalName: "visible-skill", enabledByDefault: true }),
+		).toBe(true);
+	});
+
 	it("includes everything when enable/disable are empty", () => {
 		const filter = createProfileItemFilter(profile({}));
 		expect(filter.includes("skills", "anything")).toBe(true);
@@ -45,6 +55,29 @@ describe("createProfileItemFilter", () => {
 		);
 		expect(filter.includes("skills", "code-review")).toBe(true);
 		expect(filter.includes("skills", "security-review")).toBe(false);
+	});
+
+	it("lets profiles opt default-disabled items back in", () => {
+		const filter = createProfileItemFilter(
+			profile({
+				enable: { skills: ["review"], subagents: [], commands: [] },
+			}),
+		);
+		expect(filter.includes("skills", { canonicalName: "review", enabledByDefault: false })).toBe(
+			true,
+		);
+	});
+
+	it("still tracks bare disable matches outside the allowlist", () => {
+		const filter = createProfileItemFilter(
+			profile({
+				enable: { skills: ["review"], subagents: [], commands: [] },
+				disable: { skills: ["helper"], subagents: [], commands: [] },
+			}),
+		);
+		filter.includes("skills", "review");
+		filter.includes("skills", "helper");
+		expect(filter.collectUnknownWarnings()).toEqual([]);
 	});
 
 	it("supports minimatch globs", () => {

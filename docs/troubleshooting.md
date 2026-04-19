@@ -5,6 +5,7 @@
 - Confirm your canonical sources are under `agents/` (or the directory passed to `--agentsDir`).
 - Use `npx omniagent@latest sync --json` to inspect run output.
 - Check whether `targets` frontmatter filtered the item out.
+- Check whether the item sets frontmatter `enabled: false` and needs a profile to opt it in.
 
 ## Local overrides are unexpectedly winning
 

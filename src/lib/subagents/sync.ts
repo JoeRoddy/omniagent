@@ -5,6 +5,7 @@ import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
 import { resolveAgentsDirPath } from "../agents-dir.js";
 import { listSkillDirectories, normalizeName, type SkillDirectoryEntry } from "../catalog-utils.js";
+import { SYNC_ROUTING_FRONTMATTER_KEYS } from "../frontmatter-enabled.js";
 import { stripFrontmatterFields } from "../frontmatter-strip.js";
 import {
 	resolveLocalCategoryRoot,
@@ -89,7 +90,7 @@ export type SubagentSyncRequestV2 = {
 	resolveTargetName?: (value: string) => string | null;
 	hooks?: SyncHooks;
 	templateScriptRuntime?: TemplateScriptRuntime;
-	includeItem?: (canonicalName: string) => boolean;
+	includeItem?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
 };
 
 export type SubagentSyncPlanAction = {
@@ -164,9 +165,8 @@ type TargetPlan = {
 	removeMissing: boolean;
 };
 
-const TARGET_FRONTMATTER_KEYS = new Set(["targets", "targetagents"]);
 const SKILL_FRONTMATTER_KEYS_TO_REMOVE = new Set([
-	...TARGET_FRONTMATTER_KEYS,
+	...SYNC_ROUTING_FRONTMATTER_KEYS,
 	"tools",
 	"model",
 	"color",
@@ -604,7 +604,7 @@ async function buildTargetPlan(
 		const output =
 			outputKind === "skill"
 				? stripFrontmatterFields(templatedContents, SKILL_FRONTMATTER_KEYS_TO_REMOVE)
-				: stripFrontmatterFields(templatedContents, TARGET_FRONTMATTER_KEYS);
+				: stripFrontmatterFields(templatedContents, SYNC_ROUTING_FRONTMATTER_KEYS);
 		const outputHash = hashContent(output);
 		const { destinationPath } = resolveOutputPaths(
 			outputKind,
@@ -1028,7 +1028,11 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 	});
 	if (request.includeItem) {
 		const includeItem = request.includeItem;
-		const predicate = (subagent: SubagentDefinition) => includeItem(subagent.resolvedName);
+		const predicate = (subagent: SubagentDefinition) =>
+			includeItem({
+				canonicalName: subagent.resolvedName,
+				enabledByDefault: subagent.enabledByDefault,
+			});
 		catalog.subagents = catalog.subagents.filter(predicate);
 		catalog.sharedSubagents = catalog.sharedSubagents.filter(predicate);
 		catalog.localSubagents = catalog.localSubagents.filter(predicate);
