@@ -89,6 +89,12 @@ async function writeProfile(
 	await writeFile(target, JSON.stringify(data), "utf8");
 }
 
+async function writeTargetConfig(root: string, contents: string): Promise<void> {
+	const target = path.join(root, "agents", "omniagent.config.cjs");
+	await mkdir(path.dirname(target), { recursive: true });
+	await writeFile(target, contents, "utf8");
+}
+
 describe.sequential("sync command with profiles", () => {
 	let logSpy: ReturnType<typeof vi.spyOn>;
 	let errorSpy: ReturnType<typeof vi.spyOn>;
@@ -318,6 +324,41 @@ describe.sequential("sync command with profiles", () => {
 
 			const output = logSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
 			expect(output).toContain("missing-skill");
+		});
+	});
+
+	it("does not warn for valid commands when syncing a skill-only custom target", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "alpha");
+			await writeCommand(root, "review");
+			await writeProfile(root, "profiles/focus.json", {
+				enable: { skills: ["alpha"], commands: ["review"] },
+			});
+			await writeTargetConfig(
+				root,
+				[
+					"module.exports = {",
+					"  targets: [",
+					"    {",
+					'      id: "acme",',
+					'      displayName: "Acme Agent",',
+					"      outputs: {",
+					'        skills: "{repoRoot}/.acme/skills/{itemName}"',
+					"      }",
+					"    }",
+					"  ]",
+					"};",
+				].join("\n"),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "acme", "--profile", "focus"]);
+			});
+
+			expect(await pathExists(path.join(root, ".acme", "skills", "alpha", "SKILL.md"))).toBe(true);
+			const output = logSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+			expect(output).not.toContain('unknown command "review"');
 		});
 	});
 

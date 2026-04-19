@@ -253,6 +253,12 @@ type LocalItemsByCategory = {
 	total: number;
 };
 
+type ProfileTraversalNames = {
+	skills: Set<string>;
+	subagents: Set<string>;
+	commands: Set<string>;
+};
+
 function sortLocalItems(items: LocalItem[]): LocalItem[] {
 	return [...items].sort((left, right) => {
 		const nameCompare = left.name.localeCompare(right.name);
@@ -369,6 +375,46 @@ function formatLocalItemsOutput(
 		}
 	}
 	return lines.join("\n");
+}
+
+function replayTraversedProfileWarnings(
+	profile: ResolvedProfile | null,
+	traversedNames: ProfileTraversalNames,
+): string[] {
+	if (!profile || profile.names.length === 0) {
+		return [];
+	}
+
+	const hasTraversedSkills = traversedNames.skills.size > 0;
+	const hasTraversedSubagents = traversedNames.subagents.size > 0;
+	const hasTraversedCommands = traversedNames.commands.size > 0;
+	if (!hasTraversedSkills && !hasTraversedSubagents && !hasTraversedCommands) {
+		return [];
+	}
+
+	const warningFilter = createProfileItemFilter({
+		...profile,
+		enable: {
+			skills: hasTraversedSkills ? profile.enable.skills : [],
+			subagents: hasTraversedSubagents ? profile.enable.subagents : [],
+			commands: hasTraversedCommands ? profile.enable.commands : [],
+		},
+		disable: {
+			skills: hasTraversedSkills ? profile.disable.skills : [],
+			subagents: hasTraversedSubagents ? profile.disable.subagents : [],
+			commands: hasTraversedCommands ? profile.disable.commands : [],
+		},
+	});
+	for (const name of traversedNames.skills) {
+		warningFilter.includes("skills", name);
+	}
+	for (const name of traversedNames.subagents) {
+		warningFilter.includes("subagents", name);
+	}
+	for (const name of traversedNames.commands) {
+		warningFilter.includes("commands", name);
+	}
+	return warningFilter.collectUnknownWarnings();
 }
 
 type TemplateScriptSource = {
@@ -1547,13 +1593,21 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			const validAgents = buildSupportedAgentNames(resolved.targets);
 
 			const profileItemFilter: ProfileItemFilter = createProfileItemFilter(activeProfile);
+			const traversedProfileNames: ProfileTraversalNames = {
+				skills: new Set(),
+				subagents: new Set(),
+				commands: new Set(),
+			};
 			const includeItemFor = (
 				category: "skills" | "subagents" | "commands",
 			): ((name: string) => boolean) | undefined => {
 				if (!profileItemFilter.enabled) {
 					return undefined;
 				}
-				return (name) => profileItemFilter.includes(category, name);
+				return (name) => {
+					traversedProfileNames[category].add(name);
+					return profileItemFilter.includes(category, name);
+				};
 			};
 
 			if (filteredTargets.length === 0 && !listLocal) {
@@ -2134,7 +2188,10 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			}
 
 			if (profileItemFilter.enabled) {
-				for (const message of profileItemFilter.collectUnknownWarnings()) {
+				for (const message of replayTraversedProfileWarnings(
+					activeProfile,
+					traversedProfileNames,
+				)) {
 					scriptRuntime.warnings.push({ code: "profile_warning", message });
 				}
 			}
