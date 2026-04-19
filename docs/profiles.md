@@ -195,10 +195,11 @@ not shared.
 
 ## Variables
 
-Profiles can define **template variables** that are substituted anywhere in
-rendered template content (skills, subagents, slash commands, and instruction
-templates) and also exposed to `<nodejs>` / `<shell>` script blocks as
-environment variables.
+Profiles can define a `variables` map that feeds the template substitution
+system. Substitution syntax (`{{NAME}}`, `{{NAME=default}}`) and env-var
+exposure (`OMNIAGENT_VAR_<NAME>`) are documented in
+[`docs/templating.md`](templating.md#variable-substitution) — this section
+focuses on how variables flow through profiles.
 
 ```jsonc
 {
@@ -210,63 +211,21 @@ environment variables.
 }
 ```
 
-**Variable names** must match `[A-Z_][A-Z0-9_]*` (uppercase ASCII, digits,
-underscores — env-var-safe).
-
-### Placeholders in template content
-
-Anywhere in a template file, use `{{NAME}}` to substitute the variable. Provide
-an inline default with `{{NAME=fallback}}`:
-
-```md
-You are a {{REVIEW_STYLE=thorough}} code reviewer. Log source is {{LOG_SOURCE}}.
-```
-
-- `{{NAME}}` with no default and no matching variable — the placeholder is left
-  literal and a `profile_warning` is emitted so the typo is surfaced.
-- `{{NAME=default}}` — the default is used if the variable is unset. An empty
-  string value is a valid substitution (it does *not* fall through to the
-  default).
-- Whitespace around the name is tolerated (`{{ NAME }}`). The default value
-  runs until the closing `}}` and may contain spaces.
-
-### Variables in `<nodejs>` / `<shell>` blocks
-
-Every variable is also injected into the child process environment as
-`OMNIAGENT_VAR_<NAME>`, so script blocks can read them programmatically:
-
-```md
-<nodejs>
-return `Style is ${process.env.OMNIAGENT_VAR_REVIEW_STYLE}`;
-</nodejs>
-```
-
-Placeholders inside a script block's **output** are also substituted, so you
-can emit `{{VAR}}` from a script and have it resolved normally.
-
-### CLI overrides
-
-Variables can be set or overridden at the CLI with `--var KEY=VALUE`
-(repeatable). CLI values apply after profile resolution, so they win over any
-profile value:
-
-```bash
-omniagent sync --profile reviewer --var REVIEW_STYLE=thorough --var LOG_SOURCE=stdout
-```
-
-Malformed values (missing `=`, or a name that doesn't match the allowed
-pattern) fail loudly with a non-zero exit.
+Variable names must match `[A-Z_][A-Z0-9_]*`.
 
 ### Merge precedence
 
-Variables merge per-key using the same layering as other profile fields:
+Variables merge per-key across layers, later wins:
 
 1. `extends` chain (grandparent → parent → profile).
 2. `.local` overrides (sibling, then dedicated).
 3. Multiple `--profile` entries in CLI order.
-4. `--var KEY=VALUE` CLI flags.
+4. `--var KEY=VALUE` CLI flags (always applied last; win over any profile
+   value, and work even when no profile is active).
 
-Later layers win on conflicting keys.
+```bash
+omniagent sync --profile reviewer --var REVIEW_STYLE=thorough
+```
 
 ## Future work
 
