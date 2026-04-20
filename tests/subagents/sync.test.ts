@@ -184,6 +184,28 @@ describe.sequential("subagent sync", () => {
 		});
 	});
 
+	it("ignores target-mismatched canonical skills with invalid target aliases when planning skill conversion", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeCanonicalSkill(
+				root,
+				"planner",
+				["---", "enabled: false", "targets:", "  - claude", "  - nope", "---", "Broken"].join("\n"),
+			);
+			await writeSubagent(root, "planner", "Subagent body");
+
+			const plan = await planSubagentSync({
+				repoRoot: root,
+				targets: ["codex"],
+				removeMissing: true,
+				includeSkill: (item) => (item.canonicalName === "planner" ? true : item.enabledByDefault),
+			});
+
+			const plannerAction = plan.plan.actions.find((action) => action.subagentName === "planner");
+			expect(plannerAction?.action).toBe("convert");
+		});
+	});
+
 	it("skips disabled draft subagents by default and fails when explicitly included", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
@@ -281,6 +303,35 @@ describe.sequential("subagent sync", () => {
 				targets: codexTargets,
 				validAgents: ["codex"],
 				removeMissing: true,
+			});
+
+			expect(summary.hadFailures).toBe(false);
+			const destination = path.join(root, ".codex", "skills", "planner", "SKILL.md");
+			expect(await pathExists(destination)).toBe(true);
+			expect(await readFile(destination, "utf8")).toContain("Subagent body");
+		});
+	});
+
+	it("ignores target-mismatched canonical skills with invalid target aliases during direct sync", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeCanonicalSkill(
+				root,
+				"planner",
+				["---", "enabled: false", "targets:", "  - claude", "  - nope", "---", "Broken"].join("\n"),
+			);
+			await writeSubagent(root, "planner", "Subagent body");
+			const codexTargets = resolveTargets({
+				config: null,
+				builtIns: BUILTIN_TARGETS,
+			}).targets.filter((target) => target.id === "codex");
+
+			const summary = await syncSubagents({
+				repoRoot: root,
+				targets: codexTargets,
+				validAgents: ["codex"],
+				removeMissing: true,
+				includeSkill: (item) => (item.canonicalName === "planner" ? true : item.enabledByDefault),
 			});
 
 			expect(summary.hadFailures).toBe(false);

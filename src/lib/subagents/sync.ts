@@ -452,20 +452,19 @@ async function loadCanonicalSkillIndex(
 		const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
 		const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, resolveTargetName);
 		const hasEmptyTargets = hasRawTargetValues(rawTargets) && (!targets || targets.length === 0);
-		let matchingTargets: string[] | null = null;
-		if (invalidTargets.length === 0 && !hasEmptyTargets) {
-			const effectiveTargets = resolveEffectiveTargets({
-				defaultTargets: targets,
-				overrideOnly: options.overrideOnly ?? undefined,
-				overrideSkip: options.overrideSkip ?? undefined,
-				allTargets: options.allTargets,
-			});
-			matchingTargets = targetFilter
-				? effectiveTargets.filter((targetId) => targetFilter.has(targetId))
-				: effectiveTargets;
-			if (matchingTargets.length === 0) {
-				continue;
-			}
+		const effectiveTargets = hasEmptyTargets
+			? []
+			: resolveEffectiveTargets({
+					defaultTargets: targets,
+					overrideOnly: options.overrideOnly ?? undefined,
+					overrideSkip: options.overrideSkip ?? undefined,
+					allTargets: options.allTargets,
+				});
+		const matchingTargets = targetFilter
+			? effectiveTargets.filter((targetId) => targetFilter.has(targetId))
+			: effectiveTargets;
+		if (matchingTargets.length === 0) {
+			continue;
 		}
 		const enabledByDefault = resolveFrontmatterEnabledByDefault({
 			frontmatter,
@@ -492,9 +491,6 @@ async function loadCanonicalSkillIndex(
 			throw new InvalidFrontmatterTargetsError(
 				`Skill "${skillName}" has empty targets in ${skill.sourcePath}.`,
 			);
-		}
-		if (!matchingTargets || matchingTargets.length === 0) {
-			continue;
 		}
 		const skillKey = normalizeSkillKey(skill.relativePath);
 		for (const targetId of matchingTargets) {
