@@ -1,12 +1,14 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { syncSkills } from "../../src/lib/skills/sync.js";
 import {
 	applySubagentSync,
 	planSubagentSync,
 	syncSubagents,
 } from "../../src/lib/subagents/sync.js";
 import { BUILTIN_TARGETS } from "../../src/lib/targets/builtins.js";
+import { readManagedOutputs } from "../../src/lib/targets/managed-outputs.js";
 import { resolveTargets } from "../../src/lib/targets/resolve-targets.js";
 
 async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> {
@@ -475,6 +477,63 @@ describe.sequential("subagent sync", () => {
 			const summary = await applySubagentSync(removalPlan);
 			expect(summary.warnings.some((warning) => warning.includes("Skipped removing"))).toBe(true);
 			expect(await pathExists(destination)).toBe(true);
+		});
+	});
+
+	it("retires stale managed conversion ownership during direct sync when a canonical skill appears", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSubagent(root, "planner", "subagent body");
+			const codexTargets = resolveTargets({
+				config: null,
+				builtIns: BUILTIN_TARGETS,
+			}).targets.filter((target) => target.id === "codex");
+
+			const initialSummary = await syncSubagents({
+				repoRoot: root,
+				targets: codexTargets,
+				validAgents: ["codex"],
+				removeMissing: true,
+			});
+			expect(initialSummary.hadFailures).toBe(false);
+
+			const destination = path.join(root, ".codex", "skills", "planner", "SKILL.md");
+			expect(await pathExists(destination)).toBe(true);
+
+			await rm(path.join(root, "agents", "agents", "planner.md"));
+			await writeCanonicalSkill(root, "planner", "canonical skill");
+
+			const skillSummary = await syncSkills({
+				repoRoot: root,
+				targets: codexTargets,
+				validAgents: ["codex"],
+				removeMissing: true,
+			});
+			expect(skillSummary.hadFailures).toBe(false);
+
+			const subagentSummary = await syncSubagents({
+				repoRoot: root,
+				targets: codexTargets,
+				validAgents: ["codex"],
+				removeMissing: true,
+			});
+			expect(
+				subagentSummary.warnings.some((warning) =>
+					warning.includes("Output modified since last sync"),
+				),
+			).toBe(false);
+
+			const managed = await readManagedOutputs(root, path.join(root, "home"));
+			const plannerEntries =
+				managed?.entries.filter(
+					(entry) => entry.targetId === "codex" && entry.sourceId === "planner",
+				) ?? [];
+			expect(plannerEntries).toEqual([
+				expect.objectContaining({
+					sourceType: "skill",
+				}),
+			]);
+			expect(await readFile(destination, "utf8")).toContain("canonical skill");
 		});
 	});
 

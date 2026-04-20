@@ -536,6 +536,7 @@ async function collectManagedCanonicalSkillKeys(options: {
 }): Promise<Set<string>> {
 	const managed = new Set<string>();
 	const homeDir = os.homedir();
+	const targetIds = new Set(options.targetIds);
 	for (const targetId of options.targetIds) {
 		const manifest = await readManifest(resolveManifestPath(options.repoRoot, targetId, homeDir));
 		if (!manifest || manifest.targetName !== targetId) {
@@ -544,6 +545,13 @@ async function collectManagedCanonicalSkillKeys(options: {
 		for (const entry of manifest.managedSubagents) {
 			managed.add(normalizeSkillKey(entry.name));
 		}
+	}
+	const managedOutputs = await readManagedOutputs(options.repoRoot, homeDir);
+	for (const entry of managedOutputs?.entries ?? []) {
+		if (entry.sourceType !== "subagent" || !targetIds.has(entry.targetId)) {
+			continue;
+		}
+		managed.add(normalizeSkillKey(entry.sourceId));
 	}
 	return managed;
 }
@@ -624,6 +632,55 @@ function targetRequiresCanonicalSkillLookup(target: ResolvedTarget): boolean {
 		return false;
 	}
 	return normalizeOutputDefinition(target.outputs.skills) !== null;
+}
+
+async function resolveCanonicalSkillsForSubagentSync(options: {
+	repoRoot: string;
+	activeTargets: ResolvedTarget[];
+	allTargetIds: string[];
+	subagents: SubagentDefinition[];
+	agentsDir?: string | null;
+	includeLocalSkills?: boolean;
+	resolveTargetName?: (value: string) => string | null;
+	overrideOnly?: string[] | null;
+	overrideSkip?: string[] | null;
+	includeSkill?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
+}): Promise<CanonicalSkillIndex> {
+	const targetIds = options.activeTargets
+		.filter(targetRequiresCanonicalSkillLookup)
+		.map((target) => target.id);
+	if (targetIds.length === 0) {
+		return new Map();
+	}
+
+	const relevantCanonicalSkillKeys = collectRelevantCanonicalSkillKeys({
+		subagents: options.subagents,
+		activeTargetIds: new Set(targetIds),
+		overrideOnly: options.overrideOnly,
+		overrideSkip: options.overrideSkip,
+		allTargets: options.allTargetIds,
+	});
+	for (const skillKey of await collectManagedCanonicalSkillKeys({
+		repoRoot: options.repoRoot,
+		targetIds,
+	})) {
+		relevantCanonicalSkillKeys.add(skillKey);
+	}
+	if (relevantCanonicalSkillKeys.size === 0) {
+		return new Map();
+	}
+
+	return loadCanonicalSkillIndex(options.repoRoot, {
+		includeLocal: options.includeLocalSkills ?? true,
+		agentsDir: options.agentsDir,
+		resolveTargetName: options.resolveTargetName,
+		overrideOnly: options.overrideOnly ?? null,
+		overrideSkip: options.overrideSkip ?? null,
+		allTargets: options.allTargetIds,
+		targetIds,
+		skillKeys: relevantCanonicalSkillKeys,
+		includeSkill: options.includeSkill,
+	});
 }
 
 function areManagedSubagentsEqual(
@@ -1071,36 +1128,18 @@ export async function planSubagentSync(
 		overrideSkip: request.overrideSkip,
 		allTargets: allTargetIds,
 	});
-	const targetsRequiringCanonicalSkills = selectedTargets
-		.filter(targetRequiresCanonicalSkillLookup)
-		.map((target) => target.id);
-	const relevantCanonicalSkillKeys = collectRelevantCanonicalSkillKeys({
+	const canonicalSkills = await resolveCanonicalSkillsForSubagentSync({
+		repoRoot: request.repoRoot,
+		activeTargets: selectedTargets,
+		allTargetIds,
 		subagents: catalog.subagents,
-		activeTargetIds: new Set(targetsRequiringCanonicalSkills),
+		agentsDir: request.agentsDir,
+		includeLocalSkills: request.includeLocalSkills,
+		resolveTargetName,
 		overrideOnly: request.overrideOnly,
 		overrideSkip: request.overrideSkip,
-		allTargets: allTargetIds,
+		includeSkill: request.includeSkill,
 	});
-	for (const skillKey of await collectManagedCanonicalSkillKeys({
-		repoRoot: request.repoRoot,
-		targetIds: targetsRequiringCanonicalSkills,
-	})) {
-		relevantCanonicalSkillKeys.add(skillKey);
-	}
-	const canonicalSkills =
-		targetsRequiringCanonicalSkills.length === 0 || relevantCanonicalSkillKeys.size === 0
-			? new Map()
-			: await loadCanonicalSkillIndex(request.repoRoot, {
-					includeLocal: request.includeLocalSkills ?? true,
-					agentsDir: request.agentsDir,
-					resolveTargetName,
-					overrideOnly: request.overrideOnly ?? null,
-					overrideSkip: request.overrideSkip ?? null,
-					allTargets: allTargetIds,
-					targetIds: targetsRequiringCanonicalSkills,
-					skillKeys: relevantCanonicalSkillKeys,
-					includeSkill: request.includeSkill,
-				});
 	const validAgents = request.validAgents ?? buildSupportedAgentNames(resolvedTargets);
 	const removeMissing = request.removeMissing ?? true;
 	const timestamp = new Date().toISOString();
@@ -1414,30 +1453,18 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 	const writerRegistry: WriterRegistry = new Map([
 		[defaultSubagentWriter.id, defaultSubagentWriter],
 	]);
-	const targetsRequiringCanonicalSkills = targets
-		.filter(targetRequiresCanonicalSkillLookup)
-		.map((target) => target.id);
-	const relevantCanonicalSkillKeys = collectRelevantCanonicalSkillKeys({
+	const canonicalSkills = await resolveCanonicalSkillsForSubagentSync({
+		repoRoot: request.repoRoot,
+		activeTargets: targets,
+		allTargetIds,
 		subagents: catalog.subagents,
-		activeTargetIds: new Set(targetsRequiringCanonicalSkills),
+		agentsDir: request.agentsDir,
+		includeLocalSkills: request.includeLocalSkills,
+		resolveTargetName: request.resolveTargetName,
 		overrideOnly: request.overrideOnly,
 		overrideSkip: request.overrideSkip,
-		allTargets: allTargetIds,
+		includeSkill: request.includeSkill,
 	});
-	const canonicalSkills =
-		targetsRequiringCanonicalSkills.length === 0 || relevantCanonicalSkillKeys.size === 0
-			? new Map()
-			: await loadCanonicalSkillIndex(request.repoRoot, {
-					includeLocal: request.includeLocalSkills ?? true,
-					agentsDir: request.agentsDir,
-					resolveTargetName: request.resolveTargetName,
-					overrideOnly: request.overrideOnly ?? null,
-					overrideSkip: request.overrideSkip ?? null,
-					allTargets: allTargetIds,
-					targetIds: targetsRequiringCanonicalSkills,
-					skillKeys: relevantCanonicalSkillKeys,
-					includeSkill: request.includeSkill,
-				});
 	const validAgents = request.validAgents ?? buildSupportedAgentNames(request.targets);
 
 	const outputDefs = new Map<string, NonNullable<ReturnType<typeof normalizeOutputDefinition>>>();
