@@ -10,7 +10,8 @@
   "scripts": {
     "build": "npm run check && vite build",
     "patch": "npm version patch --no-git-tag-version",
-    "prepublish": "npm run patch && npm run build",
+    "prepublishOnly": "npm run patch",
+    "prepack": "npm run build",
     "postbuild": "chmod +x dist/cli.js",
     "dev": "npm run build && node dist/cli.js",
     "check": "biome check .",
