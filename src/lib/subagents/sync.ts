@@ -891,6 +891,7 @@ async function buildTargetPlan(
 
 		const nameKey = normalizeName(subagent.resolvedName);
 		catalogNames.add(nameKey);
+		const previousEntry = previousManaged.get(nameKey);
 		const canonicalSkillKey =
 			outputKind === "skill" ? normalizeSkillKey(subagent.resolvedName) : null;
 		const canonicalSkillPath =
@@ -916,6 +917,9 @@ async function buildTargetPlan(
 					subagent.resolvedName
 				}" because canonical skill exists at ${canonicalSkillPath}.`,
 			);
+			if (previousEntry) {
+				nextManaged.set(nameKey, previousEntry);
+			}
 			continue;
 		}
 
@@ -945,7 +949,6 @@ async function buildTargetPlan(
 		);
 		const existingContent = await readFileIfExists(destinationPath);
 		const existingHash = existingContent ? hashContent(existingContent) : null;
-		const previousEntry = previousManaged.get(nameKey);
 
 		if (!existingContent) {
 			const actionType = outputKind === "skill" ? "convert" : "create";
@@ -1052,6 +1055,7 @@ async function buildTargetPlan(
 							entry.name
 						}" because canonical skill exists at ${canonicalSkillPath}.`,
 					);
+					nextManaged.set(normalizeName(entry.name), entry);
 					continue;
 				}
 			}
@@ -1779,11 +1783,13 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 					normalizeManagedOutputPath(expectedSkillOutputPath) ===
 					normalizeManagedOutputPath(entry.outputPath)
 				) {
+					updatedEntries.push(entry);
 					continue;
 				}
 			}
 			const shadowedSources = shadowedSubagentSources.get(entry.targetId);
 			if (shadowedSources?.has(normalizeName(entry.sourceId))) {
+				updatedEntries.push(entry);
 				continue;
 			}
 			const activeSources = activeSourcesByTarget.get(entry.targetId);

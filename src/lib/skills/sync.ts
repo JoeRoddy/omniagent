@@ -62,6 +62,12 @@ function formatDisplayPath(repoRoot: string, absolutePath: string): string {
 	return isWithinRepo ? relative : absolutePath;
 }
 
+function buildManagedOutputPathKey(
+	entry: Pick<ManagedOutputRecord, "targetId" | "outputPath">,
+): string {
+	return `${entry.targetId}:${normalizeManagedOutputPath(entry.outputPath)}`;
+}
+
 function buildInvalidTargetWarnings(skills: SkillDefinition[]): string[] {
 	const warnings: string[] = [];
 	for (const skill of skills) {
@@ -419,7 +425,18 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 	if (managedManifest.entries.length > 0 || nextManaged.size > 0) {
 		const updatedEntries: ManagedOutputRecord[] = [];
 		const managedTargetIds = new Set(skillTargets.map((target) => target.id));
+		const claimedSkillOutputPaths = new Set(
+			Array.from(nextManaged.values())
+				.filter((entry) => entry.sourceType === "skill")
+				.map((entry) => buildManagedOutputPathKey(entry)),
+		);
 		for (const entry of managedManifest.entries) {
+			if (
+				entry.sourceType === "subagent" &&
+				claimedSkillOutputPaths.has(buildManagedOutputPathKey(entry))
+			) {
+				continue;
+			}
 			if (entry.sourceType !== "skill" || !managedTargetIds.has(entry.targetId)) {
 				updatedEntries.push(entry);
 				continue;
