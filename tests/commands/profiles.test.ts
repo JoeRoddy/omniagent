@@ -337,6 +337,81 @@ describe.sequential("profiles subcommand", () => {
 		});
 	});
 
+	it("validate ignores frontmatter-disabled items with invalid targets until a profile enables them", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(
+				root,
+				"draft-skill",
+				["---", "enabled: false", "targets:", "  - nope", "---", "Skill body"].join("\n"),
+			);
+			await writeCommand(
+				root,
+				"draft-command",
+				["---", "enabled: false", "targets:", "  - nope", "---", "Command body"].join("\n"),
+			);
+			const subagentPath = path.join(root, "agents", "agents", "draft-agent.md");
+			await mkdir(path.dirname(subagentPath), { recursive: true });
+			await writeFile(
+				subagentPath,
+				[
+					"---",
+					"name: draft-agent",
+					"enabled: false",
+					"targets:",
+					"  - nope",
+					"---",
+					"Subagent body",
+				].join("\n"),
+				"utf8",
+			);
+			await writeProfile(root, "profiles/default.json", {});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "profiles", "validate"]);
+			});
+
+			expect(exitSpy).not.toHaveBeenCalled();
+			const output = logSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+			expect(output).toContain("Validated 1 profile(s).");
+		});
+	});
+
+	it("validate exits non-zero when a profile includes disabled draft skills, commands, or subagents", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(
+				root,
+				"draft-skill",
+				["---", "enabled: false", "targets:", "  - nope", "---", "Skill body"].join("\n"),
+			);
+			await writeCommand(root, "draft", ["---", "enabled: false", "---", ""].join("\n"));
+			const subagentPath = path.join(root, "agents", "agents", "draft.md");
+			await mkdir(path.dirname(subagentPath), { recursive: true });
+			await writeFile(
+				subagentPath,
+				["---", "name: draft", "enabled: false", "---", ""].join("\n"),
+				"utf8",
+			);
+			await writeProfile(root, "profiles/drafts.json", {
+				enable: { skills: ["draft-skill"], commands: ["draft"], subagents: ["draft"] },
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "profiles", "validate"]);
+			});
+
+			expect(exitSpy).toHaveBeenCalledWith(1);
+			const errOut = errorSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+			expect(errOut).toContain('includes unusable skill "draft-skill"');
+			expect(errOut).toContain("unsupported targets");
+			expect(errOut).toContain('includes unusable command "draft"');
+			expect(errOut).toContain("empty prompt");
+			expect(errOut).toContain('includes unusable subagent "draft"');
+			expect(errOut).toContain("empty body");
+		});
+	});
+
 	it("validate stays silent for zero-match glob references", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);

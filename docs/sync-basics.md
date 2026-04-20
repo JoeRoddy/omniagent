@@ -36,6 +36,7 @@ targets: [claude, gemini]
 Supported fields:
 
 - `targets` or `targetAgents`: `claude`, `gemini`, `codex`, `copilot`
+- `enabled`: `false` hides the item by default; profiles can opt it back in
 - `name`: overrides filename where supported
 - `description`: optional metadata
 

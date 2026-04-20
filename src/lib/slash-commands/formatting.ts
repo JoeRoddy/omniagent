@@ -1,3 +1,4 @@
+import { SYNC_ROUTING_FRONTMATTER_KEYS } from "../frontmatter-enabled.js";
 import { stripFrontmatterFields } from "../frontmatter-strip.js";
 import type { FrontmatterValue, SlashCommandDefinition } from "./catalog.js";
 
@@ -20,14 +21,12 @@ function formatYamlString(value: string): string {
 	return JSON.stringify(value);
 }
 
-const TARGET_FRONTMATTER_KEYS = new Set(["targets", "targetagents"]);
-
 function stripTargetMetadata(
 	frontmatter: Record<string, FrontmatterValue>,
 ): Record<string, FrontmatterValue> {
 	const filtered: Record<string, FrontmatterValue> = {};
 	for (const [key, value] of Object.entries(frontmatter)) {
-		if (TARGET_FRONTMATTER_KEYS.has(key.toLowerCase())) {
+		if (SYNC_ROUTING_FRONTMATTER_KEYS.has(key.toLowerCase())) {
 			continue;
 		}
 		filtered[key] = value;
@@ -100,10 +99,10 @@ function renderYamlFrontmatter(
 	return lines.join("\n");
 }
 
-const TOML_RESERVED_KEYS = new Set(["prompt", "targets", "targetagents"]);
+const TOML_RESERVED_KEYS = new Set(["prompt", ...SYNC_ROUTING_FRONTMATTER_KEYS]);
 
 export function renderMarkdownCommand(command: SlashCommandDefinition): string {
-	return stripFrontmatterFields(command.rawContents, TARGET_FRONTMATTER_KEYS);
+	return stripFrontmatterFields(command.rawContents, SYNC_ROUTING_FRONTMATTER_KEYS);
 }
 
 export function renderTomlCommand(command: SlashCommandDefinition): string {

@@ -33,6 +33,7 @@ import {
 	DEFAULT_PROFILE_NAME,
 	loadProfileFiles,
 	type ProfileItemFilter,
+	type ProfileItemSelection,
 	type ProfileTargetSetting,
 	profileExists,
 	type ResolvedProfile,
@@ -40,9 +41,12 @@ import {
 	targetEnabledByProfile,
 } from "../../lib/profiles/index.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
-import { loadSkillCatalog } from "../../lib/skills/catalog.js";
+import { assertSkillDefinitionUsable, loadSkillCatalog } from "../../lib/skills/catalog.js";
 import { syncSkills as syncSkillTargets } from "../../lib/skills/sync.js";
-import { loadCommandCatalog } from "../../lib/slash-commands/catalog.js";
+import {
+	assertSlashCommandDefinitionUsable,
+	loadCommandCatalog,
+} from "../../lib/slash-commands/catalog.js";
 import {
 	type SyncRequestV2 as CommandSyncRequestV2,
 	type SyncSummary as CommandSyncSummary,
@@ -50,9 +54,13 @@ import {
 	formatSyncSummary as formatCommandSummary,
 	syncSlashCommands as syncSlashCommandsV2,
 } from "../../lib/slash-commands/sync.js";
-import { loadSubagentCatalog } from "../../lib/subagents/catalog.js";
+import {
+	assertSubagentDefinitionUsable,
+	loadSubagentCatalog,
+} from "../../lib/subagents/catalog.js";
 import {
 	formatSubagentSummary,
+	resolveShadowedSubagentNamesForTargets,
 	type SubagentSyncRequestV2,
 	type SubagentSyncSummary,
 	syncSubagents as syncSubagentsV2,
@@ -406,12 +414,21 @@ function replayTraversedProfileWarnings(
 		},
 	});
 	for (const name of traversedNames.skills) {
+		if (!name) {
+			continue;
+		}
 		warningFilter.includes("skills", name);
 	}
 	for (const name of traversedNames.subagents) {
+		if (!name) {
+			continue;
+		}
 		warningFilter.includes("subagents", name);
 	}
 	for (const name of traversedNames.commands) {
+		if (!name) {
+			continue;
+		}
 		warningFilter.includes("commands", name);
 	}
 	return warningFilter.collectUnknownWarnings();
@@ -439,9 +456,9 @@ type ScriptPreflightOptions = {
 	selectedInstructionTargets: ResolvedTarget[];
 	skillsAvailable: boolean;
 	commandsAvailable: boolean;
-	includeSkill?: (name: string) => boolean;
-	includeSubagent?: (name: string) => boolean;
-	includeCommand?: (name: string) => boolean;
+	includeSkill?: (item: ProfileItemSelection) => boolean;
+	includeSubagent?: (item: ProfileItemSelection) => boolean;
+	includeCommand?: (item: ProfileItemSelection) => boolean;
 };
 
 function hasTemplateScripts(content: string): boolean {
@@ -464,6 +481,24 @@ function addTemplateScriptSource(
 
 function intersectsTargets(targets: string[], selectedTargetIds: Set<string>): boolean {
 	return targets.some((target) => selectedTargetIds.has(target));
+}
+
+function areSelectedTargetsFullyShadowed(options: {
+	selectedTargetIds: Set<string>;
+	effectiveTargets: string[];
+	shadowedSubagentsByTarget: Map<string, Set<string>>;
+	subagentName: string;
+}): boolean {
+	const relevantTargets = options.effectiveTargets.filter((targetId) =>
+		options.selectedTargetIds.has(targetId),
+	);
+	if (relevantTargets.length === 0) {
+		return false;
+	}
+	const normalizedName = options.subagentName.trim().toLowerCase();
+	return relevantTargets.every((targetId) =>
+		options.shadowedSubagentsByTarget.get(targetId)?.has(normalizedName),
+	);
 }
 
 async function listAllFiles(root: string): Promise<string[]> {
@@ -504,7 +539,13 @@ async function gatherTemplateScriptSources(
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const command of commandCatalog.commands) {
-			if (options.includeCommand && !options.includeCommand(command.name)) {
+			if (
+				options.includeCommand &&
+				!options.includeCommand({
+					canonicalName: command.name,
+					enabledByDefault: command.enabledByDefault,
+				})
+			) {
 				continue;
 			}
 			const effectiveTargets = resolveEffectiveTargets({
@@ -516,6 +557,7 @@ async function gatherTemplateScriptSources(
 			if (!intersectsTargets(effectiveTargets, selectedCommandTargetIds)) {
 				continue;
 			}
+			assertSlashCommandDefinitionUsable(command);
 			addTemplateScriptSource(sources, command.sourcePath, command.rawContents);
 		}
 	}
@@ -526,8 +568,26 @@ async function gatherTemplateScriptSources(
 			agentsDir: options.agentsDir,
 			resolveTargetName: options.resolveTargetName,
 		});
+		const shadowedSubagentsByTarget = await resolveShadowedSubagentNamesForTargets({
+			repoRoot: options.repoRoot,
+			activeTargets: options.selectedSubagentTargets,
+			allTargetIds: options.allTargetIds,
+			subagents: subagentCatalog.subagents,
+			agentsDir: options.agentsDir,
+			includeLocalSkills: !options.excludeLocalSkills,
+			resolveTargetName: options.resolveTargetName,
+			overrideOnly: options.overrideOnly,
+			overrideSkip: options.overrideSkip,
+			includeSkill: options.includeSkill,
+		});
 		for (const subagent of subagentCatalog.subagents) {
-			if (options.includeSubagent && !options.includeSubagent(subagent.resolvedName)) {
+			if (
+				options.includeSubagent &&
+				!options.includeSubagent({
+					canonicalName: subagent.resolvedName,
+					enabledByDefault: subagent.enabledByDefault,
+				})
+			) {
 				continue;
 			}
 			const effectiveTargets = resolveEffectiveTargets({
@@ -539,6 +599,17 @@ async function gatherTemplateScriptSources(
 			if (!intersectsTargets(effectiveTargets, selectedSubagentTargetIds)) {
 				continue;
 			}
+			if (
+				areSelectedTargetsFullyShadowed({
+					selectedTargetIds: selectedSubagentTargetIds,
+					effectiveTargets,
+					shadowedSubagentsByTarget,
+					subagentName: subagent.resolvedName,
+				})
+			) {
+				continue;
+			}
+			assertSubagentDefinitionUsable(subagent);
 			addTemplateScriptSource(sources, subagent.sourcePath, subagent.rawContents);
 		}
 	}
@@ -571,7 +642,13 @@ async function gatherTemplateScriptSources(
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const skill of skillCatalog.skills) {
-			if (options.includeSkill && !options.includeSkill(skill.name)) {
+			if (
+				options.includeSkill &&
+				!options.includeSkill({
+					canonicalName: skill.name,
+					enabledByDefault: skill.enabledByDefault,
+				})
+			) {
 				continue;
 			}
 			const effectiveTargets = resolveEffectiveTargets({
@@ -583,6 +660,7 @@ async function gatherTemplateScriptSources(
 			if (!intersectsTargets(effectiveTargets, selectedSkillTargetIds)) {
 				continue;
 			}
+			assertSkillDefinitionUsable(skill);
 			const files = await listAllFiles(skill.directoryPath);
 			for (const filePath of files) {
 				const buffer = await readFile(filePath);
@@ -748,6 +826,10 @@ async function validateTemplatingSources(options: {
 	repoRoot: string;
 	agentsDir?: string | null;
 	validAgents: string[];
+	selectedSkillTargets: ResolvedTarget[];
+	selectedCommandTargets: ResolvedTarget[];
+	selectedSubagentTargets: ResolvedTarget[];
+	selectedInstructionTargets: ResolvedTarget[];
 	commandsAvailable: boolean;
 	skillsAvailable: boolean;
 	subagentsAvailable: boolean;
@@ -757,9 +839,9 @@ async function validateTemplatingSources(options: {
 	includeLocalInstructions: boolean;
 	instructionsAvailable: boolean;
 	resolveTargetName?: (value: string) => string | null;
-	includeSkill?: (name: string) => boolean;
-	includeSubagent?: (name: string) => boolean;
-	includeCommand?: (name: string) => boolean;
+	includeSkill?: (item: ProfileItemSelection) => boolean;
+	includeSubagent?: (item: ProfileItemSelection) => boolean;
+	includeCommand?: (item: ProfileItemSelection) => boolean;
 }): Promise<void> {
 	const validateContent = (sourcePath: string, contents: string): void => {
 		validateAgentTemplating({
@@ -768,6 +850,16 @@ async function validateTemplatingSources(options: {
 			sourcePath,
 		});
 	};
+	const selectedSkillTargetIds = new Set(options.selectedSkillTargets.map((target) => target.id));
+	const selectedCommandTargetIds = new Set(
+		options.selectedCommandTargets.map((target) => target.id),
+	);
+	const selectedSubagentTargetIds = new Set(
+		options.selectedSubagentTargets.map((target) => target.id),
+	);
+	const selectedInstructionTargetIds = new Set(
+		options.selectedInstructionTargets.map((target) => target.id),
+	);
 
 	if (options.commandsAvailable) {
 		const commandCatalog = await loadCommandCatalog(options.repoRoot, {
@@ -776,9 +868,23 @@ async function validateTemplatingSources(options: {
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const command of commandCatalog.commands) {
-			if (options.includeCommand && !options.includeCommand(command.name)) {
+			if (
+				options.includeCommand &&
+				!options.includeCommand({
+					canonicalName: command.name,
+					enabledByDefault: command.enabledByDefault,
+				})
+			) {
 				continue;
 			}
+			const effectiveTargets = resolveEffectiveTargets({
+				defaultTargets: command.targetAgents,
+				allTargets: options.selectedCommandTargets.map((target) => target.id),
+			});
+			if (!intersectsTargets(effectiveTargets, selectedCommandTargetIds)) {
+				continue;
+			}
+			assertSlashCommandDefinitionUsable(command);
 			validateContent(command.sourcePath, command.rawContents);
 		}
 	}
@@ -790,9 +896,23 @@ async function validateTemplatingSources(options: {
 			resolveTargetName: options.resolveTargetName,
 		});
 		for (const skill of skillCatalog.skills) {
-			if (options.includeSkill && !options.includeSkill(skill.name)) {
+			if (
+				options.includeSkill &&
+				!options.includeSkill({
+					canonicalName: skill.name,
+					enabledByDefault: skill.enabledByDefault,
+				})
+			) {
 				continue;
 			}
+			const effectiveTargets = resolveEffectiveTargets({
+				defaultTargets: skill.targetAgents,
+				allTargets: options.selectedSkillTargets.map((target) => target.id),
+			});
+			if (!intersectsTargets(effectiveTargets, selectedSkillTargetIds)) {
+				continue;
+			}
+			assertSkillDefinitionUsable(skill);
 			const files = await listFiles(skill.directoryPath);
 			const filesToValidate = options.includeLocalSkills
 				? files
@@ -814,30 +934,67 @@ async function validateTemplatingSources(options: {
 			agentsDir: options.agentsDir,
 			resolveTargetName: options.resolveTargetName,
 		});
+		const shadowedSubagentsByTarget = await resolveShadowedSubagentNamesForTargets({
+			repoRoot: options.repoRoot,
+			activeTargets: options.selectedSubagentTargets,
+			allTargetIds: options.selectedSubagentTargets.map((target) => target.id),
+			subagents: subagentCatalog.subagents,
+			agentsDir: options.agentsDir,
+			includeLocalSkills: options.includeLocalSkills,
+			resolveTargetName: options.resolveTargetName,
+			includeSkill: options.includeSkill,
+		});
 		for (const subagent of subagentCatalog.subagents) {
-			if (options.includeSubagent && !options.includeSubagent(subagent.resolvedName)) {
+			if (
+				options.includeSubagent &&
+				!options.includeSubagent({
+					canonicalName: subagent.resolvedName,
+					enabledByDefault: subagent.enabledByDefault,
+				})
+			) {
 				continue;
 			}
+			const effectiveTargets = resolveEffectiveTargets({
+				defaultTargets: subagent.targetAgents,
+				allTargets: options.selectedSubagentTargets.map((target) => target.id),
+			});
+			if (!intersectsTargets(effectiveTargets, selectedSubagentTargetIds)) {
+				continue;
+			}
+			if (
+				areSelectedTargetsFullyShadowed({
+					selectedTargetIds: selectedSubagentTargetIds,
+					effectiveTargets,
+					shadowedSubagentsByTarget,
+					subagentName: subagent.resolvedName,
+				})
+			) {
+				continue;
+			}
+			assertSubagentDefinitionUsable(subagent);
 			validateContent(subagent.sourcePath, subagent.rawContents);
 		}
 	}
 
 	if (options.instructionsAvailable) {
-		const entries = await scanInstructionTemplateSources({
+		const catalog = await loadInstructionTemplateCatalog({
 			repoRoot: options.repoRoot,
 			includeLocal: options.includeLocalInstructions,
 			agentsDir: options.agentsDir,
+			resolveTargetName: options.resolveTargetName,
 		});
-		for (const entry of entries) {
-			const buffer = await readFile(entry.sourcePath);
-			const contents = decodeUtf8(buffer);
-			if (contents === null) {
+		for (const template of catalog.templates) {
+			const effectiveTargets = resolveEffectiveTargets({
+				defaultTargets: template.targets,
+				allTargets: options.selectedInstructionTargets.map((target) => target.id),
+			});
+			if (!intersectsTargets(effectiveTargets, selectedInstructionTargetIds)) {
 				continue;
 			}
 			validateAgentTemplating({
-				content: contents,
+				content: template.rawContents,
 				validAgents: options.validAgents,
-				sourcePath: entry.sourcePath,
+				sourcePath: template.sourcePath,
 			});
 		}
 	}
@@ -1600,13 +1757,12 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 			};
 			const includeItemFor = (
 				category: "skills" | "subagents" | "commands",
-			): ((name: string) => boolean) | undefined => {
-				if (!profileItemFilter.enabled) {
-					return undefined;
-				}
-				return (name) => {
-					traversedProfileNames[category].add(name);
-					return profileItemFilter.includes(category, name);
+			): ((item: ProfileItemSelection) => boolean) => {
+				return (item) => {
+					if (profileItemFilter.enabled) {
+						traversedProfileNames[category].add(item.canonicalName);
+					}
+					return profileItemFilter.includes(category, item);
 				};
 			};
 
@@ -1845,6 +2001,10 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 					repoRoot,
 					agentsDir,
 					validAgents,
+					selectedSkillTargets,
+					selectedCommandTargets,
+					selectedSubagentTargets,
+					selectedInstructionTargets,
 					commandsAvailable: hasCommandsToSync,
 					skillsAvailable: hasSkillsToSync,
 					subagentsAvailable: hasSubagentsToSync,
@@ -2055,6 +2215,7 @@ export const syncCommand: CommandModule<Record<string, never>, SyncArgs> = {
 				hooks: globalHooks,
 				templateScriptRuntime: scriptRuntime,
 				includeItem: includeItemFor("subagents"),
+				includeSkill: includeItemFor("skills"),
 			} satisfies SubagentSyncRequestV2);
 
 			if (availabilitySubagentSkips.length > 0) {

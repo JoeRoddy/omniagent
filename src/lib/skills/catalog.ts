@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { listSkillDirectories, readDirectoryStats } from "../catalog-utils.js";
+import { resolveFrontmatterEnabledByDefault } from "../frontmatter-enabled.js";
 import { resolveLocalPrecedence } from "../local-precedence.js";
 import {
 	buildSourceMetadata,
@@ -23,6 +24,7 @@ import { BUILTIN_TARGETS } from "../targets/builtins.js";
 
 export type SkillDefinition = {
 	name: string;
+	enabledByDefault: boolean;
 	relativePath: string;
 	directoryPath: string;
 	sourcePath: string;
@@ -36,6 +38,7 @@ export type SkillDefinition = {
 	body: string;
 	targetAgents: TargetName[] | null;
 	invalidTargets: string[];
+	routingError?: string | null;
 };
 
 export type SkillCatalog = {
@@ -87,6 +90,26 @@ function resolveSkillRelativePath(
 	return { relativePath: normalized, hadLocalSuffix: true };
 }
 
+function resolveSkillRoutingError(options: {
+	name: string;
+	sourcePath: string;
+	rawTargets: Array<FrontmatterValue | undefined>;
+	targets: TargetName[] | null;
+	invalidTargets: string[];
+}): string | null {
+	if (options.invalidTargets.length > 0) {
+		const invalidList = options.invalidTargets.join(", ");
+		return `Skill "${options.name}" has unsupported targets (${invalidList}) in ${options.sourcePath}.`;
+	}
+	if (
+		hasRawTargetValues(options.rawTargets) &&
+		(!options.targets || options.targets.length === 0)
+	) {
+		return `Skill "${options.name}" has empty targets in ${options.sourcePath}.`;
+	}
+	return null;
+}
+
 async function buildSkillDefinition(options: {
 	directoryPath: string;
 	skillsRoot: string;
@@ -112,24 +135,32 @@ async function buildSkillDefinition(options: {
 	const relativePath =
 		options.relativePath ?? path.relative(options.skillsRoot, options.directoryPath);
 	const name = resolveSkillName(frontmatter, relativePath || path.basename(options.directoryPath));
+	const enabledByDefault = resolveFrontmatterEnabledByDefault({
+		frontmatter,
+		itemKind: "Skill",
+		itemName: name,
+		sourcePath,
+	});
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
 	const { targets, invalidTargets } = resolveFrontmatterTargets(
 		rawTargets,
 		options.resolveTargetName,
 	);
-	if (invalidTargets.length > 0) {
-		const invalidList = invalidTargets.join(", ");
-		throw new InvalidFrontmatterTargetsError(
-			`Skill "${name}" has unsupported targets (${invalidList}) in ${sourcePath}.`,
-		);
-	}
-	if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
-		throw new InvalidFrontmatterTargetsError(`Skill "${name}" has empty targets in ${sourcePath}.`);
+	const routingError = resolveSkillRoutingError({
+		name,
+		sourcePath,
+		rawTargets,
+		targets,
+		invalidTargets,
+	});
+	if (enabledByDefault && routingError) {
+		throw new InvalidFrontmatterTargetsError(routingError);
 	}
 	const { outputFileName } = stripLocalSuffix(options.skillFileName, ".md");
 
 	return {
 		name,
+		enabledByDefault,
 		relativePath,
 		directoryPath: options.directoryPath,
 		sourcePath,
@@ -143,7 +174,14 @@ async function buildSkillDefinition(options: {
 		body,
 		targetAgents: targets,
 		invalidTargets,
+		routingError,
 	};
+}
+
+export function assertSkillDefinitionUsable(skill: Pick<SkillDefinition, "routingError">): void {
+	if (skill.routingError) {
+		throw new InvalidFrontmatterTargetsError(skill.routingError);
+	}
 }
 
 export async function loadSkillCatalog(

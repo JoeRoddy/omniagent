@@ -1,8 +1,7 @@
 import path from "node:path";
+import { SYNC_ROUTING_FRONTMATTER_KEYS } from "../../../frontmatter-enabled.js";
 import { stripFrontmatterFields } from "../../../frontmatter-strip.js";
 import type { TargetDefinition } from "../../config-types.js";
-
-const TARGET_FRONTMATTER_KEYS = new Set(["targets", "targetagents"]);
 
 type SlashCommandLike = {
 	name: string;
@@ -77,7 +76,7 @@ export const copilotTarget: TargetDefinition = {
 						outputs: [
 							{
 								outputPath: agentPath,
-								content: stripFrontmatterFields(item.rawContents, TARGET_FRONTMATTER_KEYS),
+								content: stripFrontmatterFields(item.rawContents, SYNC_ROUTING_FRONTMATTER_KEYS),
 							},
 							{
 								outputPath: promptPath,

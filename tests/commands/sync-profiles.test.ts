@@ -2,6 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/pr
 import os from "node:os";
 import path from "node:path";
 import { runCli } from "../../src/cli/index.js";
+import { resolveManagedOutputsPath } from "../../src/lib/targets/managed-outputs.js";
 
 const DEFAULT_CLI_COMMANDS = ["codex", "claude", "gemini", "copilot"];
 
@@ -67,16 +68,26 @@ async function writeSkill(root: string, name: string, body?: string): Promise<vo
 	await writeFile(path.join(dir, "SKILL.md"), body ?? `skill-${name}`, "utf8");
 }
 
-async function writeCommand(root: string, name: string): Promise<void> {
+async function writeCommand(root: string, name: string, body?: string): Promise<void> {
 	const dir = path.join(root, "agents", "commands");
 	await mkdir(dir, { recursive: true });
-	await writeFile(path.join(dir, `${name}.md`), `command-${name}`, "utf8");
+	await writeFile(path.join(dir, `${name}.md`), body ?? `command-${name}`, "utf8");
 }
 
-async function writeSubagent(root: string, name: string): Promise<void> {
+async function writeSubagent(
+	root: string,
+	name: string,
+	body = "body",
+	frontmatterLines?: string[],
+): Promise<void> {
 	const dir = path.join(root, "agents", "agents");
 	await mkdir(dir, { recursive: true });
-	await writeFile(path.join(dir, `${name}.md`), `---\nname: ${name}\n---\nbody`, "utf8");
+	const frontmatter = frontmatterLines ?? [`name: ${name}`];
+	await writeFile(
+		path.join(dir, `${name}.md`),
+		["---", ...frontmatter, "---", body].join("\n"),
+		"utf8",
+	);
 }
 
 async function writeProfile(
@@ -93,6 +104,14 @@ async function writeTargetConfig(root: string, contents: string): Promise<void> 
 	const target = path.join(root, "agents", "omniagent.config.cjs");
 	await mkdir(path.dirname(target), { recursive: true });
 	await writeFile(target, contents, "utf8");
+}
+
+async function readManagedOutputsManifest(
+	root: string,
+): Promise<{ entries: Array<Record<string, unknown>> }> {
+	const manifestPath = resolveManagedOutputsPath(root, path.join(root, "home"));
+	const contents = await readFile(manifestPath, "utf8");
+	return JSON.parse(contents) as { entries: Array<Record<string, unknown>> };
 }
 
 describe.sequential("sync command with profiles", () => {
@@ -197,6 +216,346 @@ describe.sequential("sync command with profiles", () => {
 				true,
 			);
 			expect(await pathExists(path.join(root, ".claude", "commands", "note.md"))).toBe(false);
+		});
+	});
+
+	it("keeps frontmatter-disabled items out by default", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "hidden-skill", "---\nenabled: false\n---\nhidden-skill");
+			await writeCommand(root, "hidden-command", "---\nenabled: false\n---\nhidden-command");
+			await writeSubagent(root, "hidden-agent", "body", ["name: hidden-agent", "enabled: false"]);
+			await writeSkill(root, "visible-skill");
+			await writeCommand(root, "visible-command");
+			await writeSubagent(root, "visible-agent");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync"]);
+			});
+
+			expect(
+				await pathExists(path.join(root, ".claude", "skills", "hidden-skill", "SKILL.md")),
+			).toBe(false);
+			expect(await pathExists(path.join(root, ".claude", "commands", "hidden-command.md"))).toBe(
+				false,
+			);
+			expect(await pathExists(path.join(root, ".claude", "agents", "hidden-agent.md"))).toBe(false);
+			expect(
+				await pathExists(path.join(root, ".claude", "skills", "visible-skill", "SKILL.md")),
+			).toBe(true);
+			expect(await pathExists(path.join(root, ".claude", "commands", "visible-command.md"))).toBe(
+				true,
+			);
+			expect(await pathExists(path.join(root, ".claude", "agents", "visible-agent.md"))).toBe(true);
+		});
+	});
+
+	it("ignores invalid targets on frontmatter-disabled items until a profile opts them in", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(
+				root,
+				"hidden-skill",
+				["---", "enabled: false", "targets:", "  - nope", "---", "hidden-skill"].join("\n"),
+			);
+			await writeCommand(
+				root,
+				"hidden-command",
+				["---", "enabled: false", "targets:", "  - nope", "---", "hidden-command"].join("\n"),
+			);
+			await writeSubagent(root, "hidden-agent", "body", [
+				"name: hidden-agent",
+				"enabled: false",
+				"targets:",
+				"  - nope",
+			]);
+			await writeSkill(root, "visible-skill");
+			await writeCommand(root, "visible-command");
+			await writeSubagent(root, "visible-agent");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync"]);
+			});
+
+			expect(exitSpy).not.toHaveBeenCalled();
+			expect(errorSpy).not.toHaveBeenCalled();
+			expect(
+				await pathExists(path.join(root, ".claude", "skills", "hidden-skill", "SKILL.md")),
+			).toBe(false);
+			expect(await pathExists(path.join(root, ".claude", "commands", "hidden-command.md"))).toBe(
+				false,
+			);
+			expect(await pathExists(path.join(root, ".claude", "agents", "hidden-agent.md"))).toBe(false);
+			expect(
+				await pathExists(path.join(root, ".claude", "skills", "visible-skill", "SKILL.md")),
+			).toBe(true);
+			expect(await pathExists(path.join(root, ".claude", "commands", "visible-command.md"))).toBe(
+				true,
+			);
+			expect(await pathExists(path.join(root, ".claude", "agents", "visible-agent.md"))).toBe(true);
+		});
+	});
+
+	it("fails when a profile opts an invalid frontmatter-disabled skill back in", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(
+				root,
+				"hidden-skill",
+				["---", "enabled: false", "targets:", "  - nope", "---", "hidden-skill"].join("\n"),
+			);
+			await writeProfile(root, "profiles/focus.json", {
+				enable: { skills: ["hidden-skill"] },
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--profile", "focus"]);
+			});
+
+			expect(exitSpy).toHaveBeenCalledWith(1);
+			const errOut = errorSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+			expect(errOut).toContain('Skill "hidden-skill" has unsupported targets (nope)');
+		});
+	});
+
+	it("skips frontmatter-disabled items during templating preflight and script evaluation", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(
+				root,
+				"hidden-skill",
+				[
+					"---",
+					"enabled: false",
+					"---",
+					"<agents nope>bad</agents>",
+					"<nodejs>",
+					"throw new Error('boom');",
+					"</nodejs>",
+				].join("\n"),
+			);
+			await writeSkill(root, "visible-skill", "visible-skill");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync"]);
+			});
+
+			expect(exitSpy).not.toHaveBeenCalled();
+			expect(
+				await pathExists(path.join(root, ".claude", "skills", "hidden-skill", "SKILL.md")),
+			).toBe(false);
+			expect(
+				await pathExists(path.join(root, ".claude", "skills", "visible-skill", "SKILL.md")),
+			).toBe(true);
+		});
+	});
+
+	it("lets profiles override frontmatter enabled=false and strips the field from outputs", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "hidden-skill", "---\nenabled: false\n---\nhidden-skill");
+			await writeCommand(root, "hidden-command", "---\nenabled: false\n---\nhidden-command");
+			await writeSubagent(root, "hidden-agent", "body", ["name: hidden-agent", "enabled: false"]);
+			await writeProfile(root, "profiles/focus.json", {
+				enable: {
+					skills: ["hidden-skill"],
+					commands: ["hidden-command"],
+					subagents: ["hidden-agent"],
+				},
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--profile", "focus"]);
+			});
+
+			const skillOutputPath = path.join(root, ".claude", "skills", "hidden-skill", "SKILL.md");
+			const commandOutputPath = path.join(root, ".claude", "commands", "hidden-command.md");
+			const subagentOutputPath = path.join(root, ".claude", "agents", "hidden-agent.md");
+			const copilotCommandOutputPath = path.join(
+				root,
+				".github",
+				"agents",
+				"hidden-command.agent.md",
+			);
+			expect(await pathExists(skillOutputPath)).toBe(true);
+			expect(await pathExists(commandOutputPath)).toBe(true);
+			expect(await pathExists(subagentOutputPath)).toBe(true);
+			expect(await pathExists(copilotCommandOutputPath)).toBe(true);
+
+			expect(await readFile(skillOutputPath, "utf8")).not.toContain("enabled:");
+			expect(await readFile(commandOutputPath, "utf8")).not.toContain("enabled:");
+			expect(await readFile(subagentOutputPath, "utf8")).not.toContain("enabled:");
+			expect(await readFile(copilotCommandOutputPath, "utf8")).not.toContain("enabled:");
+		});
+	});
+
+	it("uses the profile-filtered skill set when checking subagent-to-skill conflicts", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(root, "planner", "---\nenabled: false\n---\ncanonical planner");
+			await writeSubagent(root, "planner", "subagent planner");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "codex", "--json"]);
+			});
+
+			const firstRun = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0] ?? ""));
+			const firstSubagentResult = firstRun.subagents.results.find(
+				(entry: { targetName: string }) => entry.targetName === "codex",
+			);
+			expect(firstSubagentResult?.counts.converted).toBe(1);
+
+			const codexSkillPath = path.join(root, ".codex", "skills", "planner", "SKILL.md");
+			expect(await pathExists(codexSkillPath)).toBe(true);
+			expect(await readFile(codexSkillPath, "utf8")).toContain("subagent planner");
+
+			logSpy.mockClear();
+			await writeProfile(root, "profiles/focus.json", {
+				enable: { skills: ["planner"] },
+			});
+
+			await withCwd(root, async () => {
+				await runCli([
+					"node",
+					"omniagent",
+					"sync",
+					"--only",
+					"codex",
+					"--profile",
+					"focus",
+					"--json",
+				]);
+			});
+
+			const secondRun = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0] ?? ""));
+			const secondSubagentResult = secondRun.subagents.results.find(
+				(entry: { targetName: string }) => entry.targetName === "codex",
+			);
+			expect(secondSubagentResult?.counts.converted).toBe(0);
+			expect(
+				secondRun.subagents.warnings.some((warning: string) =>
+					warning.includes("canonical skill exists at"),
+				),
+			).toBe(true);
+
+			const codexSkillOutput = await readFile(codexSkillPath, "utf8");
+			expect(codexSkillOutput).toContain("canonical planner");
+			expect(codexSkillOutput).not.toContain("subagent planner");
+		});
+	});
+
+	it("skips shadowed subagents during templating validation when a profile activates a canonical skill", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(
+				root,
+				"planner",
+				["---", "enabled: false", "---", "canonical planner"].join("\n"),
+			);
+			await writeSubagent(root, "planner", "<agents nope>bad</agents>");
+			await writeProfile(root, "profiles/focus.json", {
+				enable: { skills: ["planner"] },
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "codex", "--profile", "focus"]);
+			});
+
+			expect(exitSpy).not.toHaveBeenCalled();
+			expect(errorSpy.mock.calls.map(([msg]) => String(msg)).join("\n")).not.toContain(
+				"Unknown agent selector",
+			);
+			expect(
+				await readFile(path.join(root, ".codex", "skills", "planner", "SKILL.md"), "utf8"),
+			).toContain("canonical planner");
+		});
+	});
+
+	it("skips shadowed subagents during template script evaluation when a profile activates a canonical skill", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(
+				root,
+				"planner",
+				["---", "enabled: false", "---", "canonical planner"].join("\n"),
+			);
+			await writeSubagent(
+				root,
+				"planner",
+				["<nodejs>", "throw new Error('boom');", "</nodejs>"].join("\n"),
+			);
+			await writeProfile(root, "profiles/focus.json", {
+				enable: { skills: ["planner"] },
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "codex", "--profile", "focus"]);
+			});
+
+			expect(exitSpy).not.toHaveBeenCalled();
+			expect(errorSpy.mock.calls.map(([msg]) => String(msg)).join("\n")).not.toContain("boom");
+			expect(
+				await readFile(path.join(root, ".codex", "skills", "planner", "SKILL.md"), "utf8"),
+			).toContain("canonical planner");
+		});
+	});
+
+	it("retires stale subagent ownership when a profile activates a canonical skill", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(
+				root,
+				"planner",
+				["---", "enabled: false", "---", "canonical planner"].join("\n"),
+			);
+			await writeSubagent(root, "planner", "subagent planner");
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "codex"]);
+			});
+
+			let manifest = await readManagedOutputsManifest(root);
+			expect(
+				manifest.entries.filter(
+					(entry) => entry.targetId === "codex" && entry.sourceId === "planner",
+				),
+			).toEqual([
+				expect.objectContaining({
+					sourceType: "subagent",
+				}),
+			]);
+
+			logSpy.mockClear();
+			errorSpy.mockClear();
+			await writeProfile(root, "profiles/focus.json", {
+				enable: { skills: ["planner"] },
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "codex", "--profile", "focus"]);
+			});
+
+			manifest = await readManagedOutputsManifest(root);
+			expect(
+				manifest.entries.filter(
+					(entry) => entry.targetId === "codex" && entry.sourceId === "planner",
+				),
+			).toEqual([
+				expect.objectContaining({
+					sourceType: "skill",
+				}),
+			]);
+
+			await rm(path.join(root, "agents", "agents", "planner.md"));
+			logSpy.mockClear();
+			errorSpy.mockClear();
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "codex", "--profile", "focus"]);
+			});
+
+			const output = logSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+			expect(output).not.toContain("Output modified since last sync");
 		});
 	});
 

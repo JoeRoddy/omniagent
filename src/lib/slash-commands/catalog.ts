@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { normalizeName, readDirectoryStats } from "../catalog-utils.js";
+import { resolveFrontmatterEnabledByDefault } from "../frontmatter-enabled.js";
 import { resolveLocalPrecedence } from "../local-precedence.js";
 import {
 	buildSourceMetadata,
@@ -24,6 +25,7 @@ export type { FrontmatterValue } from "./frontmatter.js";
 
 export type SlashCommandDefinition = {
 	name: string;
+	enabledByDefault: boolean;
 	prompt: string;
 	sourcePath: string;
 	sourceType: SourceType;
@@ -33,6 +35,7 @@ export type SlashCommandDefinition = {
 	targetAgents: TargetName[] | null;
 	invalidTargets: string[];
 	frontmatter: Record<string, FrontmatterValue>;
+	routingError?: string | null;
 };
 
 export type CommandCatalog = {
@@ -78,7 +81,13 @@ async function buildCommandDefinition(options: {
 	const contents = await readFile(options.filePath, "utf8");
 	const { frontmatter, body } = extractFrontmatter(contents);
 	const prompt = body.trimEnd();
-	if (!prompt.trim()) {
+	const enabledByDefault = resolveFrontmatterEnabledByDefault({
+		frontmatter,
+		itemKind: "Slash command",
+		itemName: options.commandName,
+		sourcePath: options.filePath,
+	});
+	if (enabledByDefault && !prompt.trim()) {
 		throw new Error(`Slash command "${options.commandName}" has an empty prompt.`);
 	}
 
@@ -87,16 +96,15 @@ async function buildCommandDefinition(options: {
 		rawTargets,
 		options.resolveTargetName,
 	);
+	let routingError: string | null = null;
 	if (invalidTargets.length > 0) {
 		const invalidList = invalidTargets.join(", ");
-		throw new InvalidFrontmatterTargetsError(
-			`Slash command "${options.commandName}" has unsupported targets (${invalidList}) in ${options.filePath}.`,
-		);
+		routingError = `Slash command "${options.commandName}" has unsupported targets (${invalidList}) in ${options.filePath}.`;
+	} else if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
+		routingError = `Slash command "${options.commandName}" has empty targets in ${options.filePath}.`;
 	}
-	if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
-		throw new InvalidFrontmatterTargetsError(
-			`Slash command "${options.commandName}" has empty targets in ${options.filePath}.`,
-		);
+	if (enabledByDefault && routingError) {
+		throw new InvalidFrontmatterTargetsError(routingError);
 	}
 
 	let metadata: ReturnType<typeof buildSourceMetadata>;
@@ -112,6 +120,7 @@ async function buildCommandDefinition(options: {
 
 	return {
 		name: options.commandName,
+		enabledByDefault,
 		prompt,
 		sourcePath: options.filePath,
 		sourceType: metadata.sourceType,
@@ -121,7 +130,19 @@ async function buildCommandDefinition(options: {
 		targetAgents: targets,
 		invalidTargets,
 		frontmatter,
+		routingError,
 	};
+}
+
+export function assertSlashCommandDefinitionUsable(
+	command: Pick<SlashCommandDefinition, "name" | "prompt" | "routingError">,
+): void {
+	if (!command.prompt.trim()) {
+		throw new Error(`Slash command "${command.name}" has an empty prompt.`);
+	}
+	if (command.routingError) {
+		throw new InvalidFrontmatterTargetsError(command.routingError);
+	}
 }
 
 function registerUniqueName(

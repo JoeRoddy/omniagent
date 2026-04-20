@@ -4,16 +4,28 @@ import os from "node:os";
 import path from "node:path";
 import { applyAgentTemplating } from "../agent-templating.js";
 import { resolveAgentsDirPath } from "../agents-dir.js";
-import { listSkillDirectories, normalizeName, type SkillDirectoryEntry } from "../catalog-utils.js";
+import { listSkillDirectories, normalizeName, readDirectoryStats } from "../catalog-utils.js";
+import {
+	resolveFrontmatterEnabledByDefault,
+	SYNC_ROUTING_FRONTMATTER_KEYS,
+} from "../frontmatter-enabled.js";
 import { stripFrontmatterFields } from "../frontmatter-strip.js";
+import { resolveLocalPrecedence } from "../local-precedence.js";
 import {
 	resolveLocalCategoryRoot,
 	resolveSharedCategoryRoot,
 	stripLocalPathSuffix,
 } from "../local-sources.js";
+import { extractFrontmatter, type FrontmatterValue } from "../slash-commands/frontmatter.js";
 import { buildSupportedAgentNames } from "../supported-targets.js";
 import type { SyncSourceCounts } from "../sync-results.js";
-import { createTargetNameResolver, resolveEffectiveTargets } from "../sync-targets.js";
+import {
+	createTargetNameResolver,
+	hasRawTargetValues,
+	InvalidFrontmatterTargetsError,
+	resolveEffectiveTargets,
+	resolveFrontmatterTargets,
+} from "../sync-targets.js";
 import { BUILTIN_TARGETS } from "../targets/builtins.js";
 import type {
 	ConverterRule,
@@ -50,7 +62,11 @@ import {
 	evaluateTemplateScripts,
 	type TemplateScriptRuntime,
 } from "../template-scripts.js";
-import { loadSubagentCatalog, type SubagentDefinition } from "./catalog.js";
+import {
+	assertSubagentDefinitionUsable,
+	loadSubagentCatalog,
+	type SubagentDefinition,
+} from "./catalog.js";
 import {
 	type ManagedSubagent,
 	readManifest,
@@ -73,6 +89,8 @@ export type SubagentSyncRequest = {
 	validAgents?: string[];
 	excludeLocal?: boolean;
 	includeLocalSkills?: boolean;
+	includeItem?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
+	includeSkill?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
 	templateScriptRuntime?: TemplateScriptRuntime;
 };
 
@@ -89,7 +107,8 @@ export type SubagentSyncRequestV2 = {
 	resolveTargetName?: (value: string) => string | null;
 	hooks?: SyncHooks;
 	templateScriptRuntime?: TemplateScriptRuntime;
-	includeItem?: (canonicalName: string) => boolean;
+	includeItem?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
+	includeSkill?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
 };
 
 export type SubagentSyncPlanAction = {
@@ -149,6 +168,12 @@ export type SubagentSyncSummary = {
 };
 
 type OutputKind = "subagent" | "skill";
+type CanonicalSkillIndex = Map<string, Map<string, string>>;
+type CanonicalSkillCandidate = {
+	relativePath: string;
+	sourcePath: string;
+};
+type ShadowedSubagentSources = Map<string, Set<string>>;
 
 type TargetPlan = {
 	targetName: SubagentTargetName;
@@ -164,9 +189,8 @@ type TargetPlan = {
 	removeMissing: boolean;
 };
 
-const TARGET_FRONTMATTER_KEYS = new Set(["targets", "targetagents"]);
 const SKILL_FRONTMATTER_KEYS_TO_REMOVE = new Set([
-	...TARGET_FRONTMATTER_KEYS,
+	...SYNC_ROUTING_FRONTMATTER_KEYS,
 	"tools",
 	"model",
 	"color",
@@ -184,14 +208,18 @@ function normalizeSkillKey(name: string): string {
 	return path.normalize(name).replace(/\\/g, "/").toLowerCase();
 }
 
-function normalizeSkillRelativePath(relativePath: string): string {
-	if (!relativePath) {
-		return relativePath;
+function includeCanonicalSkill(options: {
+	canonicalName: string;
+	enabledByDefault: boolean;
+	includeSkill?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
+}): boolean {
+	if (!options.includeSkill) {
+		return options.enabledByDefault;
 	}
-	const baseName = path.basename(relativePath);
-	const { baseName: strippedBase } = stripLocalPathSuffix(baseName);
-	const parent = path.dirname(relativePath);
-	return parent === "." ? strippedBase : path.join(parent, strippedBase);
+	return options.includeSkill({
+		canonicalName: options.canonicalName,
+		enabledByDefault: options.enabledByDefault,
+	});
 }
 
 function formatDisplayPath(repoRoot: string, absolutePath: string): string {
@@ -277,81 +305,420 @@ function buildSourceCounts(
 type CanonicalSkillIndexOptions = {
 	includeLocal?: boolean;
 	agentsDir?: string | null;
+	resolveTargetName?: (value: string) => string | null;
+	overrideOnly?: string[] | null;
+	overrideSkip?: string[] | null;
+	allTargets: string[];
+	targetIds?: Iterable<string>;
+	skillKeys?: Iterable<string>;
+	includeSkill?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
 };
+
+function resolveSkillRelativePath(
+	skillsRoot: string,
+	directoryPath: string,
+): { relativePath: string; hadLocalSuffix: boolean } {
+	const relativePath = path.relative(skillsRoot, directoryPath);
+	if (!relativePath) {
+		return { relativePath, hadLocalSuffix: false };
+	}
+	const baseName = path.basename(relativePath);
+	const { baseName: strippedBase, hadLocalSuffix } = stripLocalPathSuffix(baseName);
+	if (!hadLocalSuffix) {
+		return { relativePath, hadLocalSuffix: false };
+	}
+	const parent = path.dirname(relativePath);
+	const normalized = parent === "." ? strippedBase : path.join(parent, strippedBase);
+	return { relativePath: normalized, hadLocalSuffix: true };
+}
+
+function resolveSkillName(frontmatter: Record<string, FrontmatterValue>, fallback: string): string {
+	const rawName = frontmatter.name;
+	if (typeof rawName === "string") {
+		const trimmed = rawName.trim();
+		if (trimmed) {
+			return trimmed;
+		}
+	}
+	return fallback;
+}
+
+function shouldIncludeCanonicalSkillRelativePath(
+	relativePath: string,
+	skillKeyFilter: Set<string> | null,
+): boolean {
+	if (!skillKeyFilter) {
+		return true;
+	}
+	return skillKeyFilter.has(normalizeSkillKey(relativePath));
+}
 
 async function loadCanonicalSkillIndex(
 	repoRoot: string,
-	options: CanonicalSkillIndexOptions = {},
-): Promise<Map<string, string>> {
+	options: CanonicalSkillIndexOptions,
+): Promise<CanonicalSkillIndex> {
 	const includeLocal = options.includeLocal ?? true;
+	const fallbackResolver = createTargetNameResolver(BUILTIN_TARGETS).resolveTargetName;
+	const resolveTargetName = options.resolveTargetName ?? fallbackResolver;
 	const skillsRoot = resolveSharedCategoryRoot(repoRoot, "skills", options.agentsDir);
 	const localSkillsRoot = resolveLocalCategoryRoot(repoRoot, "skills", options.agentsDir);
-	let directories: SkillDirectoryEntry[] = [];
-	try {
-		directories = await listSkillDirectories(skillsRoot);
-	} catch (error) {
-		const code = (error as NodeJS.ErrnoException).code;
-		if (code !== "ENOENT" && code !== "ENOTDIR") {
-			throw error;
-		}
+	const targetFilter = options.targetIds ? new Set(options.targetIds) : null;
+	const skillKeyFilter = options.skillKeys ? new Set(options.skillKeys) : null;
+	const index: CanonicalSkillIndex = new Map();
+	const sharedStats = await readDirectoryStats(skillsRoot);
+	if (sharedStats && !sharedStats.isDirectory()) {
+		throw new Error(`Skills root is not a directory: ${skillsRoot}.`);
 	}
+	const localStats = includeLocal ? await readDirectoryStats(localSkillsRoot) : null;
+	if (localStats && !localStats.isDirectory()) {
+		throw new Error(`Local skills root is not a directory: ${localSkillsRoot}.`);
+	}
+	const sharedEntries = sharedStats ? await listSkillDirectories(skillsRoot) : [];
+	const localEntries = localStats ? await listSkillDirectories(localSkillsRoot) : [];
 
-	const index = new Map<string, string>();
-	const addEntry = (relativePath: string, skillPath: string) => {
-		if (!relativePath) {
-			return;
-		}
-		const normalized = normalizeSkillKey(normalizeSkillRelativePath(relativePath));
-		index.set(normalized, skillPath);
-	};
+	const sharedSkills: CanonicalSkillCandidate[] = [];
+	const localPathSkills: CanonicalSkillCandidate[] = [];
+	const localSuffixSkills: CanonicalSkillCandidate[] = [];
 
-	for (const entry of directories) {
-		const relative = path.relative(skillsRoot, entry.directoryPath);
-		if (!relative) {
+	for (const entry of sharedEntries) {
+		const { relativePath, hadLocalSuffix } = resolveSkillRelativePath(
+			skillsRoot,
+			entry.directoryPath,
+		);
+		if (!shouldIncludeCanonicalSkillRelativePath(relativePath, skillKeyFilter)) {
 			continue;
 		}
-		const isLocalDir = stripLocalPathSuffix(path.basename(entry.directoryPath)).hadLocalSuffix;
-		if (!isLocalDir && entry.sharedSkillFile) {
-			addEntry(relative, path.join(entry.directoryPath, entry.sharedSkillFile));
-		}
-		if (includeLocal) {
-			if (isLocalDir) {
-				const skillFileName = entry.localSkillFile ?? entry.sharedSkillFile;
-				if (skillFileName) {
-					addEntry(relative, path.join(entry.directoryPath, skillFileName));
-				}
-			} else if (entry.localSkillFile) {
-				addEntry(relative, path.join(entry.directoryPath, entry.localSkillFile));
+		if (hadLocalSuffix) {
+			if (!includeLocal) {
+				continue;
 			}
+			const skillFileName = entry.localSkillFile ?? entry.sharedSkillFile;
+			if (!skillFileName) {
+				continue;
+			}
+			localSuffixSkills.push({
+				relativePath,
+				sourcePath: path.join(entry.directoryPath, skillFileName),
+			});
+			continue;
+		}
+		if (entry.sharedSkillFile) {
+			sharedSkills.push({
+				relativePath,
+				sourcePath: path.join(entry.directoryPath, entry.sharedSkillFile),
+			});
+		}
+		if (includeLocal && entry.localSkillFile) {
+			localSuffixSkills.push({
+				relativePath,
+				sourcePath: path.join(entry.directoryPath, entry.localSkillFile),
+			});
 		}
 	}
 
 	if (includeLocal) {
-		let localDirectories: SkillDirectoryEntry[] = [];
-		try {
-			localDirectories = await listSkillDirectories(localSkillsRoot);
-		} catch (error) {
-			const code = (error as NodeJS.ErrnoException).code;
-			if (code === "ENOENT" || code === "ENOTDIR") {
-				return index;
-			}
-			throw error;
-		}
-
-		for (const entry of localDirectories) {
-			const relative = path.relative(localSkillsRoot, entry.directoryPath);
-			if (!relative) {
-				continue;
-			}
+		for (const entry of localEntries) {
 			const skillFileName = entry.sharedSkillFile ?? entry.localSkillFile;
 			if (!skillFileName) {
 				continue;
 			}
-			addEntry(relative, path.join(entry.directoryPath, skillFileName));
+			const { relativePath } = resolveSkillRelativePath(localSkillsRoot, entry.directoryPath);
+			if (!shouldIncludeCanonicalSkillRelativePath(relativePath, skillKeyFilter)) {
+				continue;
+			}
+			localPathSkills.push({
+				relativePath,
+				sourcePath: path.join(entry.directoryPath, skillFileName),
+			});
+		}
+	}
+
+	const { localEffective: localEffectiveSkills, sharedEffective: sharedEffectiveSkills } =
+		resolveLocalPrecedence({
+			shared: sharedSkills,
+			localPath: localPathSkills,
+			localSuffix: localSuffixSkills,
+			key: (skill) => normalizeSkillKey(skill.relativePath),
+		});
+	const effectiveSkills = includeLocal
+		? [...sharedEffectiveSkills, ...localEffectiveSkills]
+		: sharedSkills;
+
+	for (const skill of effectiveSkills) {
+		const rawContents = await readFile(skill.sourcePath, "utf8");
+		const { frontmatter } = extractFrontmatter(rawContents);
+		const fallbackName = skill.relativePath || path.basename(path.dirname(skill.sourcePath));
+		const skillName = resolveSkillName(frontmatter, fallbackName);
+		const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
+		const { targets, invalidTargets } = resolveFrontmatterTargets(rawTargets, resolveTargetName);
+		const hasEmptyTargets = hasRawTargetValues(rawTargets) && (!targets || targets.length === 0);
+		const effectiveTargets = hasEmptyTargets
+			? []
+			: resolveEffectiveTargets({
+					defaultTargets: targets,
+					overrideOnly: options.overrideOnly ?? undefined,
+					overrideSkip: options.overrideSkip ?? undefined,
+					allTargets: options.allTargets,
+				});
+		const matchingTargets = targetFilter
+			? effectiveTargets.filter((targetId) => targetFilter.has(targetId))
+			: effectiveTargets;
+		if (matchingTargets.length === 0) {
+			continue;
+		}
+		const enabledByDefault = resolveFrontmatterEnabledByDefault({
+			frontmatter,
+			itemKind: "Skill",
+			itemName: skillName,
+			sourcePath: skill.sourcePath,
+		});
+		if (
+			!includeCanonicalSkill({
+				canonicalName: skillName,
+				enabledByDefault,
+				includeSkill: options.includeSkill,
+			})
+		) {
+			continue;
+		}
+		if (invalidTargets.length > 0) {
+			const invalidList = invalidTargets.join(", ");
+			throw new InvalidFrontmatterTargetsError(
+				`Skill "${skillName}" has unsupported targets (${invalidList}) in ${skill.sourcePath}.`,
+			);
+		}
+		if (hasEmptyTargets) {
+			throw new InvalidFrontmatterTargetsError(
+				`Skill "${skillName}" has empty targets in ${skill.sourcePath}.`,
+			);
+		}
+		const skillKey = normalizeSkillKey(skill.relativePath);
+		for (const targetId of matchingTargets) {
+			const targetSkills = index.get(targetId) ?? new Map<string, string>();
+			targetSkills.set(skillKey, skill.sourcePath);
+			index.set(targetId, targetSkills);
 		}
 	}
 
 	return index;
+}
+
+function collectRelevantCanonicalSkillKeys(options: {
+	subagents: SubagentDefinition[];
+	activeTargetIds: Set<string>;
+	overrideOnly?: string[] | null;
+	overrideSkip?: string[] | null;
+	allTargets: string[];
+}): Set<string> {
+	const relevant = new Set<string>();
+	for (const subagent of options.subagents) {
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: subagent.targetAgents,
+			overrideOnly: options.overrideOnly ?? undefined,
+			overrideSkip: options.overrideSkip ?? undefined,
+			allTargets: options.allTargets,
+		});
+		if (!effectiveTargets.some((targetId) => options.activeTargetIds.has(targetId))) {
+			continue;
+		}
+		relevant.add(normalizeSkillKey(subagent.resolvedName));
+	}
+	return relevant;
+}
+
+async function collectManagedCanonicalSkillKeys(options: {
+	repoRoot: string;
+	targetIds: string[];
+}): Promise<Set<string>> {
+	const managed = new Set<string>();
+	const homeDir = os.homedir();
+	const targetIds = new Set(options.targetIds);
+	for (const targetId of options.targetIds) {
+		const manifest = await readManifest(resolveManifestPath(options.repoRoot, targetId, homeDir));
+		if (!manifest || manifest.targetName !== targetId) {
+			continue;
+		}
+		for (const entry of manifest.managedSubagents) {
+			managed.add(normalizeSkillKey(entry.name));
+		}
+	}
+	const managedOutputs = await readManagedOutputs(options.repoRoot, homeDir);
+	for (const entry of managedOutputs?.entries ?? []) {
+		if (entry.sourceType !== "subagent" || !targetIds.has(entry.targetId)) {
+			continue;
+		}
+		managed.add(normalizeSkillKey(entry.sourceId));
+	}
+	return managed;
+}
+
+function getCanonicalSkillPath(
+	index: CanonicalSkillIndex,
+	targetId: string,
+	skillKey: string,
+): string | undefined {
+	return index.get(targetId)?.get(skillKey);
+}
+
+function recordShadowedSubagentSource(
+	shadowedSources: ShadowedSubagentSources,
+	targetId: string,
+	sourceId: string,
+): void {
+	const existing = shadowedSources.get(targetId) ?? new Set<string>();
+	existing.add(normalizeName(sourceId));
+	shadowedSources.set(targetId, existing);
+}
+
+function includeSubagentByDefault(
+	subagent: SubagentDefinition,
+	includeItem?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean,
+): boolean {
+	if (!includeItem) {
+		return subagent.enabledByDefault;
+	}
+	return includeItem({
+		canonicalName: subagent.resolvedName,
+		enabledByDefault: subagent.enabledByDefault,
+	});
+}
+
+function filterSubagentCatalog(
+	catalog: Pick<
+		Awaited<ReturnType<typeof loadSubagentCatalog>>,
+		"subagents" | "sharedSubagents" | "localSubagents" | "localEffectiveSubagents"
+	>,
+	includeItem?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean,
+): void {
+	const predicate = (subagent: SubagentDefinition) =>
+		includeSubagentByDefault(subagent, includeItem);
+	catalog.subagents = catalog.subagents.filter(predicate);
+	catalog.sharedSubagents = catalog.sharedSubagents.filter(predicate);
+	catalog.localSubagents = catalog.localSubagents.filter(predicate);
+	catalog.localEffectiveSubagents = catalog.localEffectiveSubagents.filter(predicate);
+}
+
+function assertUsableSubagentsForTargets(options: {
+	subagents: SubagentDefinition[];
+	activeTargetIds: Set<string>;
+	overrideOnly?: string[] | null;
+	overrideSkip?: string[] | null;
+	allTargets: string[];
+}): void {
+	for (const subagent of options.subagents) {
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: subagent.targetAgents,
+			overrideOnly: options.overrideOnly ?? undefined,
+			overrideSkip: options.overrideSkip ?? undefined,
+			allTargets: options.allTargets,
+		});
+		if (!effectiveTargets.some((targetId) => options.activeTargetIds.has(targetId))) {
+			continue;
+		}
+		assertSubagentDefinitionUsable(subagent);
+	}
+}
+
+function targetRequiresCanonicalSkillLookup(target: ResolvedTarget): boolean {
+	const outputDef = normalizeOutputDefinition(target.outputs.subagents);
+	if (!outputDef) {
+		return false;
+	}
+	if (outputDef.fallback?.mode !== "convert" || outputDef.fallback.targetType !== "skills") {
+		return false;
+	}
+	return normalizeOutputDefinition(target.outputs.skills) !== null;
+}
+
+async function resolveCanonicalSkillsForSubagentSync(options: {
+	repoRoot: string;
+	activeTargets: ResolvedTarget[];
+	allTargetIds: string[];
+	subagents: SubagentDefinition[];
+	agentsDir?: string | null;
+	includeLocalSkills?: boolean;
+	resolveTargetName?: (value: string) => string | null;
+	overrideOnly?: string[] | null;
+	overrideSkip?: string[] | null;
+	includeSkill?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
+}): Promise<CanonicalSkillIndex> {
+	const targetIds = options.activeTargets
+		.filter(targetRequiresCanonicalSkillLookup)
+		.map((target) => target.id);
+	if (targetIds.length === 0) {
+		return new Map();
+	}
+
+	const relevantCanonicalSkillKeys = collectRelevantCanonicalSkillKeys({
+		subagents: options.subagents,
+		activeTargetIds: new Set(targetIds),
+		overrideOnly: options.overrideOnly,
+		overrideSkip: options.overrideSkip,
+		allTargets: options.allTargetIds,
+	});
+	for (const skillKey of await collectManagedCanonicalSkillKeys({
+		repoRoot: options.repoRoot,
+		targetIds,
+	})) {
+		relevantCanonicalSkillKeys.add(skillKey);
+	}
+	if (relevantCanonicalSkillKeys.size === 0) {
+		return new Map();
+	}
+
+	return loadCanonicalSkillIndex(options.repoRoot, {
+		includeLocal: options.includeLocalSkills ?? true,
+		agentsDir: options.agentsDir,
+		resolveTargetName: options.resolveTargetName,
+		overrideOnly: options.overrideOnly ?? null,
+		overrideSkip: options.overrideSkip ?? null,
+		allTargets: options.allTargetIds,
+		targetIds,
+		skillKeys: relevantCanonicalSkillKeys,
+		includeSkill: options.includeSkill,
+	});
+}
+
+export async function resolveShadowedSubagentNamesForTargets(options: {
+	repoRoot: string;
+	activeTargets: ResolvedTarget[];
+	allTargetIds: string[];
+	subagents: SubagentDefinition[];
+	agentsDir?: string | null;
+	includeLocalSkills?: boolean;
+	resolveTargetName?: (value: string) => string | null;
+	overrideOnly?: string[] | null;
+	overrideSkip?: string[] | null;
+	includeSkill?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
+}): Promise<Map<string, Set<string>>> {
+	const activeTargetIds = new Set(options.activeTargets.map((target) => target.id));
+	const canonicalSkills = await resolveCanonicalSkillsForSubagentSync(options);
+	const shadowedSources: Map<string, Set<string>> = new Map();
+
+	for (const subagent of options.subagents) {
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: subagent.targetAgents,
+			overrideOnly: options.overrideOnly ?? undefined,
+			overrideSkip: options.overrideSkip ?? undefined,
+			allTargets: options.allTargetIds,
+		});
+		for (const targetId of effectiveTargets) {
+			if (!activeTargetIds.has(targetId)) {
+				continue;
+			}
+			const canonicalSkillPath = getCanonicalSkillPath(
+				canonicalSkills,
+				targetId,
+				normalizeSkillKey(subagent.resolvedName),
+			);
+			if (!canonicalSkillPath) {
+				continue;
+			}
+			recordShadowedSubagentSource(shadowedSources, targetId, subagent.resolvedName);
+		}
+	}
+
+	return shadowedSources;
 }
 
 function areManagedSubagentsEqual(
@@ -456,7 +823,7 @@ async function buildTargetPlan(
 		subagents: SubagentDefinition[];
 		removeMissing: boolean;
 		timestamp: string;
-		canonicalSkills: Map<string, string>;
+		canonicalSkills: CanonicalSkillIndex;
 		validAgents: string[];
 		allTargets: string[];
 	},
@@ -562,9 +929,12 @@ async function buildTargetPlan(
 
 		const nameKey = normalizeName(subagent.resolvedName);
 		catalogNames.add(nameKey);
+		const previousEntry = previousManaged.get(nameKey);
 		const canonicalSkillKey =
 			outputKind === "skill" ? normalizeSkillKey(subagent.resolvedName) : null;
-		const canonicalSkillPath = canonicalSkillKey && params.canonicalSkills.get(canonicalSkillKey);
+		const canonicalSkillPath =
+			canonicalSkillKey &&
+			getCanonicalSkillPath(params.canonicalSkills, targetName, canonicalSkillKey);
 		if (outputKind === "skill" && canonicalSkillPath) {
 			const { destinationPath } = resolveOutputPaths(
 				outputKind,
@@ -585,6 +955,9 @@ async function buildTargetPlan(
 					subagent.resolvedName
 				}" because canonical skill exists at ${canonicalSkillPath}.`,
 			);
+			if (previousEntry) {
+				nextManaged.set(nameKey, previousEntry);
+			}
 			continue;
 		}
 
@@ -604,7 +977,7 @@ async function buildTargetPlan(
 		const output =
 			outputKind === "skill"
 				? stripFrontmatterFields(templatedContents, SKILL_FRONTMATTER_KEYS_TO_REMOVE)
-				: stripFrontmatterFields(templatedContents, TARGET_FRONTMATTER_KEYS);
+				: stripFrontmatterFields(templatedContents, SYNC_ROUTING_FRONTMATTER_KEYS);
 		const outputHash = hashContent(output);
 		const { destinationPath } = resolveOutputPaths(
 			outputKind,
@@ -614,7 +987,6 @@ async function buildTargetPlan(
 		);
 		const existingContent = await readFileIfExists(destinationPath);
 		const existingHash = existingContent ? hashContent(existingContent) : null;
-		const previousEntry = previousManaged.get(nameKey);
 
 		if (!existingContent) {
 			const actionType = outputKind === "skill" ? "convert" : "create";
@@ -702,7 +1074,11 @@ async function buildTargetPlan(
 					: path.join(destinationDir, removalBase);
 			if (outputKind === "skill") {
 				const canonicalSkillKey = normalizeSkillKey(entry.name);
-				const canonicalSkillPath = params.canonicalSkills.get(canonicalSkillKey);
+				const canonicalSkillPath = getCanonicalSkillPath(
+					params.canonicalSkills,
+					targetName,
+					canonicalSkillKey,
+				);
 				if (canonicalSkillPath) {
 					actions.push({
 						targetName,
@@ -717,6 +1093,7 @@ async function buildTargetPlan(
 							entry.name
 						}" because canonical skill exists at ${canonicalSkillPath}.`,
 					);
+					nextManaged.set(normalizeName(entry.name), entry);
 					continue;
 				}
 			}
@@ -769,10 +1146,7 @@ export async function planSubagentSync(
 		agentsDir: request.agentsDir,
 		resolveTargetName,
 	});
-	const canonicalSkills = await loadCanonicalSkillIndex(request.repoRoot, {
-		includeLocal: request.includeLocalSkills ?? true,
-		agentsDir: request.agentsDir,
-	});
+	filterSubagentCatalog(catalog, request.includeItem);
 	const allTargetIds = resolvedTargets.map((target) => target.id);
 	const selectedTargets: ResolvedTarget[] =
 		request.targets && request.targets.length > 0
@@ -789,6 +1163,25 @@ export async function planSubagentSync(
 				})
 			: resolvedTargets;
 	const selectedTargetIds = selectedTargets.map((target) => target.id);
+	assertUsableSubagentsForTargets({
+		subagents: catalog.subagents,
+		activeTargetIds: new Set(selectedTargetIds),
+		overrideOnly: request.overrideOnly,
+		overrideSkip: request.overrideSkip,
+		allTargets: allTargetIds,
+	});
+	const canonicalSkills = await resolveCanonicalSkillsForSubagentSync({
+		repoRoot: request.repoRoot,
+		activeTargets: selectedTargets,
+		allTargetIds,
+		subagents: catalog.subagents,
+		agentsDir: request.agentsDir,
+		includeLocalSkills: request.includeLocalSkills,
+		resolveTargetName,
+		overrideOnly: request.overrideOnly,
+		overrideSkip: request.overrideSkip,
+		includeSkill: request.includeSkill,
+	});
 	const validAgents = request.validAgents ?? buildSupportedAgentNames(resolvedTargets);
 	const removeMissing = request.removeMissing ?? true;
 	const timestamp = new Date().toISOString();
@@ -1026,14 +1419,7 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 		agentsDir: request.agentsDir,
 		resolveTargetName: request.resolveTargetName,
 	});
-	if (request.includeItem) {
-		const includeItem = request.includeItem;
-		const predicate = (subagent: SubagentDefinition) => includeItem(subagent.resolvedName);
-		catalog.subagents = catalog.subagents.filter(predicate);
-		catalog.sharedSubagents = catalog.sharedSubagents.filter(predicate);
-		catalog.localSubagents = catalog.localSubagents.filter(predicate);
-		catalog.localEffectiveSubagents = catalog.localEffectiveSubagents.filter(predicate);
-	}
+	filterSubagentCatalog(catalog, request.includeItem);
 	const targets = request.targets.filter(
 		(target) => normalizeOutputDefinition(target.outputs.subagents) !== null,
 	);
@@ -1055,6 +1441,13 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 
 	const allTargetIds = request.targets.map((target) => target.id);
 	const activeTargetIds = new Set(targets.map((target) => target.id));
+	assertUsableSubagentsForTargets({
+		subagents: catalog.subagents,
+		activeTargetIds,
+		overrideOnly: request.overrideOnly,
+		overrideSkip: request.overrideSkip,
+		allTargets: allTargetIds,
+	});
 	const effectiveTargetsBySubagent = new Map<SubagentDefinition, string[]>();
 	const activeSourcesByTarget = new Map<string, Set<string>>();
 	for (const subagent of catalog.subagents) {
@@ -1091,6 +1484,7 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 	const managedManifest = (await readManagedOutputs(request.repoRoot, homeDir)) ?? { entries: [] };
 	const nextManaged = new Map<string, ManagedOutputRecord>();
 	const activeOutputPaths = new Set<string>();
+	const shadowedSubagentSources: ShadowedSubagentSources = new Map();
 	const countsByTarget = new Map<string, SummaryCounts>();
 	const getCounts = (targetId: string): SummaryCounts => {
 		const existing = countsByTarget.get(targetId) ?? emptySummaryCounts();
@@ -1101,9 +1495,17 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 	const writerRegistry: WriterRegistry = new Map([
 		[defaultSubagentWriter.id, defaultSubagentWriter],
 	]);
-	const canonicalSkills = await loadCanonicalSkillIndex(request.repoRoot, {
-		includeLocal: request.includeLocalSkills ?? true,
+	const canonicalSkills = await resolveCanonicalSkillsForSubagentSync({
+		repoRoot: request.repoRoot,
+		activeTargets: targets,
+		allTargetIds,
+		subagents: catalog.subagents,
 		agentsDir: request.agentsDir,
+		includeLocalSkills: request.includeLocalSkills,
+		resolveTargetName: request.resolveTargetName,
+		overrideOnly: request.overrideOnly,
+		overrideSkip: request.overrideSkip,
+		includeSkill: request.includeSkill,
 	});
 	const validAgents = request.validAgents ?? buildSupportedAgentNames(request.targets);
 
@@ -1173,8 +1575,13 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 
 			if (outputKind === "skill") {
 				const canonicalSkillKey = normalizeSkillKey(subagent.resolvedName);
-				const canonicalSkillPath = canonicalSkills.get(canonicalSkillKey);
+				const canonicalSkillPath = getCanonicalSkillPath(
+					canonicalSkills,
+					target.id,
+					canonicalSkillKey,
+				);
 				if (canonicalSkillPath) {
+					recordShadowedSubagentSource(shadowedSubagentSources, target.id, subagent.resolvedName);
 					warnings.push(
 						`Skipped ${target.displayName} skill "${subagent.resolvedName}" because canonical skill exists at ${canonicalSkillPath}.`,
 					);
@@ -1389,6 +1796,38 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 			}
 			const key = buildManagedOutputKey(entry);
 			if (nextManaged.has(key)) {
+				continue;
+			}
+			const canonicalSkillPath = getCanonicalSkillPath(
+				canonicalSkills,
+				entry.targetId,
+				normalizeSkillKey(entry.sourceId),
+			);
+			const skillDef = skillDefs.get(entry.targetId);
+			if (canonicalSkillPath && skillDef) {
+				const expectedSkillOutputPath = resolveOutputPath({
+					template: skillDef.path,
+					context: {
+						repoRoot: request.repoRoot,
+						agentsDir: agentsDirPath,
+						homeDir,
+						targetId: entry.targetId,
+						itemName: entry.sourceId,
+					},
+					item: { name: entry.sourceId },
+					baseDir: request.repoRoot,
+				});
+				if (
+					normalizeManagedOutputPath(expectedSkillOutputPath) ===
+					normalizeManagedOutputPath(entry.outputPath)
+				) {
+					updatedEntries.push(entry);
+					continue;
+				}
+			}
+			const shadowedSources = shadowedSubagentSources.get(entry.targetId);
+			if (shadowedSources?.has(normalizeName(entry.sourceId))) {
+				updatedEntries.push(entry);
 				continue;
 			}
 			const activeSources = activeSourcesByTarget.get(entry.targetId);

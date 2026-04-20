@@ -337,6 +337,23 @@ describe.sequential("sync command", () => {
 		});
 	});
 
+	it("errors on invalid skill enabled values in frontmatter", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await createCanonicalCommands(root);
+			const contents = ["---", "enabled: maybe", "---", "Hello"].join("\n");
+			await writeCanonicalSkillFile(root, "bad-enabled", contents);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("invalid enabled value"));
+			expect(exitSpy).toHaveBeenCalledWith(1);
+			expect(await pathExists(path.join(root, ".claude", "skills"))).toBe(false);
+		});
+	});
+
 	it("errors on invalid command targets in frontmatter", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
@@ -518,6 +535,24 @@ describe.sequential("sync command", () => {
 				excludedLocal: false,
 			});
 			expect(parsed.hadFailures).toBe(false);
+		});
+	});
+
+	it("ignores instruction templates for unselected targets during templating validation", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeRepoInstruction(
+				root,
+				path.join("agents", "other", "other.AGENTS.md"),
+				["---", "targets:", "  - codex", "---", "<agents nope>bad</agents>"].join("\n"),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			expect(errorSpy).not.toHaveBeenCalled();
+			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});
 

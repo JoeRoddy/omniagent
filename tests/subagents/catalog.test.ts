@@ -91,4 +91,12 @@ describe("subagent catalog", () => {
 			await expect(loadSubagentCatalog(root)).rejects.toThrow(/Subagent file is empty/);
 		});
 	});
+
+	it("rejects default-enabled subagents with empty bodies", async () => {
+		await withTempRepo(async (root) => {
+			await writeSubagentFile(root, "draft.md", ["---", "name: draft", "---", ""].join("\n"));
+
+			await expect(loadSubagentCatalog(root)).rejects.toThrow(/empty body/);
+		});
+	});
 });

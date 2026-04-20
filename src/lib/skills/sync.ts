@@ -39,7 +39,7 @@ import {
 	writeFileOutput,
 } from "../targets/writers.js";
 import { createTemplateScriptRuntime, type TemplateScriptRuntime } from "../template-scripts.js";
-import { loadSkillCatalog, type SkillDefinition } from "./catalog.js";
+import { assertSkillDefinitionUsable, loadSkillCatalog, type SkillDefinition } from "./catalog.js";
 
 export type SkillSyncRequest = {
 	repoRoot: string;
@@ -53,13 +53,19 @@ export type SkillSyncRequest = {
 	resolveTargetName?: (value: string) => string | null;
 	hooks?: SyncHooks;
 	templateScriptRuntime?: TemplateScriptRuntime;
-	includeItem?: (canonicalName: string) => boolean;
+	includeItem?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
 };
 
 function formatDisplayPath(repoRoot: string, absolutePath: string): string {
 	const relative = path.relative(repoRoot, absolutePath);
 	const isWithinRepo = relative && !relative.startsWith("..") && !path.isAbsolute(relative);
 	return isWithinRepo ? relative : absolutePath;
+}
+
+function buildManagedOutputPathKey(
+	entry: Pick<ManagedOutputRecord, "targetId" | "outputPath">,
+): string {
+	return `${entry.targetId}:${normalizeManagedOutputPath(entry.outputPath)}`;
 }
 
 function buildInvalidTargetWarnings(skills: SkillDefinition[]): string[] {
@@ -74,6 +80,27 @@ function buildInvalidTargetWarnings(skills: SkillDefinition[]): string[] {
 		);
 	}
 	return warnings;
+}
+
+function assertUsableSkillsForTargets(options: {
+	skills: SkillDefinition[];
+	activeTargetIds: Set<string>;
+	overrideOnly?: TargetName[] | null;
+	overrideSkip?: TargetName[] | null;
+	allTargets: string[];
+}): void {
+	for (const skill of options.skills) {
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: skill.targetAgents,
+			overrideOnly: options.overrideOnly ?? undefined,
+			overrideSkip: options.overrideSkip ?? undefined,
+			allTargets: options.allTargets,
+		});
+		if (!effectiveTargets.some((targetId) => options.activeTargetIds.has(targetId))) {
+			continue;
+		}
+		assertSkillDefinitionUsable(skill);
+	}
 }
 
 type SkillOutputCandidate = {
@@ -105,17 +132,28 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 		agentsDir: request.agentsDir,
 		resolveTargetName: request.resolveTargetName,
 	});
-	if (request.includeItem) {
-		const includeItem = request.includeItem;
-		const predicate = (skill: SkillDefinition) => includeItem(skill.name);
-		catalog.skills = catalog.skills.filter(predicate);
-		catalog.sharedSkills = catalog.sharedSkills.filter(predicate);
-		catalog.localSkills = catalog.localSkills.filter(predicate);
-		catalog.localEffectiveSkills = catalog.localEffectiveSkills.filter(predicate);
-	}
-	const warnings = buildInvalidTargetWarnings(catalog.skills);
+	const includeItem = request.includeItem;
+	const predicate = (skill: SkillDefinition) =>
+		includeItem
+			? includeItem({
+					canonicalName: skill.name,
+					enabledByDefault: skill.enabledByDefault,
+				})
+			: skill.enabledByDefault;
+	catalog.skills = catalog.skills.filter(predicate);
+	catalog.sharedSkills = catalog.sharedSkills.filter(predicate);
+	catalog.localSkills = catalog.localSkills.filter(predicate);
+	catalog.localEffectiveSkills = catalog.localEffectiveSkills.filter(predicate);
 	const allTargetIds = request.targets.map((target) => target.id);
 	const targetNames = new Set(skillTargets.map((target) => target.id));
+	assertUsableSkillsForTargets({
+		skills: catalog.skills,
+		activeTargetIds: targetNames,
+		overrideOnly: request.overrideOnly,
+		overrideSkip: request.overrideSkip,
+		allTargets: allTargetIds,
+	});
+	const warnings = buildInvalidTargetWarnings(catalog.skills);
 	const effectiveTargetsBySkill = new Map<SkillDefinition, TargetName[]>();
 	const activeSourcesByTarget = new Map<string, Set<string>>();
 	for (const skill of catalog.skills) {
@@ -387,7 +425,18 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 	if (managedManifest.entries.length > 0 || nextManaged.size > 0) {
 		const updatedEntries: ManagedOutputRecord[] = [];
 		const managedTargetIds = new Set(skillTargets.map((target) => target.id));
+		const claimedSkillOutputPaths = new Set(
+			Array.from(nextManaged.values())
+				.filter((entry) => entry.sourceType === "skill")
+				.map((entry) => buildManagedOutputPathKey(entry)),
+		);
 		for (const entry of managedManifest.entries) {
+			if (
+				entry.sourceType === "subagent" &&
+				claimedSkillOutputPaths.has(buildManagedOutputPathKey(entry))
+			) {
+				continue;
+			}
 			if (entry.sourceType !== "skill" || !managedTargetIds.has(entry.targetId)) {
 				updatedEntries.push(entry);
 				continue;

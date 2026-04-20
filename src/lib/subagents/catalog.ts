@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { normalizeName, readDirectoryStats } from "../catalog-utils.js";
+import { resolveFrontmatterEnabledByDefault } from "../frontmatter-enabled.js";
 import { resolveLocalPrecedence } from "../local-precedence.js";
 import {
 	buildSourceMetadata,
@@ -23,6 +24,7 @@ export type FrontmatterValue = string | string[];
 
 export type SubagentDefinition = {
 	resolvedName: string;
+	enabledByDefault: boolean;
 	sourcePath: string;
 	fileName: string;
 	sourceType: SourceType;
@@ -33,6 +35,7 @@ export type SubagentDefinition = {
 	body: string;
 	targetAgents: SubagentTargetName[] | null;
 	invalidTargets: string[];
+	routingError?: string | null;
 };
 
 export type SubagentCatalog = {
@@ -195,10 +198,6 @@ async function buildSubagentDefinition(options: {
 		throw new Error(`Invalid frontmatter in ${options.filePath}: ${message}`);
 	}
 
-	if (!body.trim()) {
-		throw new Error(`Subagent file has empty body: ${options.filePath}.`);
-	}
-
 	let resolvedName: string;
 	try {
 		resolvedName = resolveSubagentName(frontmatter, options.fileName);
@@ -206,22 +205,30 @@ async function buildSubagentDefinition(options: {
 		const message = error instanceof Error ? error.message : String(error);
 		throw new Error(`Invalid frontmatter in ${options.filePath}: ${message}`);
 	}
+	const enabledByDefault = resolveFrontmatterEnabledByDefault({
+		frontmatter,
+		itemKind: "Subagent",
+		itemName: resolvedName,
+		sourcePath: options.filePath,
+	});
+	if (enabledByDefault && !body.trim()) {
+		throw new Error(`Subagent file has empty body: ${options.filePath}.`);
+	}
 
 	const rawTargets = [frontmatter.targets, frontmatter.targetAgents];
 	const { targets, invalidTargets } = resolveFrontmatterTargets(
 		rawTargets,
 		options.resolveTargetName,
 	);
+	let routingError: string | null = null;
 	if (invalidTargets.length > 0) {
 		const invalidList = invalidTargets.join(", ");
-		throw new InvalidFrontmatterTargetsError(
-			`Subagent "${resolvedName}" has unsupported targets (${invalidList}) in ${options.filePath}.`,
-		);
+		routingError = `Subagent "${resolvedName}" has unsupported targets (${invalidList}) in ${options.filePath}.`;
+	} else if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
+		routingError = `Subagent "${resolvedName}" has empty targets in ${options.filePath}.`;
 	}
-	if (hasRawTargetValues(rawTargets) && (!targets || targets.length === 0)) {
-		throw new InvalidFrontmatterTargetsError(
-			`Subagent "${resolvedName}" has empty targets in ${options.filePath}.`,
-		);
+	if (enabledByDefault && routingError) {
+		throw new InvalidFrontmatterTargetsError(routingError);
 	}
 
 	let metadata: ReturnType<typeof buildSourceMetadata>;
@@ -237,6 +244,7 @@ async function buildSubagentDefinition(options: {
 
 	return {
 		resolvedName,
+		enabledByDefault,
 		sourcePath: options.filePath,
 		fileName: options.fileName,
 		sourceType: metadata.sourceType,
@@ -247,7 +255,19 @@ async function buildSubagentDefinition(options: {
 		body,
 		targetAgents: targets,
 		invalidTargets,
+		routingError,
 	};
+}
+
+export function assertSubagentDefinitionUsable(
+	subagent: Pick<SubagentDefinition, "sourcePath" | "body" | "routingError">,
+): void {
+	if (!subagent.body.trim()) {
+		throw new Error(`Subagent file has empty body: ${subagent.sourcePath}.`);
+	}
+	if (subagent.routingError) {
+		throw new InvalidFrontmatterTargetsError(subagent.routingError);
+	}
 }
 
 function registerUniqueName(

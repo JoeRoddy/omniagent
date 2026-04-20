@@ -1,6 +1,7 @@
 export {
 	createProfileItemFilter,
 	type ProfileItemFilter,
+	type ProfileItemSelection,
 	targetEnabledByProfile,
 } from "./filter.js";
 export { DEFAULT_PROFILE_NAME, listProfiles, type ProfileListEntry } from "./list.js";

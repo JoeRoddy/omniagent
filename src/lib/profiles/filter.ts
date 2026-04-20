@@ -15,6 +15,11 @@ type CompiledPattern = {
 	matched: boolean;
 };
 
+export type ProfileItemSelection = {
+	canonicalName: string;
+	enabledByDefault: boolean;
+};
+
 function compilePatterns(list: string[] | undefined): CompiledPattern[] {
 	if (!list || list.length === 0) {
 		return [];
@@ -43,9 +48,21 @@ function matchAny(name: string, patterns: CompiledPattern[]): boolean {
 
 export type ProfileItemFilter = {
 	enabled: boolean;
-	includes(category: ProfileCategory, canonicalName: string): boolean;
+	includes(category: ProfileCategory, item: string | ProfileItemSelection): boolean;
 	collectUnknownWarnings(): string[];
 };
+
+function normalizeItemSelection(
+	item: string | ProfileItemSelection | null | undefined,
+): ProfileItemSelection {
+	if (!item) {
+		return { canonicalName: "", enabledByDefault: true };
+	}
+	if (typeof item === "string") {
+		return { canonicalName: item, enabledByDefault: true };
+	}
+	return item;
+}
 
 /**
  * Build a predicate that applies a ResolvedProfile's enable/disable rules to
@@ -56,7 +73,7 @@ export function createProfileItemFilter(resolved: ResolvedProfile | null): Profi
 	if (!resolved || resolved.names.length === 0) {
 		return {
 			enabled: false,
-			includes: () => true,
+			includes: (_category, item) => normalizeItemSelection(item).enabledByDefault,
 			collectUnknownWarnings: () => [],
 		};
 	}
@@ -71,21 +88,20 @@ export function createProfileItemFilter(resolved: ResolvedProfile | null): Profi
 
 	return {
 		enabled: true,
-		includes(category, canonicalName) {
+		includes(category, item) {
+			const { canonicalName, enabledByDefault } = normalizeItemSelection(item);
 			const enablePatterns = enablePatternsByCategory.get(category) ?? [];
 			const disablePatterns = disablePatternsByCategory.get(category) ?? [];
 			const enableApplies = enablePatterns.length > 0;
-			if (enableApplies && !matchAny(canonicalName, enablePatterns)) {
+			const enableMatches = matchAny(canonicalName, enablePatterns);
+			const disableMatches = matchAny(canonicalName, disablePatterns);
+			if (disableMatches) {
 				return false;
 			}
-			if (matchAny(canonicalName, disablePatterns)) {
-				return false;
+			if (enableApplies) {
+				return enableMatches;
 			}
-			// Also record matches against empty filters so zero-match bare names can warn.
-			if (!enableApplies) {
-				// still call matchAny so patterns (if any) track state; harmless when empty.
-			}
-			return true;
+			return enabledByDefault;
 		},
 		collectUnknownWarnings() {
 			const warnings: string[] = [];
