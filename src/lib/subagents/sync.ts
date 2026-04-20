@@ -683,6 +683,48 @@ async function resolveCanonicalSkillsForSubagentSync(options: {
 	});
 }
 
+export async function resolveShadowedSubagentNamesForTargets(options: {
+	repoRoot: string;
+	activeTargets: ResolvedTarget[];
+	allTargetIds: string[];
+	subagents: SubagentDefinition[];
+	agentsDir?: string | null;
+	includeLocalSkills?: boolean;
+	resolveTargetName?: (value: string) => string | null;
+	overrideOnly?: string[] | null;
+	overrideSkip?: string[] | null;
+	includeSkill?: (item: { canonicalName: string; enabledByDefault: boolean }) => boolean;
+}): Promise<Map<string, Set<string>>> {
+	const activeTargetIds = new Set(options.activeTargets.map((target) => target.id));
+	const canonicalSkills = await resolveCanonicalSkillsForSubagentSync(options);
+	const shadowedSources: Map<string, Set<string>> = new Map();
+
+	for (const subagent of options.subagents) {
+		const effectiveTargets = resolveEffectiveTargets({
+			defaultTargets: subagent.targetAgents,
+			overrideOnly: options.overrideOnly ?? undefined,
+			overrideSkip: options.overrideSkip ?? undefined,
+			allTargets: options.allTargetIds,
+		});
+		for (const targetId of effectiveTargets) {
+			if (!activeTargetIds.has(targetId)) {
+				continue;
+			}
+			const canonicalSkillPath = getCanonicalSkillPath(
+				canonicalSkills,
+				targetId,
+				normalizeSkillKey(subagent.resolvedName),
+			);
+			if (!canonicalSkillPath) {
+				continue;
+			}
+			recordShadowedSubagentSource(shadowedSources, targetId, subagent.resolvedName);
+		}
+	}
+
+	return shadowedSources;
+}
+
 function areManagedSubagentsEqual(
 	left: Map<string, ManagedSubagent>,
 	right: Map<string, ManagedSubagent>,

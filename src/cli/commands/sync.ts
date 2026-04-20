@@ -60,6 +60,7 @@ import {
 } from "../../lib/subagents/catalog.js";
 import {
 	formatSubagentSummary,
+	resolveShadowedSubagentNamesForTargets,
 	type SubagentSyncRequestV2,
 	type SubagentSyncSummary,
 	syncSubagents as syncSubagentsV2,
@@ -482,6 +483,24 @@ function intersectsTargets(targets: string[], selectedTargetIds: Set<string>): b
 	return targets.some((target) => selectedTargetIds.has(target));
 }
 
+function areSelectedTargetsFullyShadowed(options: {
+	selectedTargetIds: Set<string>;
+	effectiveTargets: string[];
+	shadowedSubagentsByTarget: Map<string, Set<string>>;
+	subagentName: string;
+}): boolean {
+	const relevantTargets = options.effectiveTargets.filter((targetId) =>
+		options.selectedTargetIds.has(targetId),
+	);
+	if (relevantTargets.length === 0) {
+		return false;
+	}
+	const normalizedName = options.subagentName.trim().toLowerCase();
+	return relevantTargets.every((targetId) =>
+		options.shadowedSubagentsByTarget.get(targetId)?.has(normalizedName),
+	);
+}
+
 async function listAllFiles(root: string): Promise<string[]> {
 	const entries = await readdir(root, { withFileTypes: true });
 	const files: string[] = [];
@@ -549,6 +568,18 @@ async function gatherTemplateScriptSources(
 			agentsDir: options.agentsDir,
 			resolveTargetName: options.resolveTargetName,
 		});
+		const shadowedSubagentsByTarget = await resolveShadowedSubagentNamesForTargets({
+			repoRoot: options.repoRoot,
+			activeTargets: options.selectedSubagentTargets,
+			allTargetIds: options.allTargetIds,
+			subagents: subagentCatalog.subagents,
+			agentsDir: options.agentsDir,
+			includeLocalSkills: !options.excludeLocalSkills,
+			resolveTargetName: options.resolveTargetName,
+			overrideOnly: options.overrideOnly,
+			overrideSkip: options.overrideSkip,
+			includeSkill: options.includeSkill,
+		});
 		for (const subagent of subagentCatalog.subagents) {
 			if (
 				options.includeSubagent &&
@@ -566,6 +597,16 @@ async function gatherTemplateScriptSources(
 				allTargets: options.allTargetIds,
 			});
 			if (!intersectsTargets(effectiveTargets, selectedSubagentTargetIds)) {
+				continue;
+			}
+			if (
+				areSelectedTargetsFullyShadowed({
+					selectedTargetIds: selectedSubagentTargetIds,
+					effectiveTargets,
+					shadowedSubagentsByTarget,
+					subagentName: subagent.resolvedName,
+				})
+			) {
 				continue;
 			}
 			assertSubagentDefinitionUsable(subagent);
@@ -893,6 +934,16 @@ async function validateTemplatingSources(options: {
 			agentsDir: options.agentsDir,
 			resolveTargetName: options.resolveTargetName,
 		});
+		const shadowedSubagentsByTarget = await resolveShadowedSubagentNamesForTargets({
+			repoRoot: options.repoRoot,
+			activeTargets: options.selectedSubagentTargets,
+			allTargetIds: options.selectedSubagentTargets.map((target) => target.id),
+			subagents: subagentCatalog.subagents,
+			agentsDir: options.agentsDir,
+			includeLocalSkills: options.includeLocalSkills,
+			resolveTargetName: options.resolveTargetName,
+			includeSkill: options.includeSkill,
+		});
 		for (const subagent of subagentCatalog.subagents) {
 			if (
 				options.includeSubagent &&
@@ -908,6 +959,16 @@ async function validateTemplatingSources(options: {
 				allTargets: options.selectedSubagentTargets.map((target) => target.id),
 			});
 			if (!intersectsTargets(effectiveTargets, selectedSubagentTargetIds)) {
+				continue;
+			}
+			if (
+				areSelectedTargetsFullyShadowed({
+					selectedTargetIds: selectedSubagentTargetIds,
+					effectiveTargets,
+					shadowedSubagentsByTarget,
+					subagentName: subagent.resolvedName,
+				})
+			) {
 				continue;
 			}
 			assertSubagentDefinitionUsable(subagent);

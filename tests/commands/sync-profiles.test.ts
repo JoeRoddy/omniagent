@@ -444,6 +444,62 @@ describe.sequential("sync command with profiles", () => {
 		});
 	});
 
+	it("skips shadowed subagents during templating validation when a profile activates a canonical skill", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(
+				root,
+				"planner",
+				["---", "enabled: false", "---", "canonical planner"].join("\n"),
+			);
+			await writeSubagent(root, "planner", "<agents nope>bad</agents>");
+			await writeProfile(root, "profiles/focus.json", {
+				enable: { skills: ["planner"] },
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "codex", "--profile", "focus"]);
+			});
+
+			expect(exitSpy).not.toHaveBeenCalled();
+			expect(errorSpy.mock.calls.map(([msg]) => String(msg)).join("\n")).not.toContain(
+				"Unknown agent selector",
+			);
+			expect(
+				await readFile(path.join(root, ".codex", "skills", "planner", "SKILL.md"), "utf8"),
+			).toContain("canonical planner");
+		});
+	});
+
+	it("skips shadowed subagents during template script evaluation when a profile activates a canonical skill", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeSkill(
+				root,
+				"planner",
+				["---", "enabled: false", "---", "canonical planner"].join("\n"),
+			);
+			await writeSubagent(
+				root,
+				"planner",
+				["<nodejs>", "throw new Error('boom');", "</nodejs>"].join("\n"),
+			);
+			await writeProfile(root, "profiles/focus.json", {
+				enable: { skills: ["planner"] },
+			});
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "codex", "--profile", "focus"]);
+			});
+
+			expect(exitSpy).not.toHaveBeenCalled();
+			expect(errorSpy.mock.calls.map(([msg]) => String(msg)).join("\n")).not.toContain("boom");
+			expect(
+				await readFile(path.join(root, ".codex", "skills", "planner", "SKILL.md"), "utf8"),
+			).toContain("canonical planner");
+		});
+	});
+
 	it("retires stale subagent ownership when a profile activates a canonical skill", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
