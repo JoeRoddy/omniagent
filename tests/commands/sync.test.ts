@@ -538,6 +538,24 @@ describe.sequential("sync command", () => {
 		});
 	});
 
+	it("ignores instruction templates for unselected targets during templating validation", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeRepoInstruction(
+				root,
+				path.join("agents", "other", "other.AGENTS.md"),
+				["---", "targets:", "  - codex", "---", "<agents nope>bad</agents>"].join("\n"),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+			});
+
+			expect(errorSpy).not.toHaveBeenCalled();
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
 	it("renders nodejs blocks in synced command outputs", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);

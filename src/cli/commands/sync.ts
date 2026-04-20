@@ -977,28 +977,24 @@ async function validateTemplatingSources(options: {
 	}
 
 	if (options.instructionsAvailable) {
-		const entries = await scanInstructionTemplateSources({
+		const catalog = await loadInstructionTemplateCatalog({
 			repoRoot: options.repoRoot,
 			includeLocal: options.includeLocalInstructions,
 			agentsDir: options.agentsDir,
+			resolveTargetName: options.resolveTargetName,
 		});
-		for (const entry of entries) {
+		for (const template of catalog.templates) {
 			const effectiveTargets = resolveEffectiveTargets({
-				defaultTargets: entry.targets,
+				defaultTargets: template.targets,
 				allTargets: options.selectedInstructionTargets.map((target) => target.id),
 			});
 			if (!intersectsTargets(effectiveTargets, selectedInstructionTargetIds)) {
 				continue;
 			}
-			const buffer = await readFile(entry.sourcePath);
-			const contents = decodeUtf8(buffer);
-			if (contents === null) {
-				continue;
-			}
 			validateAgentTemplating({
-				content: contents,
+				content: template.rawContents,
 				validAgents: options.validAgents,
-				sourcePath: entry.sourcePath,
+				sourcePath: template.sourcePath,
 			});
 		}
 	}
