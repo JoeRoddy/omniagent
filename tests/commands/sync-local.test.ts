@@ -976,6 +976,24 @@ describe.sequential("sync command local config", () => {
 		});
 	});
 
+	it("does not prompt for ignore rules or modify .gitignore when --yes is passed", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeLocalPathSkill(root, "alpha", "local skill");
+			await writeFile(path.join(root, ".gitignore"), "node_modules/\n", "utf8");
+
+			await withCwd(root, async () => {
+				await withTty(true, async () => {
+					await runCli(["node", "omniagent", "sync", "--only", "claude", "--yes"]);
+				});
+			});
+
+			expect(promptState.prompts).toHaveLength(0);
+			const ignoreContents = await readFile(path.join(root, ".gitignore"), "utf8");
+			expect(ignoreContents).toBe("node_modules/\n");
+		});
+	});
+
 	it("reports missing ignore rules in non-interactive runs", async () => {
 		await withTempRepo(async (root) => {
 			await createRepoRoot(root);
