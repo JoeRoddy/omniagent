@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import type { CommandModule } from "yargs";
 import { DEFAULT_AGENTS_DIR, resolveAgentsDir, validateAgentsDir } from "../../lib/agents-dir.js";
 import {
@@ -6,6 +8,10 @@ import {
 	inspectProfileFiles,
 	listProfileDirectory,
 	listProfiles,
+	type Profile,
+	profileLocalDedicatedPath,
+	profileLocalSiblingPath,
+	profileSharedPath,
 	type ResolvedProfile,
 	resolveProfiles,
 } from "../../lib/profiles/index.js";
@@ -48,11 +54,43 @@ type ListArgs = BaseArgs & {
 	json?: boolean;
 };
 
+type InitArgs = BaseArgs & {
+	name: string;
+};
+
 type ProfileValidationCatalog = {
 	resolveTargetName: (value: string) => string | null;
 	skills: SkillDefinition[];
 	commands: SlashCommandDefinition[];
 	subagents: SubagentDefinition[];
+};
+
+const PROFILE_SCHEMA_URL =
+	"https://raw.githubusercontent.com/JoeRoddy/omniagent/master/schemas/profile.v1.json";
+const ANSI_GRAY = "\u001B[90m";
+const ANSI_RESET_FOREGROUND = "\u001B[39m";
+const PROFILE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+const STARTER_PROFILE: Profile = {
+	$schema: PROFILE_SCHEMA_URL,
+	description: "",
+	targets: {},
+	enable: {
+		skills: [],
+		subagents: [],
+		commands: [],
+	},
+	disable: {
+		skills: [],
+		subagents: [],
+		commands: [],
+	},
+	variables: {},
+};
+
+type InitProfileTarget = {
+	profileName: string;
+	isLocal: boolean;
 };
 
 async function resolveRepoAndAgentsDir(
@@ -96,6 +134,135 @@ function formatAnnotations(entry: {
 		annotations.push("[local override]");
 	}
 	return annotations;
+}
+
+function validateProfileNamePart(name: string): string | null {
+	if (!PROFILE_NAME_PATTERN.test(name)) {
+		return "Profile names may only contain letters, numbers, dots, underscores, and hyphens, and must start with a letter or number.";
+	}
+	return null;
+}
+
+function parseInitProfileTarget(name: string): InitProfileTarget | { error: string } {
+	if (name.endsWith(".local")) {
+		const profileName = name.slice(0, -".local".length);
+		const issue = validateProfileNamePart(profileName);
+		if (issue) {
+			return { error: issue };
+		}
+		if (profileName.endsWith(".local")) {
+			return { error: 'Profile names cannot end with ".local.local".' };
+		}
+		return {
+			profileName,
+			isLocal: true,
+		};
+	}
+
+	const issue = validateProfileNamePart(name);
+	if (issue) {
+		return { error: issue };
+	}
+	return {
+		profileName: name,
+		isLocal: false,
+	};
+}
+
+function colorsEnabled(): boolean {
+	if (process.env.NO_COLOR !== undefined) {
+		return false;
+	}
+	const forced = process.env.FORCE_COLOR;
+	if (forced !== undefined) {
+		return forced !== "0" && forced.toLowerCase() !== "false";
+	}
+	return Boolean(process.stdout.isTTY);
+}
+
+function findLineCommentStart(line: string): number | null {
+	let inString = false;
+	let escaped = false;
+	for (let index = 0; index < line.length; index += 1) {
+		const char = line[index];
+		if (escaped) {
+			escaped = false;
+			continue;
+		}
+		if (char === "\\" && inString) {
+			escaped = true;
+			continue;
+		}
+		if (char === '"') {
+			inString = !inString;
+			continue;
+		}
+		if (!inString && char === "/" && line[index + 1] === "/") {
+			return index;
+		}
+	}
+	return null;
+}
+
+function colorizeGuideComments(text: string): string {
+	if (!colorsEnabled()) {
+		return text;
+	}
+	return text
+		.split("\n")
+		.map((line) => {
+			const commentStart = findLineCommentStart(line);
+			if (commentStart === null) {
+				return line;
+			}
+			return `${line.slice(0, commentStart)}${ANSI_GRAY}${line.slice(commentStart)}${ANSI_RESET_FOREGROUND}`;
+		})
+		.join("\n");
+}
+
+function initGuide(target: InitProfileTarget, displayPath: string): string {
+	const label = target.isLocal
+		? `Created local profile "${target.profileName}" at ${displayPath}.`
+		: `Created profile "${target.profileName}" at ${displayPath}.`;
+	const localHint = target.isLocal
+		? `\nUse profile name "${target.profileName}" when syncing; ".local" is only the file suffix.\n`
+		: "";
+
+	return colorizeGuideComments(`${label}${localHint}
+
+Profile files must be valid JSON. This commented version is just a guide:
+
+{
+  "$schema": "${PROFILE_SCHEMA_URL}",
+
+  "description": "shown in \`omniagent profiles\`",
+
+  "targets": {
+    "claude": { "enabled": true }, // includes Claude; overrides an earlier profile setting it false
+    "gemini": { "enabled": false } // skips Gemini for this profile
+  },
+
+  "enable": { // names/globs to include; also opts in items marked enabled:false
+    "skills": ["code-review"],
+    "subagents": ["reviewer"],
+    "commands": []
+  },
+
+  "disable": { // names/globs to exclude after enable rules
+    "skills": [],
+    "subagents": [],
+    "commands": ["*-legacy"]
+  },
+
+  // https://github.com/JoeRoddy/omniagent/blob/master/docs/templating.md
+  "variables": {
+    "REVIEW_STYLE": "thorough" // replaces {{REVIEW_STYLE}} in synced files
+  }
+}
+
+Try it:
+  omniagent profiles show ${target.profileName}
+  omniagent sync --profile ${target.profileName}`);
 }
 
 async function loadProfileValidationCatalog(
@@ -192,6 +359,81 @@ function collectProfileReferenceIssues(
 	}
 	return issues;
 }
+
+const initSubcommand: CommandModule = {
+	command: "init <name>",
+	describe: "Create a new sync profile",
+	builder: (yargs) =>
+		yargs
+			.positional("name", {
+				type: "string",
+				demandOption: true,
+				describe: "Profile name",
+			})
+			.option("agentsDir", {
+				type: "string",
+				describe: "Override the agents directory",
+				defaultDescription: DEFAULT_AGENTS_DIR,
+			}),
+	handler: async (argv) => {
+		const typed = argv as unknown as InitArgs;
+		const initTarget = parseInitProfileTarget(typed.name);
+		if ("error" in initTarget) {
+			console.error(`Error: ${initTarget.error}`);
+			process.exit(1);
+			return;
+		}
+		const resolved = await resolveRepoAndAgentsDir(typed);
+		if (!resolved) return;
+
+		if (initTarget.isLocal) {
+			const existingDedicatedPath = profileLocalDedicatedPath(
+				resolved.repoRoot,
+				initTarget.profileName,
+				resolved.agentsDir,
+			);
+			const inspected = await inspectProfileFiles(
+				resolved.repoRoot,
+				initTarget.profileName,
+				resolved.agentsDir,
+			);
+			if (inspected.localDedicated.exists) {
+				const displayPath = path
+					.relative(resolved.repoRoot, existingDedicatedPath)
+					.split(path.sep)
+					.join("/");
+				console.error(
+					`Error: Local profile "${initTarget.profileName}" already exists at ${displayPath}.`,
+				);
+				process.exit(1);
+				return;
+			}
+		}
+
+		const targetPath = initTarget.isLocal
+			? profileLocalSiblingPath(resolved.repoRoot, initTarget.profileName, resolved.agentsDir)
+			: profileSharedPath(resolved.repoRoot, initTarget.profileName, resolved.agentsDir);
+		const displayPath = path.relative(resolved.repoRoot, targetPath).split(path.sep).join("/");
+		const starterContents = `${JSON.stringify(STARTER_PROFILE, null, 2)}\n`;
+		try {
+			await mkdir(path.dirname(targetPath), { recursive: true });
+			await writeFile(targetPath, starterContents, { encoding: "utf8", flag: "wx" });
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code === "EEXIST") {
+				const label = initTarget.isLocal ? "Local profile" : "Profile";
+				console.error(
+					`Error: ${label} "${initTarget.profileName}" already exists at ${displayPath}.`,
+				);
+				process.exit(1);
+				return;
+			}
+			throw error;
+		}
+
+		console.log(initGuide(initTarget, displayPath));
+	},
+};
 
 const listSubcommand: CommandModule = {
 	command: "$0",
@@ -385,6 +627,7 @@ export const profilesCommand: CommandModule = {
 	builder: (yargs) =>
 		yargs
 			.command(listSubcommand)
+			.command(initSubcommand)
 			.command(showSubcommand)
 			.command(validateSubcommand)
 			.demandCommand(0)

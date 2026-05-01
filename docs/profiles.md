@@ -136,6 +136,8 @@ warning to an error with a non-zero exit, suitable for CI or a pre-commit hook.
 
 ```bash
 omniagent profiles                       # list profiles with descriptions
+omniagent profiles init code-reviewer    # create a starter profile
+omniagent profiles init code-reviewer.local  # create a local profile override
 omniagent profiles show code-reviewer    # print the fully-resolved merged profile
 omniagent profiles validate              # strict validation, non-zero on issues (CI-friendly)
 ```

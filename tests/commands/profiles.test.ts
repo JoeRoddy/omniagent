@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { runCli } from "../../src/cli/index.js";
@@ -135,6 +135,173 @@ describe.sequential("profiles subcommand", () => {
 
 			const output = logSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
 			expect(output).toContain("Team default");
+		});
+	});
+
+	it("initializes a new profile with starter JSON and a commented guide", async () => {
+		const originalNoColor = process.env.NO_COLOR;
+		process.env.NO_COLOR = "1";
+		try {
+			await withTempRepo(async (root) => {
+				await createRepoRoot(root);
+
+				await withCwd(root, async () => {
+					await runCli(["node", "omniagent", "profiles", "init", "code-reviewer"]);
+				});
+
+				const profilePath = path.join(root, "agents", "profiles", "code-reviewer.json");
+				const created = JSON.parse(await readFile(profilePath, "utf8"));
+				expect(created).toEqual({
+					$schema:
+						"https://raw.githubusercontent.com/JoeRoddy/omniagent/master/schemas/profile.v1.json",
+					description: "",
+					targets: {},
+					enable: {
+						skills: [],
+						subagents: [],
+						commands: [],
+					},
+					disable: {
+						skills: [],
+						subagents: [],
+						commands: [],
+					},
+					variables: {},
+				});
+				const output = logSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+				expect(output).toContain(
+					'Created profile "code-reviewer" at agents/profiles/code-reviewer.json.',
+				);
+				expect(output).toContain("Profile files must be valid JSON.");
+				expect(output).toContain('"claude": { "enabled": true }, // includes Claude');
+				expect(output).toContain(
+					"// https://github.com/JoeRoddy/omniagent/blob/master/docs/templating.md",
+				);
+				expect(output).toContain("omniagent sync --profile code-reviewer");
+				expect(output).not.toContain("\u001B[90m");
+			});
+		} finally {
+			if (originalNoColor === undefined) {
+				delete process.env.NO_COLOR;
+			} else {
+				process.env.NO_COLOR = originalNoColor;
+			}
+		}
+	});
+
+	it("initializes .local suffix profiles as local sibling profiles", async () => {
+		const originalNoColor = process.env.NO_COLOR;
+		process.env.NO_COLOR = "1";
+		try {
+			await withTempRepo(async (root) => {
+				await createRepoRoot(root);
+
+				await withCwd(root, async () => {
+					await runCli(["node", "omniagent", "profiles", "init", "joe.local"]);
+				});
+
+				const profilePath = path.join(root, "agents", "profiles", "joe.local.json");
+				const created = JSON.parse(await readFile(profilePath, "utf8"));
+				expect(created.description).toBe("");
+				expect(created.targets).toEqual({});
+				const output = logSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+				expect(output).toContain('Created local profile "joe" at agents/profiles/joe.local.json.');
+				expect(output).toContain(
+					'Use profile name "joe" when syncing; ".local" is only the file suffix.',
+				);
+				expect(output).toContain("omniagent profiles show joe");
+				expect(output).toContain("omniagent sync --profile joe");
+				expect(output).not.toContain("omniagent sync --profile joe.local");
+			});
+		} finally {
+			if (originalNoColor === undefined) {
+				delete process.env.NO_COLOR;
+			} else {
+				process.env.NO_COLOR = originalNoColor;
+			}
+		}
+	});
+
+	it("prints init guide comments in gray when color is forced", async () => {
+		const originalForceColor = process.env.FORCE_COLOR;
+		const originalNoColor = process.env.NO_COLOR;
+		process.env.FORCE_COLOR = "1";
+		delete process.env.NO_COLOR;
+		try {
+			await withTempRepo(async (root) => {
+				await createRepoRoot(root);
+
+				await withCwd(root, async () => {
+					await runCli(["node", "omniagent", "profiles", "init", "colored"]);
+				});
+
+				const output = logSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+				expect(output).toContain("\u001B[90m// includes Claude");
+				expect(output).toContain(
+					"\u001B[90m// https://github.com/JoeRoddy/omniagent/blob/master/docs/templating.md",
+				);
+				expect(output).not.toContain("https:\u001B[90m//raw.githubusercontent.com");
+			});
+		} finally {
+			if (originalForceColor === undefined) {
+				delete process.env.FORCE_COLOR;
+			} else {
+				process.env.FORCE_COLOR = originalForceColor;
+			}
+			if (originalNoColor === undefined) {
+				delete process.env.NO_COLOR;
+			} else {
+				process.env.NO_COLOR = originalNoColor;
+			}
+		}
+	});
+
+	it("does not overwrite an existing profile on init", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeProfile(root, "profiles/existing.json", { description: "Keep me" });
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "profiles", "init", "existing"]);
+			});
+
+			expect(exitSpy).toHaveBeenCalledWith(1);
+			const errOut = errorSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+			expect(errOut).toContain('Profile "existing" already exists');
+			const profilePath = path.join(root, "agents", "profiles", "existing.json");
+			const existing = JSON.parse(await readFile(profilePath, "utf8"));
+			expect(existing).toEqual({ description: "Keep me" });
+		});
+	});
+
+	it("does not create a local sibling when a dedicated local profile already exists", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+			await writeProfile(root, ".local/profiles/joe.json", { description: "Dedicated" });
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "profiles", "init", "joe.local"]);
+			});
+
+			expect(exitSpy).toHaveBeenCalledWith(1);
+			const errOut = errorSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+			expect(errOut).toContain('Local profile "joe" already exists');
+			const siblingPath = path.join(root, "agents", "profiles", "joe.local.json");
+			await expect(readFile(siblingPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+		});
+	});
+
+	it("rejects profile names that would escape the profiles directory", async () => {
+		await withTempRepo(async (root) => {
+			await createRepoRoot(root);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "profiles", "init", "../oops"]);
+			});
+
+			expect(exitSpy).toHaveBeenCalledWith(1);
+			const errOut = errorSpy.mock.calls.map(([msg]) => String(msg)).join("\n");
+			expect(errOut).toContain("Profile names may only contain");
 		});
 	});
 

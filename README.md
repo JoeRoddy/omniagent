@@ -147,7 +147,9 @@ glob-based `enable`/`disable` lists, per-target toggles, and template
 variables. Individual skills, subagents, and commands can also set frontmatter
 `enabled: false` to stay hidden by default until a profile opts them in.
 Discover and validate profiles with `omniagent profiles`,
-`omniagent profiles show <name>`, and `omniagent profiles validate`.
+`omniagent profiles init <name>`, `omniagent profiles show <name>`, and
+`omniagent profiles validate`. Use `omniagent profiles init <name>.local`
+to create a personal local profile override.
 
 See [`docs/profiles.md`](docs/profiles.md) for the full schema, resolution
 order, and examples.
