@@ -523,8 +523,8 @@ function renderUsageTable(rows: UsageDisplayRow[], useColor: boolean): string {
 	const headerLine = [
 		pad("Agent", widths.agent),
 		pad("Limit", widths.limit),
-		pad("Usage", widths.usage),
 		pad("Left", widths.left),
+		pad("Usage", widths.usage),
 		pad("Reset", widths.reset),
 	]
 		.join("  ")
@@ -532,8 +532,8 @@ function renderUsageTable(rows: UsageDisplayRow[], useColor: boolean): string {
 	const separatorLine = [
 		"-".repeat(widths.agent),
 		"-".repeat(widths.limit),
-		"-".repeat(widths.usage),
 		"-".repeat(widths.left),
+		"-".repeat(widths.usage),
 		"-".repeat(widths.reset),
 	]
 		.join("  ")
@@ -550,8 +550,8 @@ function renderUsageRow(row: UsageDisplayRow, widths: UsageTableWidths, useColor
 	return [
 		pad(row.agent, widths.agent),
 		pad(row.limitLabel, widths.limit),
-		renderUsageCell(row, widths.usage, useColor),
 		renderLeftCell(row, widths.left, useColor),
+		renderUsageCell(row, widths.usage, useColor),
 		renderResetCell(row, widths.reset, useColor),
 	]
 		.join("  ")

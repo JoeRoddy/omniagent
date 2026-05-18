@@ -204,6 +204,9 @@ describe.sequential("usage command", () => {
 			expect(output).toContain("[#####-------]");
 			expect(output).toContain("40% used");
 			expect(output).toContain("60%");
+			const header = output.split("\n")[0] ?? "";
+			expect(header.indexOf("Limit")).toBeLessThan(header.indexOf("Left"));
+			expect(header.indexOf("Left")).toBeLessThan(header.indexOf("Usage"));
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});
