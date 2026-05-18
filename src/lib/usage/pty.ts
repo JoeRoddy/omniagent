@@ -1,10 +1,15 @@
+import { constants } from "node:fs";
+import { access, chmod } from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
+import path from "node:path";
 import headless from "@xterm/headless";
 import pty from "node-pty";
 import type { NormalizedUsageDebugArtifact } from "./types.js";
 
 const { Terminal } = headless;
 type HeadlessTerminal = InstanceType<typeof Terminal>;
+const require = createRequire(import.meta.url);
 
 export type PtyStep = {
 	waitMs?: number;
@@ -78,6 +83,8 @@ export async function runPtyScenario(options: PtyScenarioOptions): Promise<PtySc
 	let exited = false;
 	let exitCode: number | null = null;
 	let timedOut = false;
+
+	await ensureNodePtySpawnHelperExecutable();
 
 	const child = pty.spawn(options.command, args, {
 		name: "xterm-256color",
@@ -212,6 +219,40 @@ export function safeKillPty(child: { kill: () => void }): void {
 
 function formatCommand(command: string, args: string[]): string {
 	return [command, ...args].join(" ");
+}
+
+async function ensureNodePtySpawnHelperExecutable(): Promise<void> {
+	if (process.platform === "win32") {
+		return;
+	}
+
+	const packageRoot = path.dirname(require.resolve("node-pty/package.json"));
+	const candidates = [
+		path.join(packageRoot, "prebuilds", `${process.platform}-${process.arch}`, "spawn-helper"),
+		path.join(packageRoot, "build", "Release", "spawn-helper"),
+	];
+
+	for (const candidate of candidates) {
+		if (!(await fileExists(candidate))) {
+			continue;
+		}
+		try {
+			await access(candidate, constants.X_OK);
+			return;
+		} catch {
+			await chmod(candidate, 0o755);
+			return;
+		}
+	}
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+	try {
+		await access(filePath, constants.F_OK);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 function sleep(ms: number): Promise<void> {
