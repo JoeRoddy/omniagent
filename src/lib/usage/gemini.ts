@@ -24,7 +24,7 @@ export type ParsedGeminiModelDialog = {
 export async function extractGeminiUsage(
 	context: UsageExtractionContext,
 ): Promise<UsageExtractionResult> {
-	const command = context.launch?.command ?? context.command ?? "gemini";
+	const command = context.command ?? context.launch?.command ?? "gemini";
 	const ptyResult = await runPtyScenario({
 		command,
 		args: context.launch?.args ?? ["--skip-trust"],

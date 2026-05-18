@@ -35,7 +35,7 @@ export type ParsedCodexStatus = {
 export async function extractCodexUsage(
 	context: UsageExtractionContext,
 ): Promise<UsageExtractionResult> {
-	const command = context.launch?.command ?? context.command ?? "codex";
+	const command = context.command ?? context.launch?.command ?? "codex";
 	const ptyResult = await runPtyScenario({
 		command,
 		args: context.launch?.args ?? ["--no-alt-screen"],

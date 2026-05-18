@@ -209,7 +209,7 @@ describe.sequential("usage command", () => {
 
 	it("selects an explicit target by alias", async () => {
 		await withTempRepo(async (root) => {
-			await createFakeCliBin(root, ["codex", "claude"]);
+			const binDir = await createFakeCliBin(root, ["codex", "claude"]);
 			await writeConfig(root, usageConfig({}));
 
 			await withCwd(root, async () => {
@@ -220,6 +220,7 @@ describe.sequential("usage command", () => {
 			expect(envelope.targets).toHaveLength(1);
 			expect(envelope.targets[0].targetId).toBe("codex");
 			expect(envelope.targets[0].displayName).toBe("Mock Codex");
+			expect(envelope.targets[0].command).toBe(path.join(binDir, "codex"));
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});
@@ -290,7 +291,7 @@ describe.sequential("usage command", () => {
 
 	it("checks usage launch command availability instead of the general target CLI", async () => {
 		await withTempRepo(async (root) => {
-			await createFakeCliBin(root, ["usage-codex"]);
+			const binDir = await createFakeCliBin(root, ["usage-codex"]);
 			await writeConfig(
 				root,
 				usageConfig({ disableTargets: ["claude", "gemini"] }).replace(
@@ -305,7 +306,7 @@ describe.sequential("usage command", () => {
 
 			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
 			expect(envelope.targets).toHaveLength(1);
-			expect(envelope.targets[0].command).toBe("usage-codex");
+			expect(envelope.targets[0].command).toBe(path.join(binDir, "usage-codex"));
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});

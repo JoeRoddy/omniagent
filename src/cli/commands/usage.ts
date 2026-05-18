@@ -35,6 +35,14 @@ type UsageRunResult = {
 	selectedTargets: ResolvedTarget[];
 };
 
+type UsageCommandAvailability = {
+	status: "available" | "unavailable";
+	reason?: string;
+	warnings: string[];
+	command?: string;
+	resolvedPath?: string;
+};
+
 type TargetExtractionOutcome =
 	| {
 			status: "success";
@@ -93,7 +101,7 @@ function getUsageCommand(target: ResolvedTarget): string | undefined {
 
 async function checkUsageCommandAvailability(
 	target: ResolvedTarget,
-): Promise<{ status: "available" | "unavailable"; reason?: string; warnings: string[] }> {
+): Promise<UsageCommandAvailability> {
 	const command = getUsageCommand(target)?.trim();
 	if (!command) {
 		return {
@@ -105,7 +113,12 @@ async function checkUsageCommandAvailability(
 
 	const check = await checkCliOnPath(command);
 	if (check.result === "available") {
-		return { status: "available", warnings: [] };
+		return {
+			status: "available",
+			warnings: [],
+			command,
+			resolvedPath: check.resolvedPath ?? command,
+		};
 	}
 	if (check.result === "inconclusive") {
 		return {
@@ -129,12 +142,13 @@ function buildContext(options: {
 	selectedWindow: string | null;
 	debug: boolean;
 	now: Date;
+	command?: string;
 }): UsageExtractionContext {
 	const windows = uniqueNormalizedWindows(options.target.usage?.windows ?? []);
 	return {
 		targetId: options.target.id,
 		displayName: options.target.displayName,
-		command: getUsageCommand(options.target),
+		command: options.command ?? getUsageCommand(options.target),
 		window: options.selectedWindow ?? windows[0] ?? "",
 		windows,
 		now: options.now,
@@ -197,6 +211,7 @@ async function extractUsageForTarget(options: {
 	selectedWindow: string | null;
 	debug: boolean;
 	now: Date;
+	command?: string;
 }): Promise<TargetExtractionOutcome> {
 	try {
 		const context = buildContext(options);
@@ -398,6 +413,7 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 	const supportedUsageTargets = formatUsageTargetLabel(usageCapableTargets);
 	const explicitTargetName = positionalTargets[0];
 	let selectedTargets: ResolvedTarget[];
+	const resolvedUsageCommands = new Map<string, string>();
 
 	if (explicitTargetName) {
 		const resolvedName = targetResolver.resolveTargetName(explicitTargetName);
@@ -452,6 +468,10 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 			process.exit(1);
 			return null;
 		}
+		resolvedUsageCommands.set(
+			target.id,
+			availability.resolvedPath ?? getUsageCommand(target) ?? "",
+		);
 		selectedTargets = [target];
 	} else {
 		const availabilityResults = await Promise.all(
@@ -460,9 +480,17 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 				availability: await checkUsageCommandAvailability(target),
 			})),
 		);
-		selectedTargets = availabilityResults
-			.filter(({ availability }) => availability.status === "available")
-			.map(({ target }) => target);
+		selectedTargets = [];
+		for (const { target, availability } of availabilityResults) {
+			if (availability.status !== "available") {
+				continue;
+			}
+			selectedTargets.push(target);
+			resolvedUsageCommands.set(
+				target.id,
+				availability.resolvedPath ?? getUsageCommand(target) ?? "",
+			);
+		}
 		if (selectedTargets.length === 0) {
 			const message =
 				"No installed active usage-capable agents were found. Install one of: " +
@@ -507,6 +535,7 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 				selectedWindow,
 				debug: debugOutput,
 				now,
+				command: resolvedUsageCommands.get(target.id),
 			}),
 		),
 	);

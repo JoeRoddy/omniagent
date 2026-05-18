@@ -16,7 +16,7 @@ export type ParsedClaudeUsage = {
 export async function extractClaudeUsage(
 	context: UsageExtractionContext,
 ): Promise<UsageExtractionResult> {
-	const command = context.launch?.command ?? context.command ?? "claude";
+	const command = context.command ?? context.launch?.command ?? "claude";
 	const model = context.launch?.cheapModel ?? "haiku";
 	validateClaudeModel(model);
 
