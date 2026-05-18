@@ -29,13 +29,18 @@ export async function extractClaudeUsage(
 		timeoutMs: context.launch?.timeoutMs ?? 60_000,
 		debug: context.debug,
 		steps: [
-			{ waitMs: 4_000 },
+			{ waitFor: /Claude|>|❯/u, waitForSource: "screen", waitForTimeoutMs: 4_000 },
 			{ write: enterKey() },
-			{ waitMs: 8_000 },
+			{ waitFor: /Claude|>|❯/u, waitForSource: "screen", waitForTimeoutMs: 8_000 },
 			{ write: `/usage${enterKey()}` },
-			{ waitMs: 12_000, capture: "usage" },
+			{
+				waitFor: hasClaudeUsageRows,
+				waitForTimeoutMs: 15_000,
+				capture: "usage",
+				captureWaitMs: 500,
+			},
 			{ write: escapeKey() },
-			{ waitMs: 1_000 },
+			{ waitMs: 500 },
 			{ write: `/exit${enterKey()}` },
 		],
 	});
@@ -51,6 +56,11 @@ export async function extractClaudeUsage(
 		limits: buildClaudeUsageLimits(parsed, context),
 		debug: ptyResult.debug.length > 0 ? ptyResult.debug : undefined,
 	};
+}
+
+function hasClaudeUsageRows(snapshot: { raw: string; screen: string }): boolean {
+	const parsed = parseClaudeUsage(snapshot.screen, cleanControlOutput(snapshot.raw));
+	return Boolean(parsed.currentSessionUsed || parsed.currentWeekUsed);
 }
 
 export function buildClaudeUsageLimits(

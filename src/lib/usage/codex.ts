@@ -4,7 +4,13 @@ import {
 	parsePercentRemaining,
 	parseResetText,
 } from "./format.js";
-import { enterKey, runPtyScenario, typeTextSteps } from "./pty.js";
+import {
+	enterKey,
+	type PtyScenarioResult,
+	type PtySnapshot,
+	runPtyScenario,
+	typeTextSteps,
+} from "./pty.js";
 import type {
 	NormalizedUsageLimit,
 	UsageExtractionContext,
@@ -17,6 +23,7 @@ const CODEX_WINDOWS = [
 	["spark", "5h", "spark5hLimit"],
 	["spark", "weekly", "sparkWeeklyLimit"],
 ] as const;
+const CLEAR_LINE = "\x15";
 
 export type ParsedCodexStatus = {
 	model: string;
@@ -45,19 +52,29 @@ export async function extractCodexUsage(
 		timeoutMs: context.launch?.timeoutMs ?? 60_000,
 		debug: context.debug,
 		steps: [
-			{ waitMs: 10_000 },
-			...typeTextSteps("/status", 80),
+			{ waitFor: isCodexPromptReady, waitForTimeoutMs: 10_000 },
+			...typeTextSteps("/status", 20),
 			{ write: enterKey() },
-			{ waitMs: 12_000, capture: "status" },
-			...typeTextSteps("/exit", 80),
-			{ write: enterKey() },
-			{ waitMs: 2_000 },
+			{
+				waitFor: hasCodexStatusResponse,
+				waitForTimeoutMs: 15_000,
+				capture: "status",
+				captureWaitMs: 500,
+			},
+			{ waitMs: 5_000, skipIf: hasCodexStatusLimits },
+			{ write: `${CLEAR_LINE}/status${enterKey()}`, skipIf: hasCodexStatusLimits },
+			{
+				waitFor: hasCodexStatusLimits,
+				waitForTimeoutMs: 8_000,
+				capture: "statusRetry",
+				captureWaitMs: 500,
+			},
+			{ write: `${CLEAR_LINE}/exit${enterKey()}` },
+			{ waitMs: 500 },
 		],
 	});
 
-	const statusSnapshot = ptyResult.snapshots.status ?? ptyResult;
-	const cleanedOutput = cleanControlOutput(statusSnapshot.raw);
-	const parsed = parseCodexStatus(cleanedOutput);
+	const parsed = selectCodexStatus(ptyResult);
 
 	return {
 		targetId: context.targetId,
@@ -66,6 +83,45 @@ export async function extractCodexUsage(
 		limits: buildCodexUsageLimits(parsed, context),
 		debug: ptyResult.debug.length > 0 ? ptyResult.debug : undefined,
 	};
+}
+
+function selectCodexStatus(result: PtyScenarioResult): ParsedCodexStatus {
+	const snapshots: Array<PtySnapshot | PtyScenarioResult | undefined> = [
+		result.snapshots.statusRetry,
+		result,
+		result.snapshots.status,
+	];
+
+	for (const snapshot of snapshots) {
+		if (snapshot == null) {
+			continue;
+		}
+		for (const content of [`${snapshot.screen}\n${snapshot.raw}`, snapshot.screen, snapshot.raw]) {
+			const parsed = parseCodexStatus(cleanControlOutput(content));
+			if (parsed.main5hLimit || parsed.mainWeeklyLimit) {
+				return parsed;
+			}
+		}
+	}
+
+	const fallback = result.snapshots.statusRetry ?? result.snapshots.status ?? result;
+	return parseCodexStatus(cleanControlOutput(`${fallback.screen}\n${fallback.raw}`));
+}
+
+function isCodexPromptReady(snapshot: { raw: string; screen: string }): boolean {
+	const cleanedOutput = cleanControlOutput(`${snapshot.screen}\n${snapshot.raw}`);
+	return /(?:\u203a|>)\s/.test(cleanedOutput) && /\bContext\b/i.test(cleanedOutput);
+}
+
+function hasCodexStatusLimits(snapshot: { raw: string; screen: string }): boolean {
+	const cleanedOutput = cleanControlOutput(`${snapshot.screen}\n${snapshot.raw}`);
+	const parsed = parseCodexStatus(cleanedOutput);
+	return Boolean(parsed.main5hLimit && parsed.mainWeeklyLimit);
+}
+
+function hasCodexStatusResponse(snapshot: { raw: string; screen: string }): boolean {
+	const cleanedOutput = cleanControlOutput(`${snapshot.screen}\n${snapshot.raw}`);
+	return hasCodexStatusLimits(snapshot) || /refresh requested/i.test(cleanedOutput);
 }
 
 export function buildCodexUsageLimits(
@@ -113,8 +169,12 @@ export function parseCodexStatus(cleanedOutput: string): ParsedCodexStatus {
 			continue;
 		}
 
-		if (normalizedLine.startsWith("› ") || normalizedLine.includes("/exit exit Codex")) {
+		if (normalizedLine.includes("/exit exit Codex")) {
 			break;
+		}
+		if (normalizedLine.startsWith("› ")) {
+			key = "";
+			continue;
 		}
 
 		let line = normalizedLine;

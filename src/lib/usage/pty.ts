@@ -12,11 +12,23 @@ type HeadlessTerminal = InstanceType<typeof Terminal>;
 const require = createRequire(import.meta.url);
 
 export type PtyStep = {
+	skipIf?: PtyWaitFor;
+	skipIfSource?: "raw" | "screen";
 	waitMs?: number;
 	write?: string;
+	waitFor?: PtyWaitFor;
+	waitForSource?: "raw" | "screen";
+	waitForTimeoutMs?: number;
 	capture?: string;
 	captureWaitMs?: number;
 };
+
+export type PtyWaitSnapshot = {
+	raw: string;
+	screen: string;
+};
+
+export type PtyWaitFor = string | RegExp | ((snapshot: PtyWaitSnapshot) => boolean);
 
 export type PtyScenarioOptions = {
 	command: string;
@@ -128,11 +140,31 @@ export async function runPtyScenario(options: PtyScenarioOptions): Promise<PtySc
 
 	try {
 		for (const step of options.steps) {
+			if (
+				step.skipIf != null &&
+				matchesWaitFor(
+					step.skipIf,
+					step.skipIfSource ?? "raw",
+					() => raw,
+					() => readScreen(terminal),
+				)
+			) {
+				continue;
+			}
 			if (step.waitMs != null) {
 				await sleep(step.waitMs);
 			}
 			if (step.write != null) {
 				child.write(step.write);
+			}
+			if (step.waitFor != null) {
+				await waitForOutput({
+					match: step.waitFor,
+					source: step.waitForSource ?? "raw",
+					timeoutMs: step.waitForTimeoutMs ?? options.timeoutMs ?? 45_000,
+					getRaw: () => raw,
+					getScreen: () => readScreen(terminal),
+				});
 			}
 			if (step.capture != null) {
 				await sleep(step.captureWaitMs ?? 250);
@@ -219,6 +251,50 @@ export function safeKillPty(child: { kill: () => void }): void {
 
 function formatCommand(command: string, args: string[]): string {
 	return [command, ...args].join(" ");
+}
+
+async function waitForOutput(options: {
+	match: PtyWaitFor;
+	source: "raw" | "screen";
+	timeoutMs: number;
+	getRaw: () => string;
+	getScreen: () => string;
+}): Promise<boolean> {
+	const intervalMs = 50;
+	const deadline = Date.now() + options.timeoutMs;
+
+	while (Date.now() <= deadline) {
+		if (matchesWaitFor(options.match, options.source, options.getRaw, options.getScreen)) {
+			return true;
+		}
+
+		const remainingMs = deadline - Date.now();
+		if (remainingMs <= 0) {
+			break;
+		}
+		await sleep(Math.min(intervalMs, remainingMs));
+	}
+
+	return matchesWaitFor(options.match, options.source, options.getRaw, options.getScreen);
+}
+
+function matchesWaitFor(
+	match: PtyWaitFor,
+	source: "raw" | "screen",
+	getRaw: () => string,
+	getScreen: () => string,
+): boolean {
+	if (typeof match === "function") {
+		return match({ raw: getRaw(), screen: getScreen() });
+	}
+
+	const value = source === "screen" ? getScreen() : getRaw();
+	if (typeof match === "string") {
+		return value.includes(match);
+	}
+
+	match.lastIndex = 0;
+	return match.test(value);
 }
 
 async function ensureNodePtySpawnHelperExecutable(): Promise<void> {

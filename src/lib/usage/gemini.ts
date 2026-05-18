@@ -34,15 +34,20 @@ export async function extractGeminiUsage(
 		timeoutMs: context.launch?.timeoutMs ?? 70_000,
 		debug: context.debug,
 		steps: [
-			{ waitMs: 8_000 },
-			...typeTextSteps("/model", 60),
+			{ waitFor: isGeminiPromptReady, waitForTimeoutMs: 12_000 },
+			...typeTextSteps("/model", 20),
 			{ waitMs: 150, write: enterKey() },
-			{ waitMs: 8_000, capture: "model" },
+			{
+				waitFor: hasGeminiModelUsage,
+				waitForTimeoutMs: 15_000,
+				capture: "model",
+				captureWaitMs: 500,
+			},
 			{ write: escapeKey() },
 			{ waitMs: 500 },
-			...typeTextSteps("/quit", 30),
+			...typeTextSteps("/quit", 20),
 			{ waitMs: 150, write: enterKey() },
-			{ waitMs: 1_500 },
+			{ waitMs: 500 },
 		],
 	});
 
@@ -72,6 +77,16 @@ export async function extractGeminiUsage(
 		}),
 		debug: ptyResult.debug.length > 0 ? ptyResult.debug : undefined,
 	};
+}
+
+function isGeminiPromptReady(snapshot: { raw: string; screen: string }): boolean {
+	const screen = snapshot.screen || cleanControlOutput(snapshot.raw);
+	return /Type your message|quota/i.test(screen);
+}
+
+function hasGeminiModelUsage(snapshot: { raw: string; screen: string }): boolean {
+	const parsed = parseGeminiModelDialog(snapshot.screen, cleanControlOutput(snapshot.raw));
+	return parsed.usage.length > 0;
 }
 
 export function parseGeminiModelDialog(

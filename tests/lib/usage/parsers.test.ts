@@ -88,6 +88,36 @@ describe("Codex usage parser", () => {
 		});
 	});
 
+	it("parses Codex limits after an initial refresh-requested status", () => {
+		const parsed = parseCodexStatus(`
+╭──────────────────────────╮
+│ Model: gpt-5.1-codex     │
+│ Limits: refresh requested; run /status again shortly.
+╰──────────────────────────╯
+
+› /status
+
+╭──────────────────────────╮
+│ Model: gpt-5.1-codex     │
+│ 5h limit: 79% left (resets 12:24)
+│ Weekly limit: 82% left (resets 17:18 on 23 May)
+│ GPT-5.3-Codex-Spark limit:
+│ 5h limit: 100% left (resets 16:39)
+│ Weekly limit: 100% left (resets 08:31 on 24 May)
+╰──────────────────────────╯
+
+› exit
+gpt-5.5 xhigh · Context 0% used
+`);
+
+		expect(parsed).toMatchObject({
+			main5hLimit: "79% left (resets 12:24)",
+			mainWeeklyLimit: "82% left (resets 17:18 on 23 May)",
+			spark5hLimit: "100% left (resets 16:39)",
+			sparkWeeklyLimit: "100% left (resets 08:31 on 24 May)",
+		});
+	});
+
 	it("omits absent limit rows when building normalized results", () => {
 		const limits = buildCodexUsageLimits(
 			{

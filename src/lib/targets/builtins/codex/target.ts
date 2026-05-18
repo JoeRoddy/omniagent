@@ -63,8 +63,16 @@ export const codexTarget: TargetDefinition = {
 		windows: ["hourly", "weekly"],
 		launch: {
 			command: "codex",
-			// Status extraction does not need a model override; --no-alt-screen keeps PTY capture stable.
-			args: ["--no-alt-screen"],
+			// Usage probing does not need plugins/apps; disabling them avoids MCP startup work.
+			args: [
+				"--no-alt-screen",
+				"--disable",
+				"apps",
+				"--disable",
+				"computer_use",
+				"--disable",
+				"plugins",
+			],
 			timeoutMs: 60_000,
 		},
 		extract: extractCodexUsage,

@@ -65,6 +65,19 @@ describe("PTY usage utility", () => {
 		);
 	});
 
+	it("can wait for matching output before continuing", async () => {
+		const { runPtyScenario } = await import("../../../src/lib/usage/pty.js");
+		const result = await runPtyScenario({
+			command: "node",
+			args: ["-e", "ready"],
+			timeoutMs: 1_000,
+			steps: [{ waitFor: ({ raw }) => raw.includes("ready"), capture: "ready" }],
+		});
+
+		expect(result.raw).toContain("ready");
+		expect(result.snapshots.ready.raw).toContain("ready");
+	});
+
 	it("marks timed out processes and kills them safely", async () => {
 		const { runPtyScenario } = await import("../../../src/lib/usage/pty.js");
 		const result = await runPtyScenario({
