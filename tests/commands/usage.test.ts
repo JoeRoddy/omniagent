@@ -293,6 +293,47 @@ describe.sequential("usage command", () => {
 		});
 	});
 
+	it("formats resetAt in local display form before falling back to reset text", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					disableTargets: ["claude", "gemini"],
+					extractors: {
+						codex: `async (ctx) => ({
+							targetId: ctx.targetId,
+							displayName: ctx.displayName,
+							command: ctx.command,
+							limits: [
+								{
+									id: "codex.hourly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									window: "hourly",
+									percentUsed: 10,
+									percentRemaining: 90,
+									resetAt: new Date().toISOString(),
+									resetText: "raw source reset",
+									raw: "10% used"
+								}
+							]
+						})`,
+					},
+				}),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage"]);
+			});
+
+			const output = joinOutput(logSpy.mock.calls);
+			expect(output).toContain("Today ");
+			expect(output).not.toContain("raw source reset");
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
 	it("colors the human table when color output is enabled", async () => {
 		const originalForceColor = process.env.FORCE_COLOR;
 		const originalNoColor = process.env.NO_COLOR;

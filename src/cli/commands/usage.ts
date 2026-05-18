@@ -78,6 +78,7 @@ type UsageDisplayRow =
 			status: "ok";
 			agent: string;
 			limitLabel: string;
+			reset: string;
 			limit: NormalizedUsageLimit;
 	  }
 	| {
@@ -96,6 +97,17 @@ type UsageTableWidths = {
 };
 
 const DEFAULT_USAGE_TIMEOUT_MS = 30_000;
+const MS_PER_DAY = 86_400_000;
+const RESET_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+	hour: "numeric",
+	minute: "2-digit",
+});
+const RESET_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+	month: "short",
+	day: "numeric",
+	hour: "numeric",
+	minute: "2-digit",
+});
 
 class UsageExtractionTimeoutError extends Error {
 	constructor(readonly timeoutMs: number) {
@@ -428,13 +440,38 @@ function usageBar(percentUsed: number | null): string {
 	return `[${"#".repeat(filled)}${"-".repeat(USAGE_BAR_WIDTH - filled)}]`;
 }
 
-function resetText(limit: NormalizedUsageLimit): string {
-	return limit.resetText ?? limit.resetAt ?? "-";
+function formatResetValue(limit: NormalizedUsageLimit, now: Date): string {
+	const resetAt = parseDate(limit.resetAt);
+	if (resetAt != null) {
+		return formatLocalResetAt(resetAt, now);
+	}
+
+	const value = limit.resetText ?? "-";
+	return value === "-" ? value : value.replace(/^resets\s+/i, "");
 }
 
-function formatResetValue(limit: NormalizedUsageLimit): string {
-	const value = resetText(limit);
-	return value === "-" ? value : value.replace(/^resets\s+/i, "");
+function parseDate(value: string | null | undefined): Date | null {
+	if (!value) {
+		return null;
+	}
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatLocalResetAt(resetAt: Date, now: Date): string {
+	const dayDifference = localDayIndex(resetAt) - localDayIndex(now);
+	const time = RESET_TIME_FORMATTER.format(resetAt);
+	if (dayDifference === 0) {
+		return `Today ${time}`;
+	}
+	if (dayDifference === 1) {
+		return `Tomorrow ${time}`;
+	}
+	return RESET_DATE_TIME_FORMATTER.format(resetAt);
+}
+
+function localDayIndex(date: Date): number {
+	return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / MS_PER_DAY;
 }
 
 function formatLimitLabel(limit: NormalizedUsageLimit): string {
@@ -479,6 +516,7 @@ function formatWindowLabel(window: string): string {
 
 function formatUsageTable(envelope: NormalizedUsageEnvelope): string {
 	const useColor = shouldUseColor();
+	const generatedAt = parseDate(envelope.generatedAt) ?? new Date();
 	const rows: UsageDisplayRow[] = [];
 	for (const target of envelope.targets) {
 		const limitLabels = formatLimitLabels(target.limits);
@@ -487,6 +525,7 @@ function formatUsageTable(envelope: NormalizedUsageEnvelope): string {
 				status: "ok",
 				agent: index === 0 ? target.displayName : "",
 				limitLabel: limitLabels[index] ?? formatLimitLabel(limit),
+				reset: formatResetValue(limit, generatedAt),
 				limit,
 			});
 		});
@@ -576,7 +615,7 @@ function resetCellText(row: UsageDisplayRow): string {
 	if (row.status === "error") {
 		return `Error: ${row.message}`;
 	}
-	return formatResetValue(row.limit);
+	return row.reset;
 }
 
 function renderUsageCell(row: UsageDisplayRow, width: number, useColor: boolean): string {
