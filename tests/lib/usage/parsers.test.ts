@@ -142,6 +142,41 @@ gpt-5.5 xhigh · Context 0% used
 		]);
 		expect(limits.map((limit) => limit.percentRemaining)).toEqual([85, 60]);
 	});
+
+	it("treats Codex time-only resets as local CLI times", () => {
+		const originalTimeZone = process.env.TZ;
+		process.env.TZ = "America/New_York";
+		try {
+			const now = new Date(2026, 4, 18, 14, 0);
+			const limits = buildCodexUsageLimits(
+				{
+					model: "",
+					directory: "",
+					permissions: "",
+					agentsMd: "",
+					account: "",
+					collaborationMode: "",
+					session: "",
+					main5hLimit: "97% left (resets 17:31)",
+					mainWeeklyLimit: "",
+					spark5hLimit: "",
+					sparkWeeklyLimit: "",
+				},
+				{ targetId: "codex", now },
+			);
+
+			expect(limits[0]?.resetAt).toBe(new Date(2026, 4, 18, 17, 31).toISOString());
+			expect(new Date(limits[0]?.resetAt ?? "").getTime() - now.getTime()).toBe(
+				(3 * 60 + 31) * 60 * 1000,
+			);
+		} finally {
+			if (originalTimeZone == null) {
+				delete process.env.TZ;
+			} else {
+				process.env.TZ = originalTimeZone;
+			}
+		}
+	});
 });
 
 describe("Claude usage parser", () => {

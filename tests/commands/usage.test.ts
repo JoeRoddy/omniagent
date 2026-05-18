@@ -293,7 +293,7 @@ describe.sequential("usage command", () => {
 		});
 	});
 
-	it("formats resetAt in local display form before falling back to reset text", async () => {
+	it("formats resetAt as relative duration with local exact time before falling back to reset text", async () => {
 		await withTempRepo(async (root) => {
 			await createFakeCliBin(root, ["codex"]);
 			await writeConfig(
@@ -313,9 +313,42 @@ describe.sequential("usage command", () => {
 									window: "hourly",
 									percentUsed: 10,
 									percentRemaining: 90,
-									resetAt: new Date().toISOString(),
+									resetAt: new Date(ctx.now.getTime() + 35 * 60 * 1000).toISOString(),
 									resetText: "raw source reset",
 									raw: "10% used"
+								},
+								{
+									id: "codex.session",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									window: "session",
+									percentUsed: 20,
+									percentRemaining: 80,
+									resetAt: new Date(ctx.now.getTime() + 103 * 60 * 1000).toISOString(),
+									resetText: "raw source reset",
+									raw: "20% used"
+								},
+								{
+									id: "codex.daily",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									window: "daily",
+									percentUsed: 30,
+									percentRemaining: 70,
+									resetAt: new Date(ctx.now.getTime() + (12 * 60 + 24) * 60 * 1000).toISOString(),
+									resetText: "raw source reset",
+									raw: "30% used"
+								},
+								{
+									id: "codex.weekly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									window: "weekly",
+									percentUsed: 40,
+									percentRemaining: 60,
+									resetAt: new Date(ctx.now.getTime() + 119 * 60 * 60 * 1000).toISOString(),
+									resetText: "raw source reset",
+									raw: "40% used"
 								}
 							]
 						})`,
@@ -328,7 +361,13 @@ describe.sequential("usage command", () => {
 			});
 
 			const output = joinOutput(logSpy.mock.calls);
-			expect(output).toContain("Today ");
+			expect(output).toMatch(/\b35m\s+\(/);
+			expect(output).toMatch(/\b1h43m\s+\(/);
+			expect(output).toMatch(/\b12h\s+\(/);
+			expect(output).toMatch(/\b5d\s+\(/);
+			expect(output).not.toContain("12.4h");
+			expect(output).not.toContain("119h");
+			expect(output).toContain("(");
 			expect(output).not.toContain("raw source reset");
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
@@ -342,7 +381,43 @@ describe.sequential("usage command", () => {
 		try {
 			await withTempRepo(async (root) => {
 				await createFakeCliBin(root, ["codex"]);
-				await writeConfig(root, usageConfig({ disableTargets: ["claude", "gemini"] }));
+				await writeConfig(
+					root,
+					usageConfig({
+						disableTargets: ["claude", "gemini"],
+						extractors: {
+							codex: `async (ctx) => ({
+								targetId: ctx.targetId,
+								displayName: ctx.displayName,
+								command: ctx.command,
+								limits: [
+									{
+										id: "codex.hourly",
+										targetId: ctx.targetId,
+										agent: ctx.targetId,
+										window: "hourly",
+										percentUsed: 40,
+										percentRemaining: 60,
+										resetAt: new Date(ctx.now.getTime() + 35 * 60 * 1000).toISOString(),
+										resetText: "raw source reset",
+										raw: "40% used"
+									},
+									{
+										id: "codex.session",
+										targetId: ctx.targetId,
+										agent: ctx.targetId,
+										window: "session",
+										percentUsed: 70,
+										percentRemaining: 30,
+										resetAt: new Date(ctx.now.getTime() + 103 * 60 * 1000).toISOString(),
+										resetText: "raw source reset",
+										raw: "70% used"
+									}
+								]
+							})`,
+						},
+					}),
+				);
 
 				await withCwd(root, async () => {
 					await runCli(["node", "omniagent", "usage"]);
@@ -353,6 +428,10 @@ describe.sequential("usage command", () => {
 				expect(output).toContain("Reset\x1b[0m");
 				expect(output).toContain("\x1b[32m[#####-------]\x1b[0m");
 				expect(output).toContain("\x1b[33m[########----]\x1b[0m");
+				expect(output).toContain("\x1b[90m35m");
+				expect(output).toContain("\x1b[90m1h43m");
+				expect(output).not.toContain("\x1b[38;5;208m35m");
+				expect(output).not.toContain("\x1b[33m1h43m");
 				expect(exitSpy).not.toHaveBeenCalled();
 			});
 		} finally {
@@ -387,6 +466,24 @@ describe.sequential("usage command", () => {
 		});
 	});
 
+	it("selects multiple explicit targets with --only", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex", "claude"]);
+			await writeConfig(root, usageConfig({}));
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "--only", "cx,claude", "--json"]);
+			});
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(envelope.targets.map((target: { targetId: string }) => target.targetId)).toEqual([
+				"codex",
+				"claude",
+			]);
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
 	it("rejects multiple positional targets with exit code 2", async () => {
 		await withTempRepo(async (root) => {
 			await writeConfig(root, usageConfig({}));
@@ -396,6 +493,21 @@ describe.sequential("usage command", () => {
 			});
 
 			expect(joinOutput(errorSpy.mock.calls)).toContain("accepts at most one target");
+			expect(exitSpy).toHaveBeenCalledWith(2);
+		});
+	});
+
+	it("rejects mixing a positional target with --only", async () => {
+		await withTempRepo(async (root) => {
+			await writeConfig(root, usageConfig({}));
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "codex", "--only", "claude"]);
+			});
+
+			expect(joinOutput(errorSpy.mock.calls)).toContain(
+				"Use either a positional target or --only, not both.",
+			);
 			expect(exitSpy).toHaveBeenCalledWith(2);
 		});
 	});
@@ -410,6 +522,21 @@ describe.sequential("usage command", () => {
 
 			const error = joinOutput(errorSpy.mock.calls);
 			expect(error).toContain("Unknown target: unknown");
+			expect(error).toContain("Supported usage targets");
+			expect(exitSpy).toHaveBeenCalledWith(2);
+		});
+	});
+
+	it("rejects unknown --only targets with exit code 2", async () => {
+		await withTempRepo(async (root) => {
+			await writeConfig(root, usageConfig({}));
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "--only", "codex,unknown"]);
+			});
+
+			const error = joinOutput(errorSpy.mock.calls);
+			expect(error).toContain("Unknown target name(s): unknown");
 			expect(error).toContain("Supported usage targets");
 			expect(exitSpy).toHaveBeenCalledWith(2);
 		});

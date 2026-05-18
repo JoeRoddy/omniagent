@@ -24,6 +24,7 @@ import type {
 
 type UsageArgs = {
 	targets?: string[];
+	only?: string | string[];
 	window?: string;
 	timeout?: string;
 	json?: boolean;
@@ -97,8 +98,13 @@ type UsageTableWidths = {
 };
 
 const DEFAULT_USAGE_TIMEOUT_MS = 30_000;
+const MS_PER_MINUTE = 60_000;
+const MS_PER_HOUR = 3_600_000;
 const MS_PER_DAY = 86_400_000;
-const RESET_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+const DETAILED_RESET_THRESHOLD_MINUTES = 180;
+const RELATIVE_RESET_WIDTH = 6;
+const RESET_WEEKDAY_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+	weekday: "short",
 	hour: "numeric",
 	minute: "2-digit",
 });
@@ -144,6 +150,18 @@ function parseTimeoutMs(value: string | undefined): number | null {
 		return null;
 	}
 	return Math.ceil(timeoutMs);
+}
+
+function parseList(value?: string | string[]): string[] {
+	if (!value) {
+		return [];
+	}
+
+	const rawValues = Array.isArray(value) ? value : [value];
+	return rawValues
+		.flatMap((entry) => entry.split(","))
+		.map((entry) => entry.trim().toLowerCase())
+		.filter(Boolean);
 }
 
 function formatDuration(timeoutMs: number): string {
@@ -459,13 +477,35 @@ function parseDate(value: string | null | undefined): Date | null {
 }
 
 function formatLocalResetAt(resetAt: Date, now: Date): string {
-	const dayDifference = localDayIndex(resetAt) - localDayIndex(now);
-	const time = RESET_TIME_FORMATTER.format(resetAt);
-	if (dayDifference === 0) {
-		return `Today ${time}`;
+	const relative = formatResetDuration(resetAt.getTime() - now.getTime()).padEnd(
+		RELATIVE_RESET_WIDTH,
+	);
+	return `${relative} (${formatResetExact(resetAt, now)})`;
+}
+
+function formatResetDuration(milliseconds: number): string {
+	if (milliseconds <= 0) {
+		return "now";
 	}
-	if (dayDifference === 1) {
-		return `Tomorrow ${time}`;
+	const totalMinutes = Math.max(1, Math.ceil(milliseconds / MS_PER_MINUTE));
+	if (totalMinutes < 60) {
+		return `${totalMinutes}m`;
+	}
+	if (totalMinutes < DETAILED_RESET_THRESHOLD_MINUTES) {
+		const hours = Math.floor(totalMinutes / 60);
+		const minutes = totalMinutes % 60;
+		return minutes === 0 ? `${hours}h` : `${hours}h${minutes}m`;
+	}
+	if (milliseconds >= MS_PER_DAY) {
+		return `${Math.ceil(milliseconds / MS_PER_DAY)}d`;
+	}
+	return `${Math.round(milliseconds / MS_PER_HOUR)}h`;
+}
+
+function formatResetExact(resetAt: Date, now: Date): string {
+	const dayDifference = localDayIndex(resetAt) - localDayIndex(now);
+	if (dayDifference >= 0 && dayDifference <= 7) {
+		return RESET_WEEKDAY_TIME_FORMATTER.format(resetAt);
 	}
 	return RESET_DATE_TIME_FORMATTER.format(resetAt);
 }
@@ -709,6 +749,7 @@ function shouldUseColor(): boolean {
 
 async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> {
 	const positionalTargets = argv.targets ?? [];
+	const onlyTargets = parseList(argv.only);
 	const jsonOutput = Boolean(argv.json || argv.debug);
 	const debugOutput = Boolean(argv.debug);
 	const selectedWindow = normalizeOptionalWindow(argv.window);
@@ -732,11 +773,29 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 		});
 		return null;
 	}
+	if (argv.only != null && onlyTargets.length === 0) {
+		printError({
+			json: jsonOutput,
+			code: "invalid_only",
+			message: "--only must include at least one target.",
+			exitCode: 2,
+		});
+		return null;
+	}
 	if (positionalTargets.length > 1) {
 		printError({
 			json: jsonOutput,
 			code: "too_many_targets",
 			message: "omniagent usage accepts at most one target.",
+			exitCode: 2,
+		});
+		return null;
+	}
+	if (positionalTargets.length > 0 && onlyTargets.length > 0) {
+		printError({
+			json: jsonOutput,
+			code: "conflicting_target_selection",
+			message: "Use either a positional target or --only, not both.",
 			exitCode: 2,
 		});
 		return null;
@@ -771,68 +830,111 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 	const targetResolver = createTargetNameResolver(resolved.targets);
 	const usageCapableTargets = resolved.targets.filter((target) => target.usage);
 	const supportedUsageTargets = formatUsageTargetLabel(usageCapableTargets);
-	const explicitTargetName = positionalTargets[0];
+	const usingOnlySelection = onlyTargets.length > 0;
+	const explicitTargetNames = positionalTargets[0] ? [positionalTargets[0]] : onlyTargets;
 	let selectedTargets: ResolvedTarget[];
 	const resolvedUsageCommands = new Map<string, string>();
 
-	if (explicitTargetName) {
-		const resolvedName = targetResolver.resolveTargetName(explicitTargetName);
-		if (!resolvedName) {
+	if (explicitTargetNames.length > 0) {
+		const selectedIds: string[] = [];
+		const unknownTargetNames: string[] = [];
+		for (const targetName of explicitTargetNames) {
+			const resolvedName = targetResolver.resolveTargetName(targetName);
+			if (!resolvedName) {
+				unknownTargetNames.push(targetName);
+				continue;
+			}
+			if (!selectedIds.includes(resolvedName)) {
+				selectedIds.push(resolvedName);
+			}
+		}
+		if (unknownTargetNames.length > 0) {
+			const unknownLabel = unknownTargetNames.join(", ");
+			const message = usingOnlySelection
+				? `Unknown target name(s): ${unknownLabel}. Supported usage targets: ${supportedUsageTargets}.`
+				: `Unknown target: ${unknownLabel}. Supported usage targets: ${supportedUsageTargets}.`;
 			printError({
 				json: jsonOutput,
 				code: "unknown_target",
-				message: `Unknown target: ${explicitTargetName}. Supported usage targets: ${supportedUsageTargets}.`,
+				message,
 				exitCode: 2,
 			});
 			return null;
 		}
-		const target = resolved.byId.get(resolvedName.toLowerCase());
-		if (!target) {
-			printError({
-				json: jsonOutput,
-				code: "unknown_target",
-				message: `Unknown target: ${explicitTargetName}. Supported usage targets: ${supportedUsageTargets}.`,
-				exitCode: 2,
-			});
-			return null;
-		}
-		if (!target.usage) {
+		const requestedTargets = selectedIds.flatMap((targetId) => {
+			const target = resolved.byId.get(targetId.toLowerCase());
+			return target ? [target] : [];
+		});
+		const unsupportedTargets = requestedTargets.filter((target) => !target.usage);
+		if (unsupportedTargets.length > 0) {
+			const unsupportedLabel = unsupportedTargets.map((target) => target.displayName).join(", ");
 			printError({
 				json: jsonOutput,
 				code: "usage_unsupported",
 				message:
-					`${target.displayName} does not support usage extraction. ` +
+					`${unsupportedLabel} does not support usage extraction. ` +
 					`Supported usage targets: ${supportedUsageTargets}.`,
 				exitCode: 2,
-				target,
+				target: unsupportedTargets.length === 1 ? unsupportedTargets[0] : undefined,
 			});
 			return null;
 		}
-		const availability = await checkUsageCommandAvailability(target);
-		if (availability.status !== "available") {
-			const message = availability.reason ?? "CLI not found on PATH.";
+
+		const requestedUsageIds = new Set(selectedIds);
+		selectedTargets = usageCapableTargets.filter((target) => requestedUsageIds.has(target.id));
+		const availabilityResults = await Promise.all(
+			selectedTargets.map(async (target) => ({
+				target,
+				availability: await checkUsageCommandAvailability(target),
+			})),
+		);
+		const unavailableResults = availabilityResults.filter(
+			({ availability }) => availability.status !== "available",
+		);
+		if (unavailableResults.length > 0) {
 			if (jsonOutput) {
 				const now = new Date();
 				const envelope = buildEnvelope({
 					generatedAt: now.toISOString(),
 					targets: [],
-					errors: [buildError(target, "cli_unavailable", message)],
+					errors: unavailableResults.map(({ target, availability }) =>
+						buildError(target, "cli_unavailable", availability.reason ?? "CLI not found on PATH."),
+					),
 					notes: [],
 					debug: debugOutput,
 					debugArtifacts: [],
 				});
 				console.log(JSON.stringify(envelope, null, 2));
+			} else if (unavailableResults.length === 1) {
+				const unavailableResult = unavailableResults[0];
+				if (unavailableResult) {
+					const { target, availability } = unavailableResult;
+					const message = availability.reason ?? "CLI not found on PATH.";
+					console.error(
+						`Error: ${target.displayName} usage extraction requires its CLI. ${message}`,
+					);
+				}
 			} else {
-				console.error(`Error: ${target.displayName} usage extraction requires its CLI. ${message}`);
+				console.error(
+					[
+						"Error: Some requested usage CLIs are unavailable:",
+						...unavailableResults.map(({ target, availability }) => {
+							const message = availability.reason ?? "CLI not found on PATH.";
+							return `- ${target.displayName}: ${message}`;
+						}),
+					].join("\n"),
+				);
 			}
 			process.exit(1);
 			return null;
 		}
-		resolvedUsageCommands.set(
-			target.id,
-			availability.resolvedPath ?? getUsageCommand(target) ?? "",
-		);
-		selectedTargets = [target];
+
+		for (const { target, availability } of availabilityResults) {
+			resolvedUsageCommands.set(
+				target.id,
+				availability.resolvedPath ?? getUsageCommand(target) ?? "",
+			);
+		}
 	} else {
 		const availabilityResults = await Promise.all(
 			usageCapableTargets.map(async (target) => ({
@@ -946,7 +1048,7 @@ export const usageCommand: CommandModule<unknown, UsageArgs> = {
 	builder: (yargsInstance) =>
 		yargsInstance
 			.usage(
-				"omniagent usage [target] [--window <window>] [--timeout <seconds>] [--json] [--debug]",
+				"omniagent usage [target] [--only <targets>] [--window <window>] [--timeout <seconds>] [--json] [--debug]",
 			)
 			.positional("targets", {
 				type: "string",
@@ -956,6 +1058,10 @@ export const usageCommand: CommandModule<unknown, UsageArgs> = {
 			.option("window", {
 				type: "string",
 				describe: "Filter usage rows by window (hourly, weekly, 5h, or a custom window).",
+			})
+			.option("only", {
+				type: "string",
+				describe: "Comma-separated target ids or aliases to report usage for.",
 			})
 			.option("timeout", {
 				type: "string",

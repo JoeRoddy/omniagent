@@ -145,7 +145,6 @@ export function buildCodexUsageLimits(
 				resetText: parseResetText(raw),
 				raw,
 				now: context.now,
-				resetSourceTimeZone: "utc",
 			}),
 		];
 	});
