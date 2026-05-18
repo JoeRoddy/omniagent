@@ -56,6 +56,8 @@ export type NormalizedUsageDebugArtifact =
 			label: string;
 			content: string;
 			command?: string;
+			targetId?: string;
+			displayName?: string;
 	  }
 	| {
 			type: "screen-snapshot";
@@ -63,6 +65,8 @@ export type NormalizedUsageDebugArtifact =
 			path?: string;
 			content?: string;
 			mimeType?: string;
+			targetId?: string;
+			displayName?: string;
 	  };
 
 export type NormalizedUsageTargetResult = {

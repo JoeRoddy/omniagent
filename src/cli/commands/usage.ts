@@ -252,6 +252,46 @@ function buildEnvelope(options: {
 	return envelope;
 }
 
+function buildCommandError(code: string, message: string): NormalizedUsageError {
+	return {
+		targetId: "usage",
+		displayName: "Usage command",
+		code,
+		message,
+	};
+}
+
+function printError(options: {
+	json: boolean;
+	code: string;
+	message: string;
+	exitCode: number;
+	target?: ResolvedTarget;
+}): void {
+	if (options.json) {
+		const error = options.target
+			? buildError(options.target, options.code, options.message)
+			: buildCommandError(options.code, options.message);
+		console.log(
+			JSON.stringify(
+				buildEnvelope({
+					generatedAt: new Date().toISOString(),
+					targets: [],
+					errors: [error],
+					notes: [],
+					debug: false,
+					debugArtifacts: [],
+				}),
+				null,
+				2,
+			),
+		);
+	} else {
+		console.error(`Error: ${options.message}`);
+	}
+	process.exit(options.exitCode);
+}
+
 function percentText(value: number | null): string {
 	return value == null ? "-" : `${Math.round(value)}%`;
 }
@@ -309,23 +349,33 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 	const debugOutput = Boolean(argv.debug);
 	const selectedWindow = normalizeOptionalWindow(argv.window);
 	if (selectedWindow === "") {
-		console.error("Error: --window must be a non-empty value.");
-		process.exit(2);
+		printError({
+			json: jsonOutput,
+			code: "invalid_window",
+			message: "--window must be a non-empty value.",
+			exitCode: 2,
+		});
 		return null;
 	}
 	if (positionalTargets.length > 1) {
-		console.error("Error: omniagent usage accepts at most one target.");
-		process.exit(2);
+		printError({
+			json: jsonOutput,
+			code: "too_many_targets",
+			message: "omniagent usage accepts at most one target.",
+			exitCode: 2,
+		});
 		return null;
 	}
 
 	const startDir = process.cwd();
 	const repoRoot = await findRepoRoot(startDir);
 	if (!repoRoot) {
-		console.error(
-			`Error: Repository root not found starting from ${startDir}. Looked for .git or package.json.`,
-		);
-		process.exit(1);
+		printError({
+			json: jsonOutput,
+			code: "repo_not_found",
+			message: `Repository root not found starting from ${startDir}. Looked for .git or package.json.`,
+			exitCode: 1,
+		});
 		return null;
 	}
 	const agentsDir = resolveAgentsDir(repoRoot).resolvedPath;
@@ -333,8 +383,12 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 	const { config } = await loadTargetConfig({ repoRoot, agentsDir });
 	const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
 	if (!validation.valid) {
-		console.error(`Error: Invalid target configuration:\n- ${validation.errors.join("\n- ")}`);
-		process.exit(1);
+		printError({
+			json: jsonOutput,
+			code: "invalid_target_config",
+			message: `Invalid target configuration:\n- ${validation.errors.join("\n- ")}`,
+			exitCode: 1,
+		});
 		return null;
 	}
 
@@ -348,26 +402,34 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 	if (explicitTargetName) {
 		const resolvedName = targetResolver.resolveTargetName(explicitTargetName);
 		if (!resolvedName) {
-			console.error(
-				`Error: Unknown target: ${explicitTargetName}. Supported usage targets: ${supportedUsageTargets}.`,
-			);
-			process.exit(2);
+			printError({
+				json: jsonOutput,
+				code: "unknown_target",
+				message: `Unknown target: ${explicitTargetName}. Supported usage targets: ${supportedUsageTargets}.`,
+				exitCode: 2,
+			});
 			return null;
 		}
 		const target = resolved.byId.get(resolvedName.toLowerCase());
 		if (!target) {
-			console.error(
-				`Error: Unknown target: ${explicitTargetName}. Supported usage targets: ${supportedUsageTargets}.`,
-			);
-			process.exit(2);
+			printError({
+				json: jsonOutput,
+				code: "unknown_target",
+				message: `Unknown target: ${explicitTargetName}. Supported usage targets: ${supportedUsageTargets}.`,
+				exitCode: 2,
+			});
 			return null;
 		}
 		if (!target.usage) {
-			console.error(
-				`Error: ${target.displayName} does not support usage extraction. ` +
+			printError({
+				json: jsonOutput,
+				code: "usage_unsupported",
+				message:
+					`${target.displayName} does not support usage extraction. ` +
 					`Supported usage targets: ${supportedUsageTargets}.`,
-			);
-			process.exit(2);
+				exitCode: 2,
+				target,
+			});
 			return null;
 		}
 		const availability = await checkUsageCommandAvailability(target);
@@ -457,7 +519,13 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 			targets.push(outcome.result);
 			errors.push(...outcome.errors);
 			notes.push(...outcome.notes);
-			debugArtifacts.push(...outcome.debug);
+			debugArtifacts.push(
+				...outcome.debug.map((artifact) => ({
+					...artifact,
+					targetId: outcome.target.id,
+					displayName: outcome.target.displayName,
+				})),
+			);
 		} else {
 			errors.push(outcome.error);
 		}

@@ -252,6 +252,25 @@ describe.sequential("usage command", () => {
 		});
 	});
 
+	it("prints JSON envelopes for invalid usage while preserving exit code 2", async () => {
+		await withTempRepo(async (root) => {
+			await writeConfig(root, usageConfig({}));
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "unknown", "--json"]);
+			});
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(envelope.targets).toEqual([]);
+			expect(envelope.errors[0]).toMatchObject({
+				code: "unknown_target",
+				message: expect.stringContaining("Unknown target: unknown"),
+			});
+			expect(errorSpy).not.toHaveBeenCalled();
+			expect(exitSpy).toHaveBeenCalledWith(2);
+		});
+	});
+
 	it("selects only installed usage-capable targets by default", async () => {
 		await withTempRepo(async (root) => {
 			await createFakeCliBin(root, ["codex", "copilot"]);
@@ -478,6 +497,8 @@ describe.sequential("usage command", () => {
 
 			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
 			expect(envelope.debug[0].type).toBe("raw-output");
+			expect(envelope.debug[0].targetId).toBe("codex");
+			expect(envelope.debug[0].displayName).toBe("Mock Codex");
 			expect(envelope.debug[0].content).toContain("account: private");
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
