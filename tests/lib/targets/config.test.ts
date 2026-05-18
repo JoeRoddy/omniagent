@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { BUILTIN_TARGETS } from "../../../src/lib/targets/builtins.js";
 import { findTargetConfigPath, loadTargetConfig } from "../../../src/lib/targets/config-loader.js";
-import type { OmniagentConfig } from "../../../src/lib/targets/config-types.js";
+import type {
+	OmniagentConfig,
+	TargetDefinition,
+	TargetUsageDefinition,
+} from "../../../src/lib/targets/config-types.js";
 import { validateTargetConfig } from "../../../src/lib/targets/config-validate.js";
 import { resolveTargets } from "../../../src/lib/targets/resolve-targets.js";
 import {
@@ -11,6 +15,30 @@ import {
 	defaultSkillWriter,
 	defaultSubagentWriter,
 } from "../../../src/lib/targets/writers.js";
+
+function createUsage(windows: string[] = ["5h"]): TargetUsageDefinition {
+	return {
+		windows,
+		extract: async (context) => ({
+			targetId: context.targetId,
+			displayName: context.displayName,
+			command: context.command,
+			limits: [
+				{
+					id: `${context.targetId}-${context.window}`,
+					targetId: context.targetId,
+					agent: context.targetId,
+					window: context.window,
+					percentUsed: 25,
+					percentRemaining: 75,
+					resetAt: null,
+					resetText: null,
+					raw: "25%",
+				},
+			],
+		}),
+	};
+}
 
 async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> {
 	const root = await mkdtemp(path.join(os.tmpdir(), "omniagent-targets-config-"));
@@ -143,6 +171,65 @@ describe("target config validation", () => {
 		expect(validation.valid).toBe(true);
 		expect(validation.errors).toEqual([]);
 	});
+
+	it("allows custom usage extract functions", () => {
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "metered",
+					usage: {
+						windows: ["5h"],
+						launch: {
+							command: "metered",
+							args: ["usage", "--json"],
+							timeoutMs: 1_000,
+							cheapModel: "small",
+						},
+						extract: async (context) => ({
+							targetId: context.targetId,
+							displayName: context.displayName,
+							limits: [],
+						}),
+					},
+				},
+			],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(true);
+		expect(validation.errors).toEqual([]);
+	});
+
+	it("rejects invalid usage definitions", () => {
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "metered",
+					usage: {
+						windows: [],
+						launch: {
+							args: ["usage", ""],
+							timeoutMs: 0,
+						},
+						extract: "nope",
+					},
+				} as unknown as TargetDefinition,
+			],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(false);
+		expect(validation.errors).toEqual(
+			expect.arrayContaining([
+				"targets[0].usage.windows must include at least one entry.",
+				"targets[0].usage.launch.args[1] must be a non-empty string.",
+				"targets[0].usage.launch.timeoutMs must be a positive number when provided.",
+				"targets[0].usage.extract must be a function.",
+			]),
+		);
+	});
 });
 
 describe("target resolution", () => {
@@ -205,5 +292,86 @@ describe("target resolution", () => {
 			expect(target.isBuiltIn).toBe(true);
 			expect(target.isCustomized).toBe(false);
 		}
+	});
+
+	it("preserves inherited usage definitions", () => {
+		const builtIns: TargetDefinition[] = [
+			{
+				id: "metered",
+				displayName: "Metered",
+				outputs: { skills: "{repoRoot}/.metered/skills/{itemName}" },
+				usage: createUsage(["5h", "weekly"]),
+			},
+		];
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "acme",
+					inherits: "metered",
+					outputs: { instructions: "ACME.md" },
+				},
+			],
+		};
+
+		const resolved = resolveTargets({ config, builtIns });
+		const acme = resolved.byId.get("acme");
+
+		expect(acme?.usage).toBeDefined();
+		expect(acme?.usage).not.toBe(builtIns[0].usage);
+		expect(acme?.usage?.windows).toEqual(["5h", "weekly"]);
+		expect(acme?.usage?.extract).toBe(builtIns[0].usage?.extract);
+	});
+
+	it("uses explicit usage overrides for inherited targets", () => {
+		const inheritedUsage = createUsage(["5h"]);
+		const customUsage = createUsage(["daily"]);
+		const builtIns: TargetDefinition[] = [
+			{
+				id: "metered",
+				displayName: "Metered",
+				outputs: {},
+				usage: inheritedUsage,
+			},
+		];
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "metered",
+					inherits: "metered",
+					usage: customUsage,
+				},
+			],
+		};
+
+		const resolved = resolveTargets({ config, builtIns });
+		const metered = resolved.byId.get("metered");
+
+		expect(metered?.usage).toBeDefined();
+		expect(metered?.usage).not.toBe(customUsage);
+		expect(metered?.usage?.windows).toEqual(["daily"]);
+		expect(metered?.usage?.extract).toBe(customUsage.extract);
+	});
+
+	it("replaces usage for built-in overrides that do not inherit", () => {
+		const builtIns: TargetDefinition[] = [
+			{
+				id: "metered",
+				displayName: "Metered",
+				outputs: {},
+				usage: createUsage(["5h"]),
+			},
+		];
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "metered",
+					outputs: {},
+				},
+			],
+		};
+
+		const resolved = resolveTargets({ config, builtIns });
+
+		expect(resolved.byId.get("metered")?.usage).toBeUndefined();
 	});
 });

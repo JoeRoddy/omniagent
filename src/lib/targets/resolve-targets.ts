@@ -5,6 +5,7 @@ import type {
 	TargetCliDefinition,
 	TargetDefinition,
 	TargetOutputs,
+	TargetUsageDefinition,
 } from "./config-types.js";
 
 function normalizeKey(value: string): string {
@@ -17,6 +18,22 @@ function cloneOutputs(outputs: TargetOutputs | undefined): TargetOutputs {
 
 function cloneCli(cli: TargetCliDefinition | undefined): TargetCliDefinition | undefined {
 	return cli ? { ...cli } : undefined;
+}
+
+function cloneUsage(usage: TargetUsageDefinition | undefined): TargetUsageDefinition | undefined {
+	if (!usage) {
+		return undefined;
+	}
+	return {
+		...usage,
+		windows: [...usage.windows],
+		launch: usage.launch
+			? {
+					...usage.launch,
+					args: usage.launch.args ? [...usage.launch.args] : undefined,
+				}
+			: undefined,
+	};
 }
 
 function mergeOutputs(
@@ -99,6 +116,7 @@ export function resolveTargets(options: {
 				aliases: builtIn.aliases ?? [],
 				outputs: cloneOutputs(builtIn.outputs),
 				cli: cloneCli(builtIn.cli),
+				usage: cloneUsage(builtIn.usage),
 				hooks: builtIn.hooks,
 				isBuiltIn: true,
 				isCustomized: false,
@@ -116,7 +134,8 @@ export function resolveTargets(options: {
 				displayName: customTarget.displayName ?? inherited?.displayName ?? customTarget.id,
 				aliases: customTarget.aliases ?? inherited?.aliases ?? [],
 				outputs: mergedOutputs,
-				cli: customTarget.cli ?? inherited?.cli,
+				cli: cloneCli(customTarget.cli ?? inherited?.cli),
+				usage: cloneUsage(customTarget.usage ?? inherited?.usage),
 				hooks: customTarget.hooks ?? inherited?.hooks,
 				isBuiltIn: true,
 				isCustomized: true,
@@ -129,6 +148,7 @@ export function resolveTargets(options: {
 				aliases: customTarget.aliases ?? [],
 				outputs: cloneOutputs(customTarget.outputs),
 				cli: cloneCli(customTarget.cli),
+				usage: cloneUsage(customTarget.usage),
 				hooks: customTarget.hooks,
 				isBuiltIn: true,
 				isCustomized: true,
@@ -151,7 +171,8 @@ export function resolveTargets(options: {
 			displayName: target.displayName ?? inherited?.displayName ?? target.id,
 			aliases: target.aliases ?? inherited?.aliases ?? [],
 			outputs: mergedOutputs,
-			cli: target.cli ?? inherited?.cli,
+			cli: cloneCli(target.cli ?? inherited?.cli),
+			usage: cloneUsage(target.usage ?? inherited?.usage),
 			hooks: target.hooks ?? inherited?.hooks,
 			isBuiltIn: false,
 			isCustomized: true,

@@ -1,4 +1,7 @@
 import type { TemplateScriptRuntime } from "../template-scripts.js";
+import type { TargetUsageDefinition } from "../usage/types.js";
+
+export type { TargetUsageDefinition } from "../usage/types.js";
 
 export const AGENT_IDS = ["claude", "codex", "gemini", "copilot"] as const;
 export type AgentId = (typeof AGENT_IDS)[number];
@@ -221,6 +224,7 @@ export type TargetDefinition = {
 	override?: boolean;
 	outputs?: TargetOutputs;
 	cli?: TargetCliDefinition;
+	usage?: TargetUsageDefinition;
 	hooks?: TargetHooks;
 };
 
@@ -237,6 +241,7 @@ export type ResolvedTarget = {
 	aliases: string[];
 	outputs: TargetOutputs;
 	cli?: TargetCliDefinition;
+	usage?: TargetUsageDefinition;
 	hooks?: TargetHooks;
 	isBuiltIn: boolean;
 	isCustomized: boolean;

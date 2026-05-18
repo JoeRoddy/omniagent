@@ -8,6 +8,7 @@ import type {
 	TargetCliDefinition,
 	TargetDefinition,
 	TargetOutputs,
+	TargetUsageDefinition,
 } from "./config-types.js";
 import { APPROVAL_POLICIES, OUTPUT_FORMATS, SANDBOX_MODES } from "./config-types.js";
 import { type PlaceholderKey, validatePlaceholders } from "./placeholders.js";
@@ -235,6 +236,55 @@ function validateCliDefinition(
 	}
 	if (cli.translate !== undefined && typeof cli.translate !== "function") {
 		errors.push(`${label}.translate must be a function when provided.`);
+	}
+}
+
+function validateUsageDefinition(
+	usage: TargetUsageDefinition | undefined,
+	label: string,
+	errors: string[],
+): void {
+	if (usage === undefined) {
+		return;
+	}
+	if (!isPlainObject(usage)) {
+		errors.push(`${label} must be an object.`);
+		return;
+	}
+
+	validateStringArray(usage.windows, `${label}.windows`, errors);
+
+	if (usage.launch !== undefined) {
+		if (!isPlainObject(usage.launch)) {
+			errors.push(`${label}.launch must be an object.`);
+		} else {
+			if (usage.launch.command !== undefined && normalizeString(usage.launch.command) === null) {
+				errors.push(`${label}.launch.command must be a non-empty string when provided.`);
+			}
+			if (usage.launch.args !== undefined) {
+				validateStringArray(usage.launch.args, `${label}.launch.args`, errors, {
+					allowEmpty: true,
+				});
+			}
+			if (
+				usage.launch.timeoutMs !== undefined &&
+				(typeof usage.launch.timeoutMs !== "number" ||
+					!Number.isFinite(usage.launch.timeoutMs) ||
+					usage.launch.timeoutMs <= 0)
+			) {
+				errors.push(`${label}.launch.timeoutMs must be a positive number when provided.`);
+			}
+			if (
+				usage.launch.cheapModel !== undefined &&
+				normalizeString(usage.launch.cheapModel) === null
+			) {
+				errors.push(`${label}.launch.cheapModel must be a non-empty string when provided.`);
+			}
+		}
+	}
+
+	if (typeof usage.extract !== "function") {
+		errors.push(`${label}.extract must be a function.`);
 	}
 }
 
@@ -520,6 +570,7 @@ export function validateTargetConfig(options: {
 
 				validateOutputs(entry.outputs, `${label}.outputs`, errors);
 				validateCliDefinition(entry.cli, `${label}.cli`, errors);
+				validateUsageDefinition(entry.usage, `${label}.usage`, errors);
 			}
 		}
 	}
