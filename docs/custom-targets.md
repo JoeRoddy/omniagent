@@ -48,6 +48,55 @@ export default config;
 - If multiple targets resolve to the same file, default writers handle
   skills/subagents/instructions, but command collisions are errors.
 
+## Usage extraction
+
+Custom target configs can define `usage` when the agent exposes usage or limit information.
+The `usage.extract` function returns normalized percent-limit rows that `omniagent usage`
+can render in the table or JSON envelope.
+
+```ts
+const config = {
+	targets: [
+		{
+			id: "metered",
+			displayName: "Metered Agent",
+			usage: {
+				windows: ["5h", "weekly"],
+				launch: {
+					command: "metered",
+					args: ["usage", "--json"],
+					timeoutMs: 60_000,
+					cheapModel: "small",
+				},
+				extract: async (context) => ({
+					targetId: context.targetId,
+					displayName: context.displayName,
+					command: context.command,
+					limits: [
+						{
+							id: "metered-weekly",
+							targetId: context.targetId,
+							agent: context.displayName,
+							window: "weekly",
+							percentUsed: 40,
+							percentRemaining: 60,
+							resetAt: null,
+							resetText: "Monday",
+							raw: "40% weekly usage",
+						},
+					],
+				}),
+			},
+		},
+	],
+};
+
+export default config;
+```
+
+Built-in usage extraction is available for Codex, Claude, and Gemini in v1. Copilot is not
+supported for usage extraction in v1.
+
 ## Related docs
 
 - Core sync behavior: [`docs/sync-basics.md`](sync-basics.md)

@@ -21,6 +21,65 @@ Run-level override behavior:
 - `--skip` filters the active target set after `--only`.
 - If both are provided, `--only` applies first and `--skip` applies second.
 
+## Usage
+
+```bash
+npx omniagent@latest usage
+npx omniagent@latest usage codex
+npx omniagent@latest usage claude
+npx omniagent@latest usage gemini
+npx omniagent@latest usage codex --window=weekly
+npx omniagent@latest usage codex --window=5h
+npx omniagent@latest usage codex --json
+npx omniagent@latest usage codex --debug
+```
+
+Command surface:
+
+- `omniagent usage` reports usage rows for installed, active targets that support usage
+  extraction.
+- `omniagent usage <target>` reports one target by target id or alias.
+- The command accepts at most one positional target.
+- Built-in usage targets for v1 are Codex, Claude, and Gemini. Copilot does not support
+  usage extraction in v1.
+
+Target behavior:
+
+- With no target, omniagent checks usage-capable targets and skips agents whose usage launch
+  command is not installed.
+- With an explicit target, a missing required CLI is an error.
+- Unknown targets and targets without usage extraction are invalid usage errors.
+- Usage extraction may launch agent TUIs. omniagent uses cheap/minimal launch settings where
+  possible, but an agent may still incur cost if it reads repo context or instructions on startup.
+- omniagent will not accept auth, trust, or onboarding prompts automatically.
+
+Windows:
+
+- `--window=<window>` filters returned rows to the requested window.
+- Common windows include `hourly`, `weekly`, and aliases such as `5h`.
+- Custom window strings are accepted. If no row matches the requested window, the command emits a
+  note instead of failing.
+
+JSON and debug:
+
+- `--json` prints a stable JSON envelope with `schemaVersion`, `generatedAt`, `targets`,
+  `errors`, and `notes`.
+- `--debug` implies JSON and includes extractor debug artifacts when available, such as raw TUI
+  output or screen snapshots.
+- Debug output may contain sensitive local agent output. Use it for troubleshooting, not routine
+  logging.
+
+Failure basics:
+
+- Invalid usage, such as unknown targets, unsupported targets, multiple targets, or an empty
+  `--window`, exits with code 2.
+- Missing explicit CLIs, invalid target configuration, repository discovery failures, and usage
+  extraction failures exit with code 1.
+- In all-target mode, partial extraction failures are reported alongside successful targets and
+  cause exit code 1.
+- If no installed active usage-capable agents are found in all-target mode, omniagent prints an
+  actionable note and exits successfully.
+
 ## Shim
 
 ```bash

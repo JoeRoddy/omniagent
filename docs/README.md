@@ -11,7 +11,7 @@ Use the pages below when you need deeper behavior or advanced configuration.
 - Local overrides: [`docs/local-overrides.md`](local-overrides.md)
 - Sync profiles: [`docs/profiles.md`](profiles.md)
 - Templating and dynamic scripts: [`docs/templating.md`](templating.md)
-- Command reference: [`docs/reference.md`](reference.md)
+- Command reference, including `sync`, `usage`, and shim flags: [`docs/reference.md`](reference.md)
 - Troubleshooting: [`docs/troubleshooting.md`](troubleshooting.md)
 
 Contributor/development docs live in [`CONTRIBUTING.md`](../CONTRIBUTING.md).
