@@ -1,7 +1,10 @@
 import os from "node:os";
-import { Terminal } from "@xterm/headless";
+import headless from "@xterm/headless";
 import pty from "node-pty";
 import type { NormalizedUsageDebugArtifact } from "./types.js";
+
+const { Terminal } = headless;
+type HeadlessTerminal = InstanceType<typeof Terminal>;
 
 export type PtyStep = {
 	waitMs?: number;
@@ -55,7 +58,7 @@ export function typeTextSteps(text: string, delayMs: number): PtyStep[] {
 	return [...text].map((char) => ({ write: char, waitMs: delayMs }));
 }
 
-export function createHeadlessTerminal(cols = 100, rows = 40): Terminal {
+export function createHeadlessTerminal(cols = 100, rows = 40): HeadlessTerminal {
 	return new Terminal({
 		allowProposedApi: true,
 		cols,
@@ -184,7 +187,7 @@ export async function runPtyScenario(options: PtyScenarioOptions): Promise<PtySc
 	}
 }
 
-export function readScreen(terminal: Terminal): string {
+export function readScreen(terminal: HeadlessTerminal): string {
 	const buffer = terminal.buffer.active;
 	const lines: string[] = [];
 
