@@ -1,3 +1,4 @@
+import { extractGeminiUsage } from "../../../usage/gemini.js";
 import type { TargetDefinition } from "../../config-types.js";
 
 export const geminiTarget: TargetDefinition = {
@@ -49,5 +50,15 @@ export const geminiTarget: TargetDefinition = {
 		instructions: {
 			filename: "GEMINI.md",
 		},
+	},
+	usage: {
+		windows: ["model"],
+		launch: {
+			command: "gemini",
+			// --skip-trust avoids accepting trust prompts while still allowing /model inspection.
+			args: ["--skip-trust"],
+			timeoutMs: 70_000,
+		},
+		extract: extractGeminiUsage,
 	},
 };

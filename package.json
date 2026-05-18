@@ -43,8 +43,10 @@
   "author": "plsdontemailme@joeroddy.net",
   "license": "MIT",
   "dependencies": {
+    "@xterm/headless": "^5.5.0",
     "jiti": "^2.6.1",
     "minimatch": "^10.2.5",
+    "node-pty": "^1.0.0",
     "yargs": "^17.7.2"
   },
   "devDependencies": {

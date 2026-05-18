@@ -1,0 +1,204 @@
+import {
+	cleanControlOutput,
+	makeUsageLimit,
+	parsePercentRemaining,
+	parseResetText,
+} from "./format.js";
+import { enterKey, runPtyScenario, typeTextSteps } from "./pty.js";
+import type {
+	NormalizedUsageLimit,
+	UsageExtractionContext,
+	UsageExtractionResult,
+} from "./types.js";
+
+const CODEX_WINDOWS = [
+	["main", "5h", "main5hLimit"],
+	["main", "weekly", "mainWeeklyLimit"],
+	["spark", "5h", "spark5hLimit"],
+	["spark", "weekly", "sparkWeeklyLimit"],
+] as const;
+
+export type ParsedCodexStatus = {
+	model: string;
+	directory: string;
+	permissions: string;
+	agentsMd: string;
+	account: string;
+	collaborationMode: string;
+	session: string;
+	main5hLimit: string;
+	mainWeeklyLimit: string;
+	spark5hLimit: string;
+	sparkWeeklyLimit: string;
+};
+
+export async function extractCodexUsage(
+	context: UsageExtractionContext,
+): Promise<UsageExtractionResult> {
+	const command = context.launch?.command ?? context.command ?? "codex";
+	const ptyResult = await runPtyScenario({
+		command,
+		args: context.launch?.args ?? ["--no-alt-screen"],
+		cwd: context.repoRoot,
+		cols: 100,
+		rows: 40,
+		timeoutMs: context.launch?.timeoutMs ?? 60_000,
+		debug: context.debug,
+		steps: [
+			{ waitMs: 10_000 },
+			...typeTextSteps("/status", 80),
+			{ write: enterKey() },
+			{ waitMs: 12_000, capture: "status" },
+			...typeTextSteps("/exit", 80),
+			{ write: enterKey() },
+			{ waitMs: 2_000 },
+		],
+	});
+
+	const statusSnapshot = ptyResult.snapshots.status ?? ptyResult;
+	const cleanedOutput = cleanControlOutput(statusSnapshot.raw);
+	const parsed = parseCodexStatus(cleanedOutput);
+
+	return {
+		targetId: context.targetId,
+		displayName: context.displayName,
+		command,
+		limits: buildCodexUsageLimits(parsed, context),
+		debug: ptyResult.debug.length > 0 ? ptyResult.debug : undefined,
+	};
+}
+
+export function buildCodexUsageLimits(
+	parsed: ParsedCodexStatus,
+	context: Pick<UsageExtractionContext, "targetId" | "now">,
+): NormalizedUsageLimit[] {
+	return CODEX_WINDOWS.flatMap(([scope, window, key]) => {
+		const raw = parsed[key]?.trim() ?? "";
+		if (!raw) {
+			return [];
+		}
+
+		const percentRemaining = parsePercentRemaining(raw);
+		return [
+			makeUsageLimit({
+				targetId: context.targetId,
+				scope,
+				window,
+				percentUsed: percentRemaining == null ? null : 100 - percentRemaining,
+				percentRemaining,
+				resetText: parseResetText(raw),
+				raw,
+				now: context.now,
+				resetSourceTimeZone: "utc",
+			}),
+		];
+	});
+}
+
+export function parseCodexStatus(cleanedOutput: string): ParsedCodexStatus {
+	const values: Partial<ParsedCodexStatus> = {};
+	let inStatus = false;
+	let section: "main" | "spark" = "main";
+	let key: keyof ParsedCodexStatus | "" = "";
+
+	for (const rawLine of cleanedOutput.split(/\n/)) {
+		const normalizedLine = normalizeCodexLine(rawLine);
+
+		if (!inStatus) {
+			if (normalizedLine === "Model:" || normalizedLine.startsWith("Model: ")) {
+				inStatus = true;
+				key = "model";
+				appendValue(values, key, normalizedLine.slice("Model:".length).trim());
+			}
+			continue;
+		}
+
+		if (normalizedLine.startsWith("› ") || normalizedLine.includes("/exit exit Codex")) {
+			break;
+		}
+
+		let line = normalizedLine;
+		if (!line || line === "[" || line === "]") {
+			continue;
+		}
+		line = line.replace(/^\]\s*/, "").trim();
+		if (!line) {
+			continue;
+		}
+
+		const labelMatch = /^([-A-Za-z0-9_. ]+):\s*(.*)$/.exec(line);
+		if (labelMatch != null) {
+			const label = labelMatch[1].trim();
+			const inlineValue = labelMatch[2].trim();
+
+			if (label === "GPT-5.3-Codex-Spark limit") {
+				section = "spark";
+				key = "";
+				continue;
+			}
+
+			key = labelToCodexKey(label, section);
+			if (key && inlineValue) {
+				appendValue(values, key, inlineValue);
+			}
+			continue;
+		}
+
+		if (key) {
+			appendValue(values, key, line);
+		}
+	}
+
+	return {
+		model: values.model ?? "",
+		directory: values.directory ?? "",
+		permissions: values.permissions ?? "",
+		agentsMd: values.agentsMd ?? "",
+		account: values.account ?? "",
+		collaborationMode: values.collaborationMode ?? "",
+		session: values.session ?? "",
+		main5hLimit: values.main5hLimit ?? "",
+		mainWeeklyLimit: values.mainWeeklyLimit ?? "",
+		spark5hLimit: values.spark5hLimit ?? "",
+		sparkWeeklyLimit: values.sparkWeeklyLimit ?? "",
+	};
+}
+
+function labelToCodexKey(label: string, section: "main" | "spark"): keyof ParsedCodexStatus | "" {
+	if (label === "Model") return "model";
+	if (label === "Directory") return "directory";
+	if (label === "Permissions") return "permissions";
+	if (label === "Agents.md") return "agentsMd";
+	if (label === "Account") return "account";
+	if (label === "Collaboration mode") return "collaborationMode";
+	if (label === "Session") return "session";
+	if (label === "5h limit") return section === "spark" ? "spark5hLimit" : "main5hLimit";
+	if (label === "Weekly limit") {
+		return section === "spark" ? "sparkWeeklyLimit" : "mainWeeklyLimit";
+	}
+	return "";
+}
+
+function appendValue(
+	values: Partial<ParsedCodexStatus>,
+	key: keyof ParsedCodexStatus,
+	value: string,
+): void {
+	const sanitized = sanitizeCodexValue(value);
+	if (!sanitized) {
+		return;
+	}
+	values[key] =
+		values[key] == null || values[key] === "" ? sanitized : `${values[key]} ${sanitized}`;
+}
+
+function normalizeCodexLine(line: string): string {
+	return line
+		.replace(/[│╭╮╰╯─]/g, " ")
+		.replace(/[ \t]+/g, " ")
+		.trim();
+}
+
+function sanitizeCodexValue(value: string): string {
+	return value.replace(/›.*$/g, "").trim();
+}

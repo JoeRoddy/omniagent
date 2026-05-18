@@ -1,3 +1,4 @@
+import { extractCodexUsage } from "../../../usage/codex.js";
 import type { TargetDefinition } from "../../config-types.js";
 
 export const codexTarget: TargetDefinition = {
@@ -57,5 +58,14 @@ export const codexTarget: TargetDefinition = {
 			filename: "AGENTS.md",
 			group: "agents",
 		},
+	},
+	usage: {
+		windows: ["hourly", "weekly"],
+		launch: {
+			command: "codex",
+			args: ["--no-alt-screen"],
+			timeoutMs: 60_000,
+		},
+		extract: extractCodexUsage,
 	},
 };

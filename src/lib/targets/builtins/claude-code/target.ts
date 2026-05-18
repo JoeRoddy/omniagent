@@ -1,3 +1,4 @@
+import { extractClaudeUsage } from "../../../usage/claude.js";
 import type { TargetDefinition } from "../../config-types.js";
 
 export const claudeTarget: TargetDefinition = {
@@ -39,5 +40,16 @@ export const claudeTarget: TargetDefinition = {
 		instructions: {
 			filename: "CLAUDE.md",
 		},
+	},
+	usage: {
+		windows: ["hourly", "weekly"],
+		launch: {
+			command: "claude",
+			// Haiku keeps the interactive usage probe on Claude's lowest-cost model family.
+			args: ["--model", "haiku"],
+			cheapModel: "haiku",
+			timeoutMs: 60_000,
+		},
+		extract: extractClaudeUsage,
 	},
 };
