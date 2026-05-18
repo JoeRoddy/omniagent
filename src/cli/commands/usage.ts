@@ -25,6 +25,7 @@ import type {
 type UsageArgs = {
 	targets?: string[];
 	window?: string;
+	timeout?: string;
 	json?: boolean;
 	debug?: boolean;
 };
@@ -58,12 +59,89 @@ type TargetExtractionOutcome =
 			error: NormalizedUsageError;
 	  };
 
+const USAGE_BAR_WIDTH = 12;
+const ANSI = {
+	reset: "\x1b[0m",
+	bold: "\x1b[1m",
+	dim: "\x1b[2m",
+	green: "\x1b[32m",
+	yellow: "\x1b[33m",
+	orange: "\x1b[38;5;208m",
+	red: "\x1b[31m",
+	gray: "\x1b[90m",
+} as const;
+
+type AnsiStyle = keyof typeof ANSI;
+
+type UsageDisplayRow =
+	| {
+			status: "ok";
+			agent: string;
+			limitLabel: string;
+			limit: NormalizedUsageLimit;
+	  }
+	| {
+			status: "error";
+			agent: string;
+			limitLabel: string;
+			message: string;
+	  };
+
+type UsageTableWidths = {
+	agent: number;
+	limit: number;
+	usage: number;
+	left: number;
+	reset: number;
+};
+
+const DEFAULT_USAGE_TIMEOUT_MS = 60_000;
+
+class UsageExtractionTimeoutError extends Error {
+	constructor(readonly timeoutMs: number) {
+		super(`Usage extraction timed out after ${formatDuration(timeoutMs)}.`);
+	}
+}
+
 function normalizeOptionalWindow(value: string | undefined): string | null {
 	if (value == null) {
 		return null;
 	}
 	const trimmed = value.trim();
 	return trimmed.length > 0 ? normalizeUsageWindow(trimmed) : "";
+}
+
+function parseTimeoutMs(value: string | undefined): number | null {
+	if (value == null) {
+		return DEFAULT_USAGE_TIMEOUT_MS;
+	}
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return null;
+	}
+	const match = /^(\d+(?:\.\d+)?)(ms|s|m)?$/i.exec(trimmed);
+	if (!match) {
+		return null;
+	}
+
+	const amount = Number(match[1]);
+	const unit = match[2]?.toLowerCase() ?? "s";
+	const multiplier = unit === "ms" ? 1 : unit === "m" ? 60_000 : 1_000;
+	const timeoutMs = amount * multiplier;
+	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+		return null;
+	}
+	return Math.ceil(timeoutMs);
+}
+
+function formatDuration(timeoutMs: number): string {
+	if (timeoutMs % 60_000 === 0) {
+		return `${timeoutMs / 60_000}m`;
+	}
+	if (timeoutMs % 1_000 === 0) {
+		return `${timeoutMs / 1_000}s`;
+	}
+	return `${timeoutMs}ms`;
 }
 
 function uniqueNormalizedWindows(values: string[]): string[] {
@@ -140,11 +218,16 @@ function buildContext(options: {
 	agentsDir: string;
 	homeDir: string;
 	selectedWindow: string | null;
+	timeoutMs: number;
 	debug: boolean;
 	now: Date;
 	command?: string;
 }): UsageExtractionContext {
 	const windows = uniqueNormalizedWindows(options.target.usage?.windows ?? []);
+	const launch = {
+		...(options.target.usage?.launch ?? {}),
+		timeoutMs: options.timeoutMs,
+	};
 	return {
 		targetId: options.target.id,
 		displayName: options.target.displayName,
@@ -155,7 +238,7 @@ function buildContext(options: {
 		repoRoot: options.repoRoot,
 		agentsDir: options.agentsDir,
 		homeDir: options.homeDir,
-		launch: options.target.usage?.launch,
+		launch,
 		debug: {
 			enabled: options.debug,
 			includeRawOutput: options.debug,
@@ -209,14 +292,15 @@ async function extractUsageForTarget(options: {
 	agentsDir: string;
 	homeDir: string;
 	selectedWindow: string | null;
+	timeoutMs: number;
 	debug: boolean;
 	now: Date;
 	command?: string;
 }): Promise<TargetExtractionOutcome> {
 	try {
 		const context = buildContext(options);
-		const result = await options.target.usage?.extract(context);
-		if (!result) {
+		const extraction = options.target.usage?.extract(context);
+		if (!extraction) {
 			return {
 				status: "error",
 				target: options.target,
@@ -227,6 +311,7 @@ async function extractUsageForTarget(options: {
 				),
 			};
 		}
+		const result = await withUsageTimeout(extraction, options.timeoutMs);
 		const filtered = filterTargetResult(options.target, result, options.selectedWindow);
 		return {
 			status: "success",
@@ -238,12 +323,35 @@ async function extractUsageForTarget(options: {
 		};
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
+		const code =
+			error instanceof UsageExtractionTimeoutError
+				? "usage_extraction_timeout"
+				: "usage_extraction_failed";
 		return {
 			status: "error",
 			target: options.target,
-			error: buildError(options.target, "usage_extraction_failed", message),
+			error: buildError(options.target, code, message),
 		};
 	}
+}
+
+function withUsageTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+	return new Promise((resolve, reject) => {
+		const timeout = setTimeout(() => {
+			reject(new UsageExtractionTimeoutError(timeoutMs));
+		}, timeoutMs);
+
+		promise.then(
+			(value) => {
+				clearTimeout(timeout);
+				resolve(value);
+			},
+			(error: unknown) => {
+				clearTimeout(timeout);
+				reject(error);
+			},
+		);
+	});
 }
 
 function buildEnvelope(options: {
@@ -308,54 +416,256 @@ function printError(options: {
 }
 
 function percentText(value: number | null): string {
-	return value == null ? "-" : `${Math.round(value)}%`;
+	return value == null ? "unknown" : `${Math.round(value)}%`;
 }
 
 function usageBar(percentUsed: number | null): string {
 	if (percentUsed == null) {
-		return "[----------] -";
+		return `[${"?".repeat(USAGE_BAR_WIDTH)}]`;
 	}
 	const clamped = Math.max(0, Math.min(100, percentUsed));
-	const filled = Math.round(clamped / 10);
-	return `[${"#".repeat(filled)}${"-".repeat(10 - filled)}] ${percentText(clamped)}`;
+	const filled = clamped === 0 ? 0 : Math.max(1, Math.round((clamped / 100) * USAGE_BAR_WIDTH));
+	return `[${"#".repeat(filled)}${"-".repeat(USAGE_BAR_WIDTH - filled)}]`;
 }
 
 function resetText(limit: NormalizedUsageLimit): string {
 	return limit.resetText ?? limit.resetAt ?? "-";
 }
 
-function pad(value: string, width: number): string {
-	return `${value}${" ".repeat(Math.max(0, width - value.length))}`;
+function formatResetValue(limit: NormalizedUsageLimit): string {
+	const value = resetText(limit);
+	return value === "-" ? value : value.replace(/^resets\s+/i, "");
 }
 
-function formatTableRows(rows: string[][]): string {
-	const widths = rows[0].map((_, index) => Math.max(...rows.map((row) => row[index]?.length ?? 0)));
-	return rows
-		.map((row) => row.map((cell, index) => pad(cell, widths[index])).join("  "))
-		.join("\n");
+function formatLimitLabel(limit: NormalizedUsageLimit): string {
+	return limit.label ?? limit.modelLabel ?? limit.modelId ?? formatWindowLabel(limit.window);
+}
+
+function formatLimitLabels(limits: NormalizedUsageLimit[]): string[] {
+	const baseLabels = limits.map(formatLimitLabel);
+	const duplicateLabels = new Set(
+		baseLabels.filter((label, index) => baseLabels.indexOf(label) !== index),
+	);
+	return limits.map((limit, index) => {
+		const baseLabel = baseLabels[index] ?? formatLimitLabel(limit);
+		if (!duplicateLabels.has(baseLabel) || !limit.scope) {
+			return baseLabel;
+		}
+		if (limit.scope === "main") {
+			return baseLabel;
+		}
+		return `${formatScopeLabel(limit.scope)} ${baseLabel}`;
+	});
+}
+
+function formatScopeLabel(scope: string): string {
+	return scope
+		.replace(/[_-]+/g, " ")
+		.split(/\s+/)
+		.filter(Boolean)
+		.map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+		.join(" ");
+}
+
+function formatWindowLabel(window: string): string {
+	if (window === "hourly") {
+		return "5h";
+	}
+	if (window === "weekly") {
+		return "Weekly";
+	}
+	return window;
 }
 
 function formatUsageTable(envelope: NormalizedUsageEnvelope): string {
-	const rows = [["Agent", "Window", "Usage", "Left", "Reset"]];
+	const useColor = shouldUseColor();
+	const rows: UsageDisplayRow[] = [];
 	for (const target of envelope.targets) {
-		for (const limit of target.limits) {
-			rows.push([
-				target.displayName,
-				limit.window,
-				usageBar(limit.percentUsed),
-				percentText(limit.percentRemaining),
-				resetText(limit),
-			]);
-		}
+		const limitLabels = formatLimitLabels(target.limits);
+		target.limits.forEach((limit, index) => {
+			rows.push({
+				status: "ok",
+				agent: index === 0 ? target.displayName : "",
+				limitLabel: limitLabels[index] ?? formatLimitLabel(limit),
+				limit,
+			});
+		});
 	}
 	for (const error of envelope.errors) {
-		rows.push([error.displayName, "error", `Error: ${error.message}`, "-", "-"]);
+		rows.push({
+			status: "error",
+			agent: error.displayName,
+			limitLabel: "error",
+			message: error.message,
+		});
 	}
-	const rendered = [formatTableRows(rows)];
+	const rendered = [renderUsageTable(rows, useColor)];
 	if (envelope.notes.length > 0) {
-		rendered.push("", ...envelope.notes.map((note) => `Note: ${note}`));
+		rendered.push("", ...envelope.notes.map((note) => color(`Note: ${note}`, "dim", useColor)));
 	}
 	return rendered.join("\n");
+}
+
+function renderUsageTable(rows: UsageDisplayRow[], useColor: boolean): string {
+	const widths: UsageTableWidths = {
+		agent: maxWidth(
+			"Agent",
+			rows.map((row) => row.agent),
+		),
+		limit: maxWidth(
+			"Limit",
+			rows.map((row) => row.limitLabel),
+		),
+		usage: maxWidth("Usage", rows.map(usageCellText)),
+		left: maxWidth("Left", rows.map(leftCellText)),
+		reset: maxWidth("Reset", rows.map(resetCellText)),
+	};
+	const headerLine = [
+		pad("Agent", widths.agent),
+		pad("Limit", widths.limit),
+		pad("Usage", widths.usage),
+		pad("Left", widths.left),
+		pad("Reset", widths.reset),
+	]
+		.join("  ")
+		.trimEnd();
+	const separatorLine = [
+		"-".repeat(widths.agent),
+		"-".repeat(widths.limit),
+		"-".repeat(widths.usage),
+		"-".repeat(widths.left),
+		"-".repeat(widths.reset),
+	]
+		.join("  ")
+		.trimEnd();
+
+	return [
+		color(headerLine, "bold", useColor),
+		color(separatorLine, "dim", useColor),
+		...rows.map((row) => renderUsageRow(row, widths, useColor)),
+	].join("\n");
+}
+
+function renderUsageRow(row: UsageDisplayRow, widths: UsageTableWidths, useColor: boolean): string {
+	return [
+		pad(row.agent, widths.agent),
+		pad(row.limitLabel, widths.limit),
+		renderUsageCell(row, widths.usage, useColor),
+		renderLeftCell(row, widths.left, useColor),
+		renderResetCell(row, widths.reset, useColor),
+	]
+		.join("  ")
+		.trimEnd();
+}
+
+function usageCellText(row: UsageDisplayRow): string {
+	if (row.status === "error") {
+		return "failed";
+	}
+	return `${usageBar(row.limit.percentUsed)} ${percentText(row.limit.percentUsed).padStart(4)} used`;
+}
+
+function leftCellText(row: UsageDisplayRow): string {
+	if (row.status === "error") {
+		return "-";
+	}
+	return percentText(row.limit.percentRemaining);
+}
+
+function resetCellText(row: UsageDisplayRow): string {
+	if (row.status === "error") {
+		return `Error: ${row.message}`;
+	}
+	return formatResetValue(row.limit);
+}
+
+function renderUsageCell(row: UsageDisplayRow, width: number, useColor: boolean): string {
+	const text = usageCellText(row);
+	const padding = " ".repeat(Math.max(0, width - text.length));
+	if (row.status === "error") {
+		return `${color(text, "red", useColor)}${padding}`;
+	}
+
+	const severity = usageSeverity(row.limit.percentUsed);
+	const used = percentText(row.limit.percentUsed).padStart(4);
+	return `${color(usageBar(row.limit.percentUsed), severity, useColor)} ${color(
+		used,
+		severity,
+		useColor,
+	)} used${padding}`;
+}
+
+function renderLeftCell(row: UsageDisplayRow, width: number, useColor: boolean): string {
+	const text = leftCellText(row);
+	const padding = " ".repeat(Math.max(0, width - text.length));
+	if (row.status === "error") {
+		return `${color(text, "gray", useColor)}${padding}`;
+	}
+	return `${color(text, remainingSeverity(row.limit.percentRemaining), useColor)}${padding}`;
+}
+
+function renderResetCell(row: UsageDisplayRow, width: number, useColor: boolean): string {
+	const text = resetCellText(row);
+	const padding = " ".repeat(Math.max(0, width - text.length));
+	const style = row.status === "error" ? "red" : "gray";
+	return `${color(text, style, useColor)}${padding}`;
+}
+
+function usageSeverity(percentUsed: number | null): AnsiStyle {
+	if (percentUsed == null) {
+		return "gray";
+	}
+	if (percentUsed >= 95) {
+		return "red";
+	}
+	if (percentUsed >= 80) {
+		return "orange";
+	}
+	if (percentUsed >= 60) {
+		return "yellow";
+	}
+	return "green";
+}
+
+function remainingSeverity(percentRemaining: number | null): AnsiStyle {
+	if (percentRemaining == null) {
+		return "gray";
+	}
+	if (percentRemaining <= 5) {
+		return "red";
+	}
+	if (percentRemaining <= 20) {
+		return "orange";
+	}
+	if (percentRemaining <= 40) {
+		return "yellow";
+	}
+	return "green";
+}
+
+function maxWidth(header: string, values: string[]): number {
+	return Math.max(header.length, ...values.map((value) => value.length));
+}
+
+function pad(value: string, width: number): string {
+	return value.padEnd(width);
+}
+
+function color(value: string, style: AnsiStyle, useColor: boolean): string {
+	if (!useColor) {
+		return value;
+	}
+	return `${ANSI[style]}${value}${ANSI.reset}`;
+}
+
+function shouldUseColor(): boolean {
+	if (process.env.FORCE_COLOR != null && process.env.FORCE_COLOR !== "0") {
+		return true;
+	}
+	if (process.env.NO_COLOR != null) {
+		return false;
+	}
+	return Boolean(process.stdout.isTTY);
 }
 
 async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> {
@@ -363,11 +673,22 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 	const jsonOutput = Boolean(argv.json || argv.debug);
 	const debugOutput = Boolean(argv.debug);
 	const selectedWindow = normalizeOptionalWindow(argv.window);
+	const timeoutMs = parseTimeoutMs(argv.timeout);
 	if (selectedWindow === "") {
 		printError({
 			json: jsonOutput,
 			code: "invalid_window",
 			message: "--window must be a non-empty value.",
+			exitCode: 2,
+		});
+		return null;
+	}
+	if (timeoutMs == null) {
+		printError({
+			json: jsonOutput,
+			code: "invalid_timeout",
+			message:
+				"--timeout must be a positive duration. Use seconds by default, or units like 500ms, 5s, or 1m.",
 			exitCode: 2,
 		});
 		return null;
@@ -533,6 +854,7 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 				agentsDir,
 				homeDir,
 				selectedWindow,
+				timeoutMs,
 				debug: debugOutput,
 				now,
 				command: resolvedUsageCommands.get(target.id),
@@ -584,7 +906,9 @@ export const usageCommand: CommandModule<unknown, UsageArgs> = {
 	describe: "Report usage limits for installed agent CLIs",
 	builder: (yargsInstance) =>
 		yargsInstance
-			.usage("omniagent usage [target] [--window <window>] [--json] [--debug]")
+			.usage(
+				"omniagent usage [target] [--window <window>] [--timeout <seconds>] [--json] [--debug]",
+			)
 			.positional("targets", {
 				type: "string",
 				array: true,
@@ -593,6 +917,11 @@ export const usageCommand: CommandModule<unknown, UsageArgs> = {
 			.option("window", {
 				type: "string",
 				describe: "Filter usage rows by window (hourly, weekly, 5h, or a custom window).",
+			})
+			.option("timeout", {
+				type: "string",
+				describe:
+					"Per-agent extraction timeout. Bare numbers are seconds; units include ms, s, and m.",
 			})
 			.option("json", {
 				type: "boolean",

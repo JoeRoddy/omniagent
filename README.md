@@ -76,6 +76,7 @@ omniagent usage
 omniagent usage codex
 omniagent usage --window=weekly
 omniagent usage codex --window=5h
+omniagent usage --timeout=45
 omniagent usage codex --json
 omniagent usage codex --debug
 
@@ -87,7 +88,9 @@ omniagent -p "Summarize this repo" --agent codex --output json
 `usage` supports Codex, Claude, and Gemini in v1. Copilot is not supported for usage
 extraction yet. Usage extraction may launch agent TUIs and may incur cost if an agent
 reads repo context or instructions on startup; omniagent uses cheap/minimal launch settings
-where possible and will not accept auth, trust, or onboarding prompts automatically.
+where possible, times out each agent after 60 seconds by default, and will not accept auth,
+trust, or onboarding prompts automatically. Pass `--timeout=<seconds>` to increase the
+per-agent timeout when an agent is slow to start.
 
 ## Local Overrides (`.local`)
 

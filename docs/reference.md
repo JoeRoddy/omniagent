@@ -30,6 +30,7 @@ npx omniagent@latest usage claude
 npx omniagent@latest usage gemini
 npx omniagent@latest usage codex --window=weekly
 npx omniagent@latest usage codex --window=5h
+npx omniagent@latest usage --timeout=45
 npx omniagent@latest usage codex --json
 npx omniagent@latest usage codex --debug
 ```
@@ -52,6 +53,8 @@ Target behavior:
 - Usage extraction may launch agent TUIs. omniagent uses cheap/minimal launch settings where
   possible, but an agent may still incur cost if it reads repo context or instructions on startup.
 - omniagent will not accept auth, trust, or onboarding prompts automatically.
+- Each agent extraction times out after 60 seconds by default. Pass `--timeout=<seconds>` to
+  increase it, or use explicit units such as `--timeout=500ms`, `--timeout=5s`, or `--timeout=1m`.
 
 Windows:
 
@@ -59,6 +62,13 @@ Windows:
 - Common windows include `hourly`, `weekly`, and aliases such as `5h`.
 - Custom window strings are accepted. If no row matches the requested window, the command emits a
   note instead of failing.
+
+Timeouts:
+
+- `--timeout=<duration>` controls the per-agent extraction timeout.
+- A bare number is interpreted as seconds, so `--timeout=5` means 5 seconds.
+- If one target times out in all-target mode, omniagent renders that target as an error row while
+  still showing results from any targets that finished.
 
 JSON and debug:
 
@@ -71,10 +81,10 @@ JSON and debug:
 
 Failure basics:
 
-- Invalid usage, such as unknown targets, unsupported targets, multiple targets, or an empty
-  `--window`, exits with code 2.
+- Invalid usage, such as unknown targets, unsupported targets, multiple targets, an empty
+  `--window`, or an invalid `--timeout`, exits with code 2.
 - Missing explicit CLIs, invalid target configuration, repository discovery failures, and usage
-  extraction failures exit with code 1.
+  extraction failures, including per-target timeouts, exit with code 1.
 - In all-target mode, partial extraction failures are reported alongside successful targets and
   cause exit code 1.
 - If no installed active usage-capable agents are found in all-target mode, omniagent prints an

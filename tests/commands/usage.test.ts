@@ -196,15 +196,133 @@ describe.sequential("usage command", () => {
 
 			const output = joinOutput(logSpy.mock.calls);
 			expect(output).toContain("Agent");
-			expect(output).toContain("Window");
+			expect(output).toContain("Limit");
 			expect(output).toContain("Usage");
 			expect(output).toContain("Left");
 			expect(output).toContain("Reset");
 			expect(output).toContain("Mock Codex");
-			expect(output).toContain("[####------] 40%");
+			expect(output).toContain("[#####-------]");
+			expect(output).toContain("40% used");
 			expect(output).toContain("60%");
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
+	});
+
+	it("labels duplicate scoped windows without prefixing the main limits", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					disableTargets: ["claude", "gemini"],
+					extractors: {
+						codex: `async (ctx) => ({
+							targetId: ctx.targetId,
+							displayName: ctx.displayName,
+							command: ctx.command,
+							limits: [
+								{
+									id: "codex.main.hourly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									scope: "main",
+									window: "hourly",
+									percentUsed: 10,
+									percentRemaining: 90,
+									resetAt: null,
+									resetText: "soon",
+									raw: "10% used"
+								},
+								{
+									id: "codex.main.weekly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									scope: "main",
+									window: "weekly",
+									percentUsed: 20,
+									percentRemaining: 80,
+									resetAt: null,
+									resetText: "Monday",
+									raw: "20% used"
+								},
+								{
+									id: "codex.spark.hourly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									scope: "spark",
+									window: "hourly",
+									percentUsed: 30,
+									percentRemaining: 70,
+									resetAt: null,
+									resetText: "later",
+									raw: "30% used"
+								},
+								{
+									id: "codex.spark.weekly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									scope: "spark",
+									window: "weekly",
+									percentUsed: 40,
+									percentRemaining: 60,
+									resetAt: null,
+									resetText: "Friday",
+									raw: "40% used"
+								}
+							]
+						})`,
+					},
+				}),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage"]);
+			});
+
+			const output = joinOutput(logSpy.mock.calls);
+			expect(output).toContain("  5h");
+			expect(output).toContain("  Weekly");
+			expect(output).toContain("Spark 5h");
+			expect(output).toContain("Spark Weekly");
+			expect(output).not.toContain("Main 5h");
+			expect(output).not.toContain("Main Weekly");
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	it("colors the human table when color output is enabled", async () => {
+		const originalForceColor = process.env.FORCE_COLOR;
+		const originalNoColor = process.env.NO_COLOR;
+		process.env.FORCE_COLOR = "1";
+		delete process.env.NO_COLOR;
+		try {
+			await withTempRepo(async (root) => {
+				await createFakeCliBin(root, ["codex"]);
+				await writeConfig(root, usageConfig({ disableTargets: ["claude", "gemini"] }));
+
+				await withCwd(root, async () => {
+					await runCli(["node", "omniagent", "usage"]);
+				});
+
+				const output = joinOutput(logSpy.mock.calls);
+				expect(output).toContain("\x1b[1mAgent");
+				expect(output).toContain("Reset\x1b[0m");
+				expect(output).toContain("\x1b[32m[#####-------]\x1b[0m");
+				expect(output).toContain("\x1b[33m[########----]\x1b[0m");
+				expect(exitSpy).not.toHaveBeenCalled();
+			});
+		} finally {
+			if (originalForceColor == null) {
+				delete process.env.FORCE_COLOR;
+			} else {
+				process.env.FORCE_COLOR = originalForceColor;
+			}
+			if (originalNoColor == null) {
+				delete process.env.NO_COLOR;
+			} else {
+				process.env.NO_COLOR = originalNoColor;
+			}
+		}
 	});
 
 	it("selects an explicit target by alias", async () => {
@@ -421,6 +539,60 @@ describe.sequential("usage command", () => {
 		});
 	});
 
+	it("passes timeout seconds into the usage extraction context", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					disableTargets: ["claude", "gemini"],
+					extractors: {
+						codex: `async (ctx) => ({
+							targetId: ctx.targetId,
+							displayName: ctx.displayName,
+							command: ctx.command,
+							limits: [
+								{
+									id: "codex.hourly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									window: "hourly",
+									percentUsed: ctx.launch.timeoutMs === 5000 ? 10 : 90,
+									percentRemaining: ctx.launch.timeoutMs === 5000 ? 90 : 10,
+									resetAt: null,
+									resetText: String(ctx.launch.timeoutMs),
+									raw: String(ctx.launch.timeoutMs)
+								}
+							]
+						})`,
+					},
+				}),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "codex", "--timeout=5", "--json"]);
+			});
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(envelope.targets[0].limits[0].raw).toBe("5000");
+			expect(envelope.targets[0].limits[0].percentUsed).toBe(10);
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	it("rejects invalid timeout values with exit code 2", async () => {
+		await withTempRepo(async (root) => {
+			await writeConfig(root, usageConfig({}));
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "--timeout=nope"]);
+			});
+
+			expect(joinOutput(errorSpy.mock.calls)).toContain("--timeout must be a positive duration");
+			expect(exitSpy).toHaveBeenCalledWith(2);
+		});
+	});
+
 	it("accepts custom windows and notes no matching rows without failing", async () => {
 		await withTempRepo(async (root) => {
 			await createFakeCliBin(root, ["codex"]);
@@ -525,6 +697,32 @@ describe.sequential("usage command", () => {
 			expect(output).toContain("Mock Codex");
 			expect(output).toContain("Mock Claude");
 			expect(output).toContain("Error: usage probe failed");
+			expect(exitSpy).toHaveBeenCalledWith(1);
+		});
+	});
+
+	it("renders timed out extractions as error rows and exits 1", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					disableTargets: ["claude", "gemini"],
+					extractors: {
+						codex: `async () => new Promise(() => {})`,
+					},
+				}),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "codex", "--timeout=10ms"]);
+			});
+
+			const output = joinOutput(logSpy.mock.calls);
+			expect(output).toContain("Mock Codex");
+			expect(output).toContain("error");
+			expect(output).toContain("failed");
+			expect(output).toContain("Usage extraction timed out after 10ms.");
 			expect(exitSpy).toHaveBeenCalledWith(1);
 		});
 	});
