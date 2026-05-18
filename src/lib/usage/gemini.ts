@@ -54,6 +54,9 @@ export async function extractGeminiUsage(
 	const modelSnapshot = ptyResult.snapshots.model ?? ptyResult;
 	const cleanedOutput = cleanControlOutput(modelSnapshot.raw);
 	const parsed = parseGeminiModelDialog(modelSnapshot.screen, cleanedOutput);
+	if (parsed.usage.length === 0) {
+		throw new Error("Gemini usage output did not include model usage rows.");
+	}
 
 	return {
 		targetId: context.targetId,

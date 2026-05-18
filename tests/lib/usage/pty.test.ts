@@ -78,6 +78,19 @@ describe("PTY usage utility", () => {
 		expect(result.snapshots.ready.raw).toContain("ready");
 	});
 
+	it("throws when required output does not arrive", async () => {
+		const { runPtyScenario } = await import("../../../src/lib/usage/pty.js");
+
+		await expect(
+			runPtyScenario({
+				command: "node",
+				args: ["-e", "missing"],
+				timeoutMs: 1_000,
+				steps: [{ waitFor: "ready", waitForTimeoutMs: 10, capture: "ready" }],
+			}),
+		).rejects.toThrow("Timed out waiting for ready.");
+	});
+
 	it("marks timed out processes and kills them safely", async () => {
 		const { runPtyScenario } = await import("../../../src/lib/usage/pty.js");
 		const result = await runPtyScenario({

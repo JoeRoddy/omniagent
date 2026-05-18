@@ -843,6 +843,57 @@ describe.sequential("usage command", () => {
 		});
 	});
 
+	it("runs commandless custom usage extractors", async () => {
+		await withTempRepo(async (root) => {
+			await writeConfig(
+				root,
+				`
+module.exports = {
+	disableTargets: ["codex", "claude", "gemini"],
+	targets: [
+		{
+			id: "local-meter",
+			displayName: "Local Meter",
+			usage: {
+				windows: ["weekly"],
+				extract: async (ctx) => ({
+					targetId: ctx.targetId,
+					displayName: ctx.displayName,
+					command: ctx.command,
+					limits: [
+						{
+							id: "local-meter.weekly",
+							targetId: ctx.targetId,
+							agent: ctx.targetId,
+							window: "weekly",
+							percentUsed: ctx.command === undefined ? 25 : 90,
+							percentRemaining: ctx.command === undefined ? 75 : 10,
+							resetAt: null,
+							resetText: "Monday",
+							raw: "local file"
+						}
+					]
+				})
+			}
+		}
+	]
+};
+`,
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "local-meter", "--json"]);
+			});
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(envelope.targets).toHaveLength(1);
+			expect(envelope.targets[0].targetId).toBe("local-meter");
+			expect(envelope.targets[0].command).toBeUndefined();
+			expect(envelope.targets[0].limits[0].percentRemaining).toBe(75);
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
 	it("filters all-target mode by usage launch command availability", async () => {
 		await withTempRepo(async (root) => {
 			await createFakeCliBin(root, ["codex", "claude"]);

@@ -48,12 +48,16 @@ export async function extractClaudeUsage(
 	const usageSnapshot = ptyResult.snapshots.usage ?? ptyResult;
 	const cleanedOutput = cleanControlOutput(usageSnapshot.raw);
 	const parsed = parseClaudeUsage(usageSnapshot.screen, cleanedOutput);
+	const limits = buildClaudeUsageLimits(parsed, context);
+	if (limits.length === 0) {
+		throw new Error("Claude usage output did not include session or weekly usage rows.");
+	}
 
 	return {
 		targetId: context.targetId,
 		displayName: context.displayName,
 		command,
-		limits: buildClaudeUsageLimits(parsed, context),
+		limits,
 		debug: ptyResult.debug.length > 0 ? ptyResult.debug : undefined,
 	};
 }

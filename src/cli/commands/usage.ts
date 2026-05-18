@@ -227,8 +227,7 @@ async function checkUsageCommandAvailability(
 	const command = getUsageCommand(target)?.trim();
 	if (!command) {
 		return {
-			status: "unavailable",
-			reason: "Target does not declare a usage launch command or CLI command.",
+			status: "available",
 			warnings: [],
 		};
 	}
@@ -1001,10 +1000,10 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 		}
 
 		for (const { target, availability } of availabilityResults) {
-			resolvedUsageCommands.set(
-				target.id,
-				availability.resolvedPath ?? getUsageCommand(target) ?? "",
-			);
+			const resolvedCommand = availability.resolvedPath ?? availability.command;
+			if (resolvedCommand) {
+				resolvedUsageCommands.set(target.id, resolvedCommand);
+			}
 		}
 	} else {
 		const availabilityResults = await Promise.all(
@@ -1019,10 +1018,10 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 				continue;
 			}
 			selectedTargets.push(target);
-			resolvedUsageCommands.set(
-				target.id,
-				availability.resolvedPath ?? getUsageCommand(target) ?? "",
-			);
+			const resolvedCommand = availability.resolvedPath ?? availability.command;
+			if (resolvedCommand) {
+				resolvedUsageCommands.set(target.id, resolvedCommand);
+			}
 		}
 		if (selectedTargets.length === 0) {
 			const message =

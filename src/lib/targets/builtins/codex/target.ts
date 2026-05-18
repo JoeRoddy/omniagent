@@ -1,4 +1,3 @@
-import { extractCodexUsage } from "../../../usage/codex.js";
 import type { TargetDefinition } from "../../config-types.js";
 
 export const codexTarget: TargetDefinition = {
@@ -75,6 +74,9 @@ export const codexTarget: TargetDefinition = {
 			],
 			timeoutMs: 60_000,
 		},
-		extract: extractCodexUsage,
+		extract: async (context) => {
+			const { extractCodexUsage } = await import("../../../usage/codex.js");
+			return extractCodexUsage(context);
+		},
 	},
 };

@@ -19,6 +19,7 @@ export type PtyStep = {
 	waitFor?: PtyWaitFor;
 	waitForSource?: "raw" | "screen";
 	waitForTimeoutMs?: number;
+	optional?: boolean;
 	capture?: string;
 	captureWaitMs?: number;
 };
@@ -158,13 +159,16 @@ export async function runPtyScenario(options: PtyScenarioOptions): Promise<PtySc
 				child.write(step.write);
 			}
 			if (step.waitFor != null) {
-				await waitForOutput({
+				const matched = await waitForOutput({
 					match: step.waitFor,
 					source: step.waitForSource ?? "raw",
 					timeoutMs: step.waitForTimeoutMs ?? options.timeoutMs ?? 45_000,
 					getRaw: () => raw,
 					getScreen: () => readScreen(terminal),
 				});
+				if (!matched && !step.optional) {
+					throw new Error(`Timed out waiting for ${step.capture ?? "expected TUI output"}.`);
+				}
 			}
 			if (step.capture != null) {
 				await sleep(step.captureWaitMs ?? 250);
@@ -302,6 +306,7 @@ async function ensureNodePtySpawnHelperExecutable(): Promise<void> {
 		return;
 	}
 
+	// node-pty prebuilds can lose the executable bit; restore it before spawning when possible.
 	const packageRoot = path.dirname(require.resolve("node-pty/package.json"));
 	const candidates = [
 		path.join(packageRoot, "prebuilds", `${process.platform}-${process.arch}`, "spawn-helper"),
@@ -316,8 +321,10 @@ async function ensureNodePtySpawnHelperExecutable(): Promise<void> {
 			await access(candidate, constants.X_OK);
 			return;
 		} catch {
-			await chmod(candidate, 0o755);
-			return;
+			try {
+				await chmod(candidate, 0o755);
+				return;
+			} catch {}
 		}
 	}
 }

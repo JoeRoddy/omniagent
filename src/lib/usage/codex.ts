@@ -65,7 +65,9 @@ export async function extractCodexUsage(
 			{ write: `${CLEAR_LINE}/status${enterKey()}`, skipIf: hasCodexStatusLimits },
 			{
 				waitFor: hasCodexStatusLimits,
-				waitForTimeoutMs: 8_000,
+				waitForTimeoutMs: 15_000,
+				skipIf: hasCodexStatusLimits,
+				optional: true,
 				capture: "statusRetry",
 				captureWaitMs: 500,
 			},
@@ -75,6 +77,7 @@ export async function extractCodexUsage(
 	});
 
 	const parsed = selectCodexStatus(ptyResult);
+	assertRequiredCodexLimits(parsed);
 
 	return {
 		targetId: context.targetId,
@@ -163,7 +166,7 @@ export function parseCodexStatus(cleanedOutput: string): ParsedCodexStatus {
 			if (normalizedLine === "Model:" || normalizedLine.startsWith("Model: ")) {
 				inStatus = true;
 				key = "model";
-				appendValue(values, key, normalizedLine.slice("Model:".length).trim());
+				setValue(values, key, normalizedLine.slice("Model:".length).trim());
 			}
 			continue;
 		}
@@ -190,7 +193,7 @@ export function parseCodexStatus(cleanedOutput: string): ParsedCodexStatus {
 			const label = labelMatch[1].trim();
 			const inlineValue = labelMatch[2].trim();
 
-			if (label === "GPT-5.3-Codex-Spark limit") {
+			if (isCodexSparkLimitLabel(label)) {
 				section = "spark";
 				key = "";
 				continue;
@@ -198,12 +201,12 @@ export function parseCodexStatus(cleanedOutput: string): ParsedCodexStatus {
 
 			key = labelToCodexKey(label, section);
 			if (key && inlineValue) {
-				appendValue(values, key, inlineValue);
+				setValue(values, key, inlineValue);
 			}
 			continue;
 		}
 
-		if (key) {
+		if (key && isCodexContinuationLine(line, values[key])) {
 			appendValue(values, key, line);
 		}
 	}
@@ -223,6 +226,17 @@ export function parseCodexStatus(cleanedOutput: string): ParsedCodexStatus {
 	};
 }
 
+function assertRequiredCodexLimits(parsed: ParsedCodexStatus): void {
+	if (parsed.main5hLimit && parsed.mainWeeklyLimit) {
+		return;
+	}
+	throw new Error("Codex usage output did not include the required 5h and weekly limit rows.");
+}
+
+function isCodexSparkLimitLabel(label: string): boolean {
+	return /\bspark\b/i.test(label) && /\blimit\b/i.test(label);
+}
+
 function labelToCodexKey(label: string, section: "main" | "spark"): keyof ParsedCodexStatus | "" {
 	if (label === "Model") return "model";
 	if (label === "Directory") return "directory";
@@ -238,6 +252,18 @@ function labelToCodexKey(label: string, section: "main" | "spark"): keyof Parsed
 	return "";
 }
 
+function setValue(
+	values: Partial<ParsedCodexStatus>,
+	key: keyof ParsedCodexStatus,
+	value: string,
+): void {
+	const sanitized = sanitizeCodexValue(value);
+	if (!sanitized) {
+		return;
+	}
+	values[key] = sanitized;
+}
+
 function appendValue(
 	values: Partial<ParsedCodexStatus>,
 	key: keyof ParsedCodexStatus,
@@ -251,6 +277,20 @@ function appendValue(
 		values[key] == null || values[key] === "" ? sanitized : `${values[key]} ${sanitized}`;
 }
 
+function isCodexContinuationLine(line: string, currentValue: string | undefined): boolean {
+	if (!line) {
+		return false;
+	}
+
+	const hasPercent = /\d+(?:\.\d+)?\s*%/.test(line);
+	const currentHasPercent = /\d+(?:\.\d+)?\s*%/.test(currentValue ?? "");
+	if (hasPercent) {
+		return !currentHasPercent;
+	}
+
+	return /\breset/i.test(line);
+}
+
 function normalizeCodexLine(line: string): string {
 	return line
 		.replace(/[│╭╮╰╯─]/g, " ")
@@ -259,5 +299,9 @@ function normalizeCodexLine(line: string): string {
 }
 
 function sanitizeCodexValue(value: string): string {
-	return value.replace(/›.*$/g, "").trim();
+	const sanitized = value.replace(/›.*$/g, "").trim();
+	const limitMatch = /^(.+?\d+(?:\.\d+)?\s*%\s*(?:left|remaining|used)(?:\s*\([^)]*\))?)/i.exec(
+		sanitized,
+	);
+	return limitMatch?.[1].trim() ?? sanitized;
 }

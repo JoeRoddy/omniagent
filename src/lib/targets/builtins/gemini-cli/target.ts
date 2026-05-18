@@ -1,4 +1,3 @@
-import { extractGeminiUsage } from "../../../usage/gemini.js";
 import type { TargetDefinition } from "../../config-types.js";
 
 export const geminiTarget: TargetDefinition = {
@@ -59,6 +58,9 @@ export const geminiTarget: TargetDefinition = {
 			args: ["--skip-trust"],
 			timeoutMs: 70_000,
 		},
-		extract: extractGeminiUsage,
+		extract: async (context) => {
+			const { extractGeminiUsage } = await import("../../../usage/gemini.js");
+			return extractGeminiUsage(context);
+		},
 	},
 };

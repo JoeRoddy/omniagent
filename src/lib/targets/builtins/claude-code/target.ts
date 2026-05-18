@@ -1,4 +1,3 @@
-import { extractClaudeUsage } from "../../../usage/claude.js";
 import type { TargetDefinition } from "../../config-types.js";
 
 export const claudeTarget: TargetDefinition = {
@@ -50,6 +49,9 @@ export const claudeTarget: TargetDefinition = {
 			cheapModel: "haiku",
 			timeoutMs: 60_000,
 		},
-		extract: extractClaudeUsage,
+		extract: async (context) => {
+			const { extractClaudeUsage } = await import("../../../usage/claude.js");
+			return extractClaudeUsage(context);
+		},
 	},
 };

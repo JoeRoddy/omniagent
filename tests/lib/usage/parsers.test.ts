@@ -88,6 +88,65 @@ describe("Codex usage parser", () => {
 		});
 	});
 
+	it("parses Spark limit headings without pinning the Codex model version", () => {
+		const parsed = parseCodexStatus(`
+╭──────────────────────────╮
+│ Model: gpt-5.1-codex     │
+│ 5h limit: 85% left       │
+│ Weekly limit: 41% left
+│ GPT-5.4-Codex-Spark limit:
+│ 5h limit: 90% left
+│ Weekly limit: 60% left
+╰──────────────────────────╯
+`);
+
+		expect(parsed).toMatchObject({
+			main5hLimit: "85% left",
+			mainWeeklyLimit: "41% left",
+			spark5hLimit: "90% left",
+			sparkWeeklyLimit: "60% left",
+		});
+	});
+
+	it("treats missing Codex Spark limits as optional", () => {
+		const parsed = parseCodexStatus(`
+╭──────────────────────────╮
+│ Model: gpt-5.1-codex     │
+│ 5h limit: 85% left       │
+│ Weekly limit: 41% left
+╰──────────────────────────╯
+`);
+
+		const limits = buildCodexUsageLimits(parsed, {
+			targetId: "codex",
+			now: new Date("2026-05-18T12:00:00.000Z"),
+		});
+
+		expect(parsed.spark5hLimit).toBe("");
+		expect(parsed.sparkWeeklyLimit).toBe("");
+		expect(limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual([
+			"main:hourly",
+			"main:weekly",
+		]);
+	});
+
+	it("does not append unrelated Codex percent fragments to raw limit rows", () => {
+		const parsed = parseCodexStatus(`
+╭──────────────────────────╮
+│ Model: gpt-5.1-codex     │
+│ 5h limit: 91% left (resets 17:31)
+│ Weekly limit: 79% left (resets 17:18 on 23 May)
+│ GPT-5.4-Codex-Spark limit:
+│ 5h limit: 100% left (resets 20:22) [██████████████████░░] 91% left (resets 17:31)
+│ Weekly limit: 100% left
+│ (resets 08:31 on 24 May)
+╰──────────────────────────╯
+`);
+
+		expect(parsed.spark5hLimit).toBe("100% left (resets 20:22)");
+		expect(parsed.sparkWeeklyLimit).toBe("100% left (resets 08:31 on 24 May)");
+	});
+
 	it("parses Codex limits after an initial refresh-requested status", () => {
 		const parsed = parseCodexStatus(`
 ╭──────────────────────────╮
