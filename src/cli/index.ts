@@ -8,6 +8,7 @@ import { greetCommand } from "./commands/greet.js";
 import { helloCommand } from "./commands/hello.js";
 import { profilesCommand } from "./commands/profiles.js";
 import { syncCommand } from "./commands/sync.js";
+import { usageCommand } from "./commands/usage.js";
 import { runShim } from "./shim/index.js";
 
 function resolveVersion(): string {
@@ -35,7 +36,7 @@ function resolveVersion(): string {
 }
 
 const VERSION = resolveVersion();
-const KNOWN_COMMANDS = new Set(["hello", "greet", "echo", "sync", "dev", "profiles"]);
+const KNOWN_COMMANDS = new Set(["hello", "greet", "echo", "sync", "dev", "profiles", "usage"]);
 const SHIM_CAPABILITIES = [
 	"Capabilities by agent:",
 	"  codex: approval, sandbox, output, model, web",
@@ -114,6 +115,7 @@ export function runCli(argv = process.argv, options: RunCliOptions = {}) {
 		.command(syncCommand)
 		.command(devCommand)
 		.command(profilesCommand)
+		.command(usageCommand)
 		.command(
 			"$0",
 			"omniagent CLI",
