@@ -28,6 +28,9 @@ npx omniagent@latest usage
 npx omniagent@latest usage codex
 npx omniagent@latest usage claude
 npx omniagent@latest usage gemini
+npx omniagent@latest usage --only codex,claude
+npx omniagent@latest usage --sort=reset
+npx omniagent@latest usage --sort=left
 npx omniagent@latest usage codex --window=weekly
 npx omniagent@latest usage codex --window=5h
 npx omniagent@latest usage --timeout=45
@@ -40,7 +43,11 @@ Command surface:
 - `omniagent usage` reports usage rows for installed, active targets that support usage
   extraction.
 - `omniagent usage <target>` reports one target by target id or alias.
+- `omniagent usage --only <targets>` reports multiple comma-separated target ids or aliases.
+- `omniagent usage --sort=reset` sorts human table rows globally by soonest reset time.
+- `omniagent usage --sort=left` sorts human table rows globally by lowest percent left.
 - The command accepts at most one positional target.
+- `--sort` is only supported for human table output, not `--json` or `--debug`.
 - Built-in usage targets for v1 are Codex, Claude, and Gemini. Copilot does not support
   usage extraction in v1.
 

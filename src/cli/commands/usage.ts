@@ -25,6 +25,7 @@ import type {
 type UsageArgs = {
 	targets?: string[];
 	only?: string | string[];
+	sort?: string;
 	window?: string;
 	timeout?: string;
 	json?: boolean;
@@ -97,6 +98,8 @@ type UsageTableWidths = {
 	reset: number;
 };
 
+type UsageSortKey = "reset" | "left";
+
 const DEFAULT_USAGE_TIMEOUT_MS = 30_000;
 const MS_PER_MINUTE = 60_000;
 const MS_PER_HOUR = 3_600_000;
@@ -127,6 +130,17 @@ function normalizeOptionalWindow(value: string | undefined): string | null {
 	}
 	const trimmed = value.trim();
 	return trimmed.length > 0 ? normalizeUsageWindow(trimmed) : "";
+}
+
+function normalizeOptionalSort(value: string | undefined): UsageSortKey | "" | null {
+	if (value == null) {
+		return null;
+	}
+	const normalized = value.trim().toLowerCase();
+	if (!normalized) {
+		return "";
+	}
+	return normalized === "reset" || normalized === "left" ? normalized : "";
 }
 
 function parseTimeoutMs(value: string | undefined): number | null {
@@ -554,7 +568,7 @@ function formatWindowLabel(window: string): string {
 	return window;
 }
 
-function formatUsageTable(envelope: NormalizedUsageEnvelope): string {
+function formatUsageTable(envelope: NormalizedUsageEnvelope, sortKey: UsageSortKey | null): string {
 	const useColor = shouldUseColor();
 	const generatedAt = parseDate(envelope.generatedAt) ?? new Date();
 	const rows: UsageDisplayRow[] = [];
@@ -563,7 +577,7 @@ function formatUsageTable(envelope: NormalizedUsageEnvelope): string {
 		target.limits.forEach((limit, index) => {
 			rows.push({
 				status: "ok",
-				agent: index === 0 ? target.displayName : "",
+				agent: sortKey == null && index > 0 ? "" : target.displayName,
 				limitLabel: limitLabels[index] ?? formatLimitLabel(limit),
 				reset: formatResetValue(limit, generatedAt),
 				limit,
@@ -578,11 +592,49 @@ function formatUsageTable(envelope: NormalizedUsageEnvelope): string {
 			message: error.message,
 		});
 	}
-	const rendered = [renderUsageTable(rows, useColor)];
+	const rendered = [renderUsageTable(sortUsageRows(rows, sortKey), useColor)];
 	if (envelope.notes.length > 0) {
 		rendered.push("", ...envelope.notes.map((note) => color(`Note: ${note}`, "dim", useColor)));
 	}
 	return rendered.join("\n");
+}
+
+function sortUsageRows(rows: UsageDisplayRow[], sortKey: UsageSortKey | null): UsageDisplayRow[] {
+	if (sortKey == null) {
+		return rows;
+	}
+
+	return rows
+		.map((row, index) => ({ row, index }))
+		.sort((left, right) => {
+			const leftValue = usageSortValue(left.row, sortKey);
+			const rightValue = usageSortValue(right.row, sortKey);
+			if (leftValue == null && rightValue == null) {
+				return left.index - right.index;
+			}
+			if (leftValue == null) {
+				return 1;
+			}
+			if (rightValue == null) {
+				return -1;
+			}
+			if (leftValue !== rightValue) {
+				return leftValue - rightValue;
+			}
+			return left.index - right.index;
+		})
+		.map(({ row }) => row);
+}
+
+function usageSortValue(row: UsageDisplayRow, sortKey: UsageSortKey): number | null {
+	if (row.status === "error") {
+		return null;
+	}
+	if (sortKey === "left") {
+		return row.limit.percentRemaining;
+	}
+	const resetAt = parseDate(row.limit.resetAt);
+	return resetAt?.getTime() ?? null;
 }
 
 function renderUsageTable(rows: UsageDisplayRow[], useColor: boolean): string {
@@ -753,12 +805,31 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 	const jsonOutput = Boolean(argv.json || argv.debug);
 	const debugOutput = Boolean(argv.debug);
 	const selectedWindow = normalizeOptionalWindow(argv.window);
+	const sortKey = normalizeOptionalSort(argv.sort);
 	const timeoutMs = parseTimeoutMs(argv.timeout);
 	if (selectedWindow === "") {
 		printError({
 			json: jsonOutput,
 			code: "invalid_window",
 			message: "--window must be a non-empty value.",
+			exitCode: 2,
+		});
+		return null;
+	}
+	if (sortKey === "") {
+		printError({
+			json: jsonOutput,
+			code: "invalid_sort",
+			message: "--sort must be one of: reset, left.",
+			exitCode: 2,
+		});
+		return null;
+	}
+	if (sortKey != null && jsonOutput) {
+		printError({
+			json: jsonOutput,
+			code: "sort_json_unsupported",
+			message: "--sort is only supported for the human table output.",
 			exitCode: 2,
 		});
 		return null;
@@ -1034,7 +1105,7 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 	if (jsonOutput) {
 		console.log(JSON.stringify(envelope, null, 2));
 	} else {
-		console.log(formatUsageTable(envelope));
+		console.log(formatUsageTable(envelope, sortKey));
 	}
 	if (exitCode !== 0) {
 		process.exit(exitCode);
@@ -1048,7 +1119,7 @@ export const usageCommand: CommandModule<unknown, UsageArgs> = {
 	builder: (yargsInstance) =>
 		yargsInstance
 			.usage(
-				"omniagent usage [target] [--only <targets>] [--window <window>] [--timeout <seconds>] [--json] [--debug]",
+				"omniagent usage [target] [--only <targets>] [--sort <key>] [--window <window>] [--timeout <seconds>] [--json] [--debug]",
 			)
 			.positional("targets", {
 				type: "string",
@@ -1062,6 +1133,10 @@ export const usageCommand: CommandModule<unknown, UsageArgs> = {
 			.option("only", {
 				type: "string",
 				describe: "Comma-separated target ids or aliases to report usage for.",
+			})
+			.option("sort", {
+				type: "string",
+				describe: "Globally sort table rows by reset or left.",
 			})
 			.option("timeout", {
 				type: "string",

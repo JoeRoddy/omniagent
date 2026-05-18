@@ -484,6 +484,199 @@ describe.sequential("usage command", () => {
 		});
 	});
 
+	it("globally sorts human rows by reset time", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex", "claude"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					extractors: {
+						codex: `async (ctx) => ({
+							targetId: ctx.targetId,
+							displayName: ctx.displayName,
+							command: ctx.command,
+							limits: [
+								{
+									id: "codex.hourly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									window: "hourly",
+									percentUsed: 30,
+									percentRemaining: 70,
+									resetAt: new Date(ctx.now.getTime() + 120 * 60 * 1000).toISOString(),
+									resetText: "raw source reset",
+									raw: "30% used"
+								},
+								{
+									id: "codex.weekly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									window: "weekly",
+									percentUsed: 40,
+									percentRemaining: 60,
+									resetAt: new Date(ctx.now.getTime() + 35 * 60 * 1000).toISOString(),
+									resetText: "raw source reset",
+									raw: "40% used"
+								}
+							]
+						})`,
+						claude: `async (ctx) => ({
+							targetId: ctx.targetId,
+							displayName: ctx.displayName,
+							command: ctx.command,
+							limits: [
+								{
+									id: "claude.hourly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									window: "hourly",
+									percentUsed: 50,
+									percentRemaining: 50,
+									resetAt: new Date(ctx.now.getTime() + 10 * 60 * 1000).toISOString(),
+									resetText: "raw source reset",
+									raw: "50% used"
+								},
+								{
+									id: "claude.weekly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									window: "weekly",
+									percentUsed: 60,
+									percentRemaining: 40,
+									resetAt: null,
+									resetText: "unknown",
+									raw: "60% used"
+								}
+							]
+						})`,
+					},
+				}),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "--sort=reset"]);
+			});
+
+			const rows = joinOutput(logSpy.mock.calls).split("\n").slice(2);
+			expect(rows[0]).toContain("Mock Claude");
+			expect(rows[0]).toContain("5h");
+			expect(rows[1]).toContain("Mock Codex");
+			expect(rows[1]).toContain("Weekly");
+			expect(rows[2]).toContain("Mock Codex");
+			expect(rows[2]).toContain("5h");
+			expect(rows[3]).toContain("Mock Claude");
+			expect(rows[3]).toContain("Weekly");
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	it("globally sorts human rows by percent left", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex", "claude"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					extractors: {
+						codex: `async (ctx) => ({
+							targetId: ctx.targetId,
+							displayName: ctx.displayName,
+							command: ctx.command,
+							limits: [
+								{
+									id: "codex.hourly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									window: "hourly",
+									percentUsed: 40,
+									percentRemaining: 60,
+									resetAt: null,
+									resetText: "later",
+									raw: "40% used"
+								},
+								{
+									id: "codex.weekly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									window: "weekly",
+									percentUsed: 70,
+									percentRemaining: 30,
+									resetAt: null,
+									resetText: "later",
+									raw: "70% used"
+								}
+							]
+						})`,
+						claude: `async (ctx) => ({
+							targetId: ctx.targetId,
+							displayName: ctx.displayName,
+							command: ctx.command,
+							limits: [
+								{
+									id: "claude.hourly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									window: "hourly",
+									percentUsed: 10,
+									percentRemaining: 90,
+									resetAt: null,
+									resetText: "later",
+									raw: "10% used"
+								},
+								{
+									id: "claude.weekly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									window: "weekly",
+									percentUsed: null,
+									percentRemaining: null,
+									resetAt: null,
+									resetText: "later",
+									raw: "unknown"
+								}
+							]
+						})`,
+					},
+				}),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "--sort=left"]);
+			});
+
+			const rows = joinOutput(logSpy.mock.calls).split("\n").slice(2);
+			expect(rows[0]).toContain("Mock Codex");
+			expect(rows[0]).toContain("Weekly");
+			expect(rows[0]).toContain("30%");
+			expect(rows[1]).toContain("Mock Codex");
+			expect(rows[1]).toContain("5h");
+			expect(rows[1]).toContain("60%");
+			expect(rows[2]).toContain("Mock Claude");
+			expect(rows[2]).toContain("5h");
+			expect(rows[2]).toContain("90%");
+			expect(rows[3]).toContain("Mock Claude");
+			expect(rows[3]).toContain("Weekly");
+			expect(rows[3]).toContain("unknown");
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	it("leaves human rows grouped by agent when no sort is provided", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex", "claude"]);
+			await writeConfig(root, usageConfig({}));
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage"]);
+			});
+
+			const output = joinOutput(logSpy.mock.calls);
+			expect(output.match(/Mock Codex/g)).toHaveLength(1);
+			expect(output.match(/Mock Claude/g)).toHaveLength(1);
+			expect(output).toMatch(/\n\s+Weekly\s+30%/);
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
 	it("rejects multiple positional targets with exit code 2", async () => {
 		await withTempRepo(async (root) => {
 			await writeConfig(root, usageConfig({}));
@@ -538,6 +731,56 @@ describe.sequential("usage command", () => {
 			const error = joinOutput(errorSpy.mock.calls);
 			expect(error).toContain("Unknown target name(s): unknown");
 			expect(error).toContain("Supported usage targets");
+			expect(exitSpy).toHaveBeenCalledWith(2);
+		});
+	});
+
+	it("rejects invalid sort values with exit code 2", async () => {
+		await withTempRepo(async (root) => {
+			await writeConfig(root, usageConfig({}));
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "--sort=usage"]);
+			});
+
+			const error = joinOutput(errorSpy.mock.calls);
+			expect(error).toContain("--sort must be one of: reset, left");
+			expect(exitSpy).toHaveBeenCalledWith(2);
+		});
+	});
+
+	it("rejects sorted JSON output with exit code 2", async () => {
+		await withTempRepo(async (root) => {
+			await writeConfig(root, usageConfig({}));
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "--json", "--sort=reset"]);
+			});
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(envelope.errors[0]).toMatchObject({
+				code: "sort_json_unsupported",
+				message: "--sort is only supported for the human table output.",
+			});
+			expect(errorSpy).not.toHaveBeenCalled();
+			expect(exitSpy).toHaveBeenCalledWith(2);
+		});
+	});
+
+	it("rejects sorted debug output with exit code 2", async () => {
+		await withTempRepo(async (root) => {
+			await writeConfig(root, usageConfig({}));
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "--debug", "--sort=left"]);
+			});
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(envelope.errors[0]).toMatchObject({
+				code: "sort_json_unsupported",
+				message: "--sort is only supported for the human table output.",
+			});
+			expect(errorSpy).not.toHaveBeenCalled();
 			expect(exitSpy).toHaveBeenCalledWith(2);
 		});
 	});

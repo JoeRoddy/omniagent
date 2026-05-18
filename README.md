@@ -74,7 +74,10 @@ npx omniagent@latest sync --profile code-reviewer
 # Show usage limits for installed usage-capable agents
 omniagent usage
 omniagent usage codex
+omniagent usage --only claude,codex
 omniagent usage --window=weekly
+omniagent usage --sort=reset
+omniagent usage --sort=left
 omniagent usage codex --window=5h
 omniagent usage --timeout=45
 omniagent usage codex --json
