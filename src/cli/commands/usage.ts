@@ -95,7 +95,7 @@ type UsageTableWidths = {
 	reset: number;
 };
 
-const DEFAULT_USAGE_TIMEOUT_MS = 60_000;
+const DEFAULT_USAGE_TIMEOUT_MS = 30_000;
 
 class UsageExtractionTimeoutError extends Error {
 	constructor(readonly timeoutMs: number) {

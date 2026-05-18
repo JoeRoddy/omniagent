@@ -53,7 +53,7 @@ Target behavior:
 - Usage extraction may launch agent TUIs. omniagent uses cheap/minimal launch settings where
   possible, but an agent may still incur cost if it reads repo context or instructions on startup.
 - omniagent will not accept auth, trust, or onboarding prompts automatically.
-- Each agent extraction times out after 60 seconds by default. Pass `--timeout=<seconds>` to
+- Each agent extraction times out after 30 seconds by default. Pass `--timeout=<seconds>` to
   increase it, or use explicit units such as `--timeout=500ms`, `--timeout=5s`, or `--timeout=1m`.
 
 Windows:
