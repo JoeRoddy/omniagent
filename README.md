@@ -80,6 +80,7 @@ omniagent usage --sort=reset
 omniagent usage --sort=left
 omniagent usage codex --window=5h
 omniagent usage --timeout=45
+omniagent usage --agentsDir ./my-custom-agents
 omniagent usage codex --json
 omniagent usage codex --debug
 

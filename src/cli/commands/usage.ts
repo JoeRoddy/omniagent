@@ -1,6 +1,6 @@
 import os from "node:os";
 import type { CommandModule } from "yargs";
-import { resolveAgentsDir } from "../../lib/agents-dir.js";
+import { DEFAULT_AGENTS_DIR, resolveAgentsDir, validateAgentsDir } from "../../lib/agents-dir.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
 import { buildSupportedTargetLabel } from "../../lib/supported-targets.js";
 import { createTargetNameResolver } from "../../lib/sync-targets.js";
@@ -28,6 +28,7 @@ type UsageArgs = {
 	sort?: string;
 	window?: string;
 	timeout?: string;
+	agentsDir?: string;
 	json?: boolean;
 	debug?: boolean;
 };
@@ -911,7 +912,20 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 		});
 		return null;
 	}
-	const agentsDir = resolveAgentsDir(repoRoot).resolvedPath;
+	const agentsDirResolution = resolveAgentsDir(repoRoot, argv.agentsDir);
+	if (agentsDirResolution.source === "override") {
+		const validation = await validateAgentsDir(repoRoot, argv.agentsDir);
+		if (validation.validationStatus !== "valid") {
+			printError({
+				json: jsonOutput,
+				code: "invalid_agents_dir",
+				message: validation.errorMessage,
+				exitCode: 1,
+			});
+			return null;
+		}
+	}
+	const agentsDir = agentsDirResolution.resolvedPath;
 	const homeDir = os.homedir();
 	const { config } = await loadTargetConfig({ repoRoot, agentsDir });
 	const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
@@ -1154,7 +1168,7 @@ export const usageCommand: CommandModule<unknown, UsageArgs> = {
 	builder: (yargsInstance) =>
 		yargsInstance
 			.usage(
-				"omniagent usage [target] [--only <targets>] [--sort <key>] [--window <window>] [--timeout <seconds>] [--json] [--debug]",
+				"omniagent usage [target] [--only <targets>] [--sort <key>] [--window <window>] [--timeout <seconds>] [--agentsDir <path>] [--json] [--debug]",
 			)
 			.positional("targets", {
 				type: "string",
@@ -1177,6 +1191,18 @@ export const usageCommand: CommandModule<unknown, UsageArgs> = {
 				type: "string",
 				describe:
 					"Per-agent extraction timeout. Bare numbers are seconds; units include ms, s, and m.",
+			})
+			.option("agentsDir", {
+				type: "string",
+				describe: "Override the agents directory (relative paths resolve from the project root)",
+				defaultDescription: DEFAULT_AGENTS_DIR,
+				coerce: (value) => {
+					if (typeof value !== "string") {
+						return value;
+					}
+					const trimmed = value.trim();
+					return trimmed.length > 0 ? trimmed : undefined;
+				},
 			})
 			.option("json", {
 				type: "boolean",

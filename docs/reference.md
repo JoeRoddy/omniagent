@@ -34,6 +34,7 @@ npx omniagent@latest usage --sort=left
 npx omniagent@latest usage codex --window=weekly
 npx omniagent@latest usage codex --window=5h
 npx omniagent@latest usage --timeout=45
+npx omniagent@latest usage --agentsDir ./my-custom-agents
 npx omniagent@latest usage codex --json
 npx omniagent@latest usage codex --debug
 ```
@@ -63,6 +64,8 @@ Target behavior:
 - omniagent does not complete auth or onboarding prompts for you.
 - Each agent extraction times out after 30 seconds by default. Pass `--timeout=<seconds>` to
   increase it, or use explicit units such as `--timeout=500ms`, `--timeout=5s`, or `--timeout=1m`.
+- `--agentsDir <path>` reads target configuration from a non-default agents directory. Relative
+  paths resolve from the project root and must point to an existing directory.
 
 Windows:
 

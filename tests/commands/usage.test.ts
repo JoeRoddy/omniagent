@@ -43,8 +43,8 @@ async function createFakeCliBin(root: string, commands: string[]): Promise<strin
 	return binDir;
 }
 
-async function writeConfig(root: string, body: string): Promise<void> {
-	const agentsDir = path.join(root, "agents");
+async function writeConfig(root: string, body: string, agentsDirName = "agents"): Promise<void> {
+	const agentsDir = path.join(root, agentsDirName);
 	await mkdir(agentsDir, { recursive: true });
 	await writeFile(path.join(agentsDir, "omniagent.config.cjs"), body, "utf8");
 }
@@ -891,6 +891,78 @@ module.exports = {
 			expect(envelope.targets[0].command).toBeUndefined();
 			expect(envelope.targets[0].limits[0].percentRemaining).toBe(75);
 			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	it("loads usage target config from --agentsDir", async () => {
+		await withTempRepo(async (root) => {
+			await writeConfig(
+				root,
+				`
+module.exports = {
+	disableTargets: ["codex", "claude", "gemini"],
+	targets: [
+		{
+			id: "custom-meter",
+			displayName: "Custom Meter",
+			usage: {
+				windows: ["weekly"],
+				extract: async (ctx) => ({
+					targetId: ctx.targetId,
+					displayName: ctx.displayName,
+					command: ctx.command,
+					limits: [
+						{
+							id: "custom-meter.weekly",
+							targetId: ctx.targetId,
+							agent: ctx.targetId,
+							window: "weekly",
+							percentUsed: 12,
+							percentRemaining: 88,
+							resetAt: null,
+							resetText: "Monday",
+							raw: ctx.agentsDir.endsWith("custom-agents")
+								? "custom agents dir"
+								: "default agents dir"
+						}
+					]
+				})
+			}
+		}
+	]
+};
+`,
+				"custom-agents",
+			);
+
+			await withCwd(root, async () => {
+				await runCli([
+					"node",
+					"omniagent",
+					"usage",
+					"custom-meter",
+					"--agentsDir",
+					"custom-agents",
+					"--json",
+				]);
+			});
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(envelope.targets).toHaveLength(1);
+			expect(envelope.targets[0].targetId).toBe("custom-meter");
+			expect(envelope.targets[0].limits[0].raw).toBe("custom agents dir");
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	it("reports invalid usage agentsDir overrides", async () => {
+		await withTempRepo(async (root) => {
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "--agentsDir", "missing-agents"]);
+			});
+
+			expect(joinOutput(errorSpy.mock.calls)).toContain("Agents directory not found");
+			expect(exitSpy).toHaveBeenCalledWith(1);
 		});
 	});
 
