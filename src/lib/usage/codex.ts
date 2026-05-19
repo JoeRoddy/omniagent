@@ -12,6 +12,7 @@ import {
 	typeTextSteps,
 } from "./pty.js";
 import type {
+	NormalizedUsageError,
 	NormalizedUsageLimit,
 	UsageExtractionContext,
 	UsageExtractionResult,
@@ -77,13 +78,15 @@ export async function extractCodexUsage(
 	});
 
 	const parsed = selectCodexStatus(ptyResult);
-	assertRequiredCodexLimits(parsed);
-
-	return {
+	const result = buildCodexUsageResult(parsed, {
 		targetId: context.targetId,
 		displayName: context.displayName,
+		now: context.now,
 		command,
-		limits: buildCodexUsageLimits(parsed, context),
+	});
+
+	return {
+		...result,
 		debug: ptyResult.debug.length > 0 ? ptyResult.debug : undefined,
 	};
 }
@@ -124,7 +127,28 @@ function hasCodexStatusLimits(snapshot: { raw: string; screen: string }): boolea
 
 function hasCodexStatusResponse(snapshot: { raw: string; screen: string }): boolean {
 	const cleanedOutput = cleanControlOutput(`${snapshot.screen}\n${snapshot.raw}`);
-	return hasCodexStatusLimits(snapshot) || /refresh requested/i.test(cleanedOutput);
+	const parsed = parseCodexStatus(cleanedOutput);
+	return (
+		Boolean(parsed.main5hLimit || parsed.mainWeeklyLimit) ||
+		/refresh requested/i.test(cleanedOutput)
+	);
+}
+
+export function buildCodexUsageResult(
+	parsed: ParsedCodexStatus,
+	context: Pick<UsageExtractionContext, "targetId" | "displayName" | "now"> & {
+		command?: string;
+	},
+): UsageExtractionResult {
+	assertAnyRequiredCodexLimit(parsed);
+	const errors = buildCodexUsageErrors(parsed, context);
+	return {
+		targetId: context.targetId,
+		displayName: context.displayName,
+		command: context.command,
+		limits: buildCodexUsageLimits(parsed, context),
+		errors: errors.length > 0 ? errors : undefined,
+	};
 }
 
 export function buildCodexUsageLimits(
@@ -226,11 +250,35 @@ export function parseCodexStatus(cleanedOutput: string): ParsedCodexStatus {
 	};
 }
 
-function assertRequiredCodexLimits(parsed: ParsedCodexStatus): void {
-	if (parsed.main5hLimit && parsed.mainWeeklyLimit) {
+function assertAnyRequiredCodexLimit(parsed: ParsedCodexStatus): void {
+	if (parsed.main5hLimit || parsed.mainWeeklyLimit) {
 		return;
 	}
 	throw new Error("Codex usage output did not include the required 5h and weekly limit rows.");
+}
+
+function buildCodexUsageErrors(
+	parsed: ParsedCodexStatus,
+	context: Pick<UsageExtractionContext, "targetId" | "displayName">,
+): NormalizedUsageError[] {
+	const missing: string[] = [];
+	if (!parsed.main5hLimit) {
+		missing.push("5h");
+	}
+	if (!parsed.mainWeeklyLimit) {
+		missing.push("weekly");
+	}
+	if (missing.length === 0) {
+		return [];
+	}
+	return [
+		{
+			targetId: context.targetId,
+			displayName: context.displayName,
+			code: "partial_parse",
+			message: `Codex usage output did not include the ${missing.join(" and ")} limit row.`,
+		},
+	];
 }
 
 function isCodexSparkLimitLabel(label: string): boolean {

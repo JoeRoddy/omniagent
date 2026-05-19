@@ -2,6 +2,10 @@ import { vi } from "vitest";
 
 const ptyMock = vi.hoisted(() => {
 	const spawn = vi.fn((_command: string, args: string[]) => {
+		if (args.some((arg) => arg.includes("throw-spawn"))) {
+			throw new Error("spawn failed");
+		}
+
 		const dataHandlers: Array<(chunk: string) => void> = [];
 		const exitHandlers: Array<(event: { exitCode: number }) => void> = [];
 		const child = {
@@ -91,16 +95,66 @@ describe("PTY usage utility", () => {
 		).rejects.toThrow("Timed out waiting for ready.");
 	});
 
-	it("marks timed out processes and kills them safely", async () => {
+	it("includes debug artifacts when required output does not arrive", async () => {
 		const { runPtyScenario } = await import("../../../src/lib/usage/pty.js");
-		const result = await runPtyScenario({
-			command: "node",
-			args: ["-e", "setInterval"],
-			timeoutMs: 10,
-			steps: [{ waitMs: 20 }],
-			finalWaitMs: 0,
-		});
 
-		expect(result.timedOut).toBe(true);
+		await expect(
+			runPtyScenario({
+				command: "node",
+				args: ["-e", "ready"],
+				timeoutMs: 1_000,
+				steps: [
+					{ waitMs: 20, capture: "ready" },
+					{ waitFor: "missing", waitForTimeoutMs: 10, capture: "missing" },
+				],
+				debug: {
+					enabled: true,
+					includeRawOutput: true,
+					includeScreenSnapshots: true,
+				},
+			}),
+		).rejects.toMatchObject({
+			name: "PtyScenarioError",
+			raw: expect.stringContaining("ready"),
+			debug: expect.arrayContaining([
+				expect.objectContaining({ type: "raw-output", label: "pty.raw" }),
+				expect.objectContaining({ type: "screen-snapshot", label: "ready" }),
+				expect.objectContaining({ type: "screen-snapshot", label: "final" }),
+			]),
+		});
+	});
+
+	it("rejects timed out processes and kills them safely", async () => {
+		const { runPtyScenario } = await import("../../../src/lib/usage/pty.js");
+
+		await expect(
+			runPtyScenario({
+				command: "node",
+				args: ["-e", "setInterval"],
+				timeoutMs: 10,
+				steps: [{ waitMs: 20 }],
+				finalWaitMs: 0,
+			}),
+		).rejects.toMatchObject({
+			name: "PtyScenarioError",
+			timedOut: true,
+			message: "PTY scenario timed out after 10ms.",
+		});
+	});
+
+	it("rejects spawn failures after terminal setup", async () => {
+		const { runPtyScenario } = await import("../../../src/lib/usage/pty.js");
+
+		await expect(
+			runPtyScenario({
+				command: "node",
+				args: ["-e", "throw-spawn"],
+				timeoutMs: 1_000,
+				steps: [],
+			}),
+		).rejects.toMatchObject({
+			name: "PtyScenarioError",
+			message: "spawn failed",
+		});
 	});
 });

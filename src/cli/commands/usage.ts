@@ -59,6 +59,7 @@ type TargetExtractionOutcome =
 			status: "error";
 			target: ResolvedTarget;
 			error: NormalizedUsageError;
+			debug: NormalizedUsageDebugArtifact[];
 	  };
 
 const USAGE_BAR_WIDTH = 12;
@@ -352,6 +353,7 @@ async function extractUsageForTarget(options: {
 					"usage_extractor_missing",
 					`${options.target.displayName} does not have a usage extractor.`,
 				),
+				debug: [],
 			};
 		}
 		const result = await withUsageTimeout(extraction, options.timeoutMs);
@@ -374,8 +376,31 @@ async function extractUsageForTarget(options: {
 			status: "error",
 			target: options.target,
 			error: buildError(options.target, code, message),
+			debug: options.debug ? getErrorDebugArtifacts(error) : [],
 		};
 	}
+}
+
+function getErrorDebugArtifacts(error: unknown): NormalizedUsageDebugArtifact[] {
+	if (!error || typeof error !== "object") {
+		return [];
+	}
+	const debug = (error as { debug?: unknown }).debug;
+	if (!Array.isArray(debug)) {
+		return [];
+	}
+	return debug.filter(isDebugArtifact);
+}
+
+function isDebugArtifact(value: unknown): value is NormalizedUsageDebugArtifact {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+	const artifact = value as { type?: unknown; label?: unknown };
+	return (
+		(artifact.type === "raw-output" || artifact.type === "screen-snapshot") &&
+		typeof artifact.label === "string"
+	);
 }
 
 function withUsageTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -1090,6 +1115,13 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 			);
 		} else {
 			errors.push(outcome.error);
+			debugArtifacts.push(
+				...outcome.debug.map((artifact) => ({
+					...artifact,
+					targetId: outcome.target.id,
+					displayName: outcome.target.displayName,
+				})),
+			);
 		}
 	}
 	const envelope = buildEnvelope({

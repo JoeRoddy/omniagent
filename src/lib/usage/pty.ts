@@ -64,6 +64,50 @@ export type PtyScenarioResult = {
 	debug: NormalizedUsageDebugArtifact[];
 };
 
+type Disposable = {
+	dispose: () => void;
+};
+
+type PtyChild = {
+	write: (data: string) => void;
+	kill: () => void;
+	onData: (handler: (chunk: string) => void) => void;
+	onExit: (handler: (event: { exitCode: number }) => void) => void;
+};
+
+export class PtyScenarioError extends Error {
+	readonly command: string;
+	readonly args: string[];
+	readonly timedOut: boolean;
+	readonly raw: string;
+	readonly screen: string;
+	readonly snapshots: Record<string, PtySnapshot>;
+	readonly debug: NormalizedUsageDebugArtifact[];
+
+	constructor(
+		message: string,
+		options: {
+			command: string;
+			args: string[];
+			timedOut: boolean;
+			raw: string;
+			screen: string;
+			snapshots: Record<string, PtySnapshot>;
+			debug: NormalizedUsageDebugArtifact[];
+		},
+	) {
+		super(message);
+		this.name = "PtyScenarioError";
+		this.command = options.command;
+		this.args = options.args;
+		this.timedOut = options.timedOut;
+		this.raw = options.raw;
+		this.screen = options.screen;
+		this.snapshots = options.snapshots;
+		this.debug = options.debug;
+	}
+}
+
 export function enterKey(): string {
 	return os.platform() === "win32" ? "\r" : "\r";
 }
@@ -91,56 +135,94 @@ export async function runPtyScenario(options: PtyScenarioOptions): Promise<PtySc
 	const rows = options.rows ?? 40;
 	const terminal = createHeadlessTerminal(cols, rows);
 	const snapshots: Record<string, PtySnapshot> = {};
-	const debug: NormalizedUsageDebugArtifact[] = [];
 	let raw = "";
 	let exited = false;
 	let exitCode: number | null = null;
 	let timedOut = false;
+	let child: PtyChild | null = null;
+	let terminalDataDisposable: Disposable | null = null;
+	let terminalBinaryDisposable: Disposable | null = null;
+	let timeout: NodeJS.Timeout | null = null;
+	const timeoutMs = options.timeoutMs ?? 45_000;
 
-	await ensureNodePtySpawnHelperExecutable();
-
-	const child = pty.spawn(options.command, args, {
-		name: "xterm-256color",
-		cols,
-		rows,
-		cwd: options.cwd ?? process.cwd(),
-		env: {
-			...process.env,
-			TERM: "xterm-256color",
-			...options.env,
-		},
+	const buildScenarioError = (message: string): PtyScenarioError =>
+		new PtyScenarioError(message, {
+			command: options.command,
+			args,
+			timedOut,
+			raw,
+			screen: readScreen(terminal),
+			snapshots: { ...snapshots },
+			debug: buildDebugArtifacts({
+				options,
+				args,
+				raw,
+				screen: readScreen(terminal),
+				snapshots,
+			}),
+		});
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		timeout = setTimeout(() => {
+			if (!exited) {
+				timedOut = true;
+				if (child) {
+					safeKillPty(child);
+				}
+			}
+			reject(buildScenarioError(`PTY scenario timed out after ${formatDuration(timeoutMs)}.`));
+		}, timeoutMs);
 	});
-
-	const terminalDataDisposable = terminal.onData((data) => {
-		if (!exited) {
-			child.write(data);
+	timeoutPromise.catch(() => {});
+	const withScenarioTimeout = async <T>(promise: Promise<T>): Promise<T> =>
+		Promise.race([promise, timeoutPromise]);
+	const throwIfTimedOut = (): void => {
+		if (timedOut) {
+			throw buildScenarioError(`PTY scenario timed out after ${formatDuration(timeoutMs)}.`);
 		}
-	});
-	const terminalBinaryDisposable = terminal.onBinary((data) => {
-		if (!exited) {
-			child.write(data);
-		}
-	});
-
-	child.onData((chunk) => {
-		raw += chunk;
-		terminal.write(chunk);
-	});
-
-	child.onExit((event) => {
-		exited = true;
-		exitCode = event.exitCode;
-	});
-
-	const timeout = setTimeout(() => {
-		if (!exited) {
-			timedOut = true;
-			safeKillPty(child);
-		}
-	}, options.timeoutMs ?? 45_000);
+	};
 
 	try {
+		await withScenarioTimeout(ensureNodePtySpawnHelperExecutable());
+
+		child = pty.spawn(options.command, args, {
+			name: "xterm-256color",
+			cols,
+			rows,
+			cwd: options.cwd ?? process.cwd(),
+			env: {
+				...process.env,
+				TERM: "xterm-256color",
+				...options.env,
+			},
+		});
+
+		terminalDataDisposable = terminal.onData((data) => {
+			if (!exited && child) {
+				child.write(data);
+			}
+		});
+		terminalBinaryDisposable = terminal.onBinary((data) => {
+			if (!exited && child) {
+				child.write(data);
+			}
+		});
+
+		child.onData((chunk) => {
+			raw += chunk;
+			terminal.write(chunk);
+		});
+
+		child.onExit((event) => {
+			exited = true;
+			exitCode = event.exitCode;
+		});
+
+		if (!exited) {
+			throwIfTimedOut();
+		}
+
 		for (const step of options.steps) {
+			throwIfTimedOut();
 			if (
 				step.skipIf != null &&
 				matchesWaitFor(
@@ -153,25 +235,33 @@ export async function runPtyScenario(options: PtyScenarioOptions): Promise<PtySc
 				continue;
 			}
 			if (step.waitMs != null) {
-				await sleep(step.waitMs);
+				await withScenarioTimeout(sleep(step.waitMs));
+				throwIfTimedOut();
 			}
 			if (step.write != null) {
+				throwIfTimedOut();
 				child.write(step.write);
 			}
 			if (step.waitFor != null) {
-				const matched = await waitForOutput({
-					match: step.waitFor,
-					source: step.waitForSource ?? "raw",
-					timeoutMs: step.waitForTimeoutMs ?? options.timeoutMs ?? 45_000,
-					getRaw: () => raw,
-					getScreen: () => readScreen(terminal),
-				});
+				const matched = await withScenarioTimeout(
+					waitForOutput({
+						match: step.waitFor,
+						source: step.waitForSource ?? "raw",
+						timeoutMs: step.waitForTimeoutMs ?? options.timeoutMs ?? 45_000,
+						getRaw: () => raw,
+						getScreen: () => readScreen(terminal),
+					}),
+				);
+				throwIfTimedOut();
 				if (!matched && !step.optional) {
-					throw new Error(`Timed out waiting for ${step.capture ?? "expected TUI output"}.`);
+					throw buildScenarioError(
+						`Timed out waiting for ${step.capture ?? "expected TUI output"}.`,
+					);
 				}
 			}
 			if (step.capture != null) {
-				await sleep(step.captureWaitMs ?? 250);
+				await withScenarioTimeout(sleep(step.captureWaitMs ?? 250));
+				throwIfTimedOut();
 				snapshots[step.capture] = {
 					raw,
 					screen: readScreen(terminal),
@@ -179,35 +269,11 @@ export async function runPtyScenario(options: PtyScenarioOptions): Promise<PtySc
 			}
 		}
 
-		await sleep(options.finalWaitMs ?? 250);
+		await withScenarioTimeout(sleep(options.finalWaitMs ?? 250));
+		throwIfTimedOut();
 
 		const screen = readScreen(terminal);
-		if (options.debug?.enabled) {
-			if (options.debug.includeRawOutput) {
-				debug.push({
-					type: "raw-output",
-					label: "pty.raw",
-					content: raw,
-					command: formatCommand(options.command, args),
-				});
-			}
-			if (options.debug.includeScreenSnapshots) {
-				for (const [label, snapshot] of Object.entries(snapshots)) {
-					debug.push({
-						type: "screen-snapshot",
-						label,
-						content: snapshot.screen,
-						mimeType: "text/plain",
-					});
-				}
-				debug.push({
-					type: "screen-snapshot",
-					label: "final",
-					content: screen,
-					mimeType: "text/plain",
-				});
-			}
-		}
+		const debug = buildDebugArtifacts({ options, args, raw, screen, snapshots });
 
 		return {
 			command: options.command,
@@ -219,11 +285,19 @@ export async function runPtyScenario(options: PtyScenarioOptions): Promise<PtySc
 			snapshots,
 			debug,
 		};
+	} catch (error) {
+		if (error instanceof PtyScenarioError) {
+			throw error;
+		}
+		const message = error instanceof Error ? error.message : String(error);
+		throw buildScenarioError(message);
 	} finally {
-		clearTimeout(timeout);
-		terminalDataDisposable.dispose();
-		terminalBinaryDisposable.dispose();
-		if (!exited) {
+		if (timeout) {
+			clearTimeout(timeout);
+		}
+		terminalDataDisposable?.dispose();
+		terminalBinaryDisposable?.dispose();
+		if (!exited && child) {
 			safeKillPty(child);
 		}
 		terminal.dispose();
@@ -255,6 +329,55 @@ export function safeKillPty(child: { kill: () => void }): void {
 
 function formatCommand(command: string, args: string[]): string {
 	return [command, ...args].join(" ");
+}
+
+function buildDebugArtifacts(options: {
+	options: PtyScenarioOptions;
+	args: string[];
+	raw: string;
+	screen: string;
+	snapshots: Record<string, PtySnapshot>;
+}): NormalizedUsageDebugArtifact[] {
+	if (!options.options.debug?.enabled) {
+		return [];
+	}
+
+	const debug: NormalizedUsageDebugArtifact[] = [];
+	if (options.options.debug.includeRawOutput) {
+		debug.push({
+			type: "raw-output",
+			label: "pty.raw",
+			content: options.raw,
+			command: formatCommand(options.options.command, options.args),
+		});
+	}
+	if (options.options.debug.includeScreenSnapshots) {
+		for (const [label, snapshot] of Object.entries(options.snapshots)) {
+			debug.push({
+				type: "screen-snapshot",
+				label,
+				content: snapshot.screen,
+				mimeType: "text/plain",
+			});
+		}
+		debug.push({
+			type: "screen-snapshot",
+			label: "final",
+			content: options.screen,
+			mimeType: "text/plain",
+		});
+	}
+	return debug;
+}
+
+function formatDuration(timeoutMs: number): string {
+	if (timeoutMs % 60_000 === 0) {
+		return `${timeoutMs / 60_000}m`;
+	}
+	if (timeoutMs % 1_000 === 0) {
+		return `${timeoutMs / 1_000}s`;
+	}
+	return `${timeoutMs}ms`;
 }
 
 async function waitForOutput(options: {

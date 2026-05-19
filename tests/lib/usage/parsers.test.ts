@@ -1,5 +1,9 @@
 import { buildClaudeUsageLimits, parseClaudeUsage } from "../../../src/lib/usage/claude.js";
-import { buildCodexUsageLimits, parseCodexStatus } from "../../../src/lib/usage/codex.js";
+import {
+	buildCodexUsageLimits,
+	buildCodexUsageResult,
+	parseCodexStatus,
+} from "../../../src/lib/usage/codex.js";
 import {
 	cleanControlOutput,
 	makeUsageLimit,
@@ -200,6 +204,92 @@ gpt-5.5 xhigh · Context 0% used
 			"spark:weekly",
 		]);
 		expect(limits.map((limit) => limit.percentRemaining)).toEqual([85, 60]);
+	});
+
+	it("returns partial Codex limits with an error when one required main row is missing", () => {
+		const result = buildCodexUsageResult(
+			{
+				model: "",
+				directory: "",
+				permissions: "",
+				agentsMd: "",
+				account: "",
+				collaborationMode: "",
+				session: "",
+				main5hLimit: "85% left",
+				mainWeeklyLimit: "",
+				spark5hLimit: "",
+				sparkWeeklyLimit: "",
+			},
+			{
+				targetId: "codex",
+				displayName: "OpenAI Codex",
+				now: new Date("2026-05-18T12:00:00.000Z"),
+			},
+		);
+
+		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual(["main:hourly"]);
+		expect(result.errors).toEqual([
+			{
+				targetId: "codex",
+				displayName: "OpenAI Codex",
+				code: "partial_parse",
+				message: "Codex usage output did not include the weekly limit row.",
+			},
+		]);
+	});
+
+	it("returns partial Codex weekly limits when the 5h row is missing", () => {
+		const result = buildCodexUsageResult(
+			{
+				model: "",
+				directory: "",
+				permissions: "",
+				agentsMd: "",
+				account: "",
+				collaborationMode: "",
+				session: "",
+				main5hLimit: "",
+				mainWeeklyLimit: "60% left",
+				spark5hLimit: "",
+				sparkWeeklyLimit: "",
+			},
+			{
+				targetId: "codex",
+				displayName: "OpenAI Codex",
+				now: new Date("2026-05-18T12:00:00.000Z"),
+			},
+		);
+
+		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual(["main:weekly"]);
+		expect(result.errors?.[0]?.message).toBe(
+			"Codex usage output did not include the 5h limit row.",
+		);
+	});
+
+	it("throws when Codex output has no required main limit rows", () => {
+		expect(() =>
+			buildCodexUsageResult(
+				{
+					model: "",
+					directory: "",
+					permissions: "",
+					agentsMd: "",
+					account: "",
+					collaborationMode: "",
+					session: "",
+					main5hLimit: "",
+					mainWeeklyLimit: "",
+					spark5hLimit: "90% left",
+					sparkWeeklyLimit: "60% left",
+				},
+				{
+					targetId: "codex",
+					displayName: "OpenAI Codex",
+					now: new Date("2026-05-18T12:00:00.000Z"),
+				},
+			),
+		).toThrow("Codex usage output did not include the required 5h and weekly limit rows.");
 	});
 
 	it("treats Codex time-only resets as local CLI times", () => {

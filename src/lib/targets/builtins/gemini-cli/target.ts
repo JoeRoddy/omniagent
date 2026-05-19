@@ -54,7 +54,7 @@ export const geminiTarget: TargetDefinition = {
 		windows: ["model"],
 		launch: {
 			command: "gemini",
-			// /model inspection does not need a model override; --skip-trust avoids accepting prompts.
+			// /model inspection does not need a model override; Gemini requires session-scoped trust.
 			args: ["--skip-trust"],
 			timeoutMs: 70_000,
 		},

@@ -1220,6 +1220,52 @@ module.exports = {
 		});
 	});
 
+	it("includes failed extractor debug artifacts when debug output is enabled", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					disableTargets: ["claude", "gemini"],
+					extractors: {
+						codex: `async () => {
+							const error = new Error("status timed out");
+							error.debug = [
+								{
+									type: "raw-output",
+									label: "pty.raw",
+									content: "auth prompt",
+									command: "codex --no-alt-screen"
+								}
+							];
+							throw error;
+						}`,
+					},
+				}),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "codex", "--debug"]);
+			});
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(envelope.targets).toEqual([]);
+			expect(envelope.errors[0]).toMatchObject({
+				targetId: "codex",
+				code: "usage_extraction_failed",
+				message: "status timed out",
+			});
+			expect(envelope.debug[0]).toMatchObject({
+				type: "raw-output",
+				label: "pty.raw",
+				targetId: "codex",
+				displayName: "Mock Codex",
+				content: "auth prompt",
+			});
+			expect(exitSpy).toHaveBeenCalledWith(1);
+		});
+	});
+
 	it("promotes extractor-returned errors to the top-level JSON errors array", async () => {
 		await withTempRepo(async (root) => {
 			await createFakeCliBin(root, ["codex"]);
