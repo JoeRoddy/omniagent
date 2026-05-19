@@ -5,8 +5,10 @@ import {
 	parseClaudeUsage,
 } from "../../../src/lib/usage/claude.js";
 import {
+	buildCodexApiUsageResult,
 	buildCodexUsageLimits,
 	buildCodexUsageResult,
+	extractCodexBackendAuth,
 	parseCodexStatus,
 } from "../../../src/lib/usage/codex.js";
 import {
@@ -71,6 +73,98 @@ describe("usage parser utilities", () => {
 });
 
 describe("Codex usage parser", () => {
+	it("builds Codex usage limits from the ChatGPT usage endpoint", () => {
+		const now = new Date("2026-05-18T12:00:00.000Z");
+		const result = buildCodexApiUsageResult(
+			{
+				rate_limit: {
+					primary_window: {
+						used_percent: 6,
+						limit_window_seconds: 18_000,
+						reset_at: now.getTime() / 1000 + 60 * 60,
+					},
+					secondary_window: {
+						used_percent: 25,
+						limit_window_seconds: 604_800,
+						reset_at: now.getTime() / 1000 + 7 * 24 * 60 * 60,
+					},
+				},
+				additional_rate_limits: [
+					{
+						limit_name: "GPT-5.3-Codex-Spark",
+						metered_feature: "codex_bengalfox",
+						rate_limit: {
+							primary_window: {
+								used_percent: 0,
+								limit_window_seconds: 18_000,
+								reset_at: now.getTime() / 1000 + 5 * 60 * 60,
+							},
+							secondary_window: {
+								used_percent: 1,
+								limit_window_seconds: 604_800,
+								reset_at: now.getTime() / 1000 + 6 * 24 * 60 * 60,
+							},
+						},
+					},
+				],
+			},
+			{
+				targetId: "codex",
+				displayName: "OpenAI Codex",
+				command: "codex",
+				now,
+			},
+		);
+
+		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual([
+			"main:hourly",
+			"main:weekly",
+			"spark:hourly",
+			"spark:weekly",
+		]);
+		expect(result.limits.map((limit) => limit.percentUsed)).toEqual([6, 25, 0, 1]);
+		expect(result.limits.map((limit) => limit.percentRemaining)).toEqual([94, 75, 100, 99]);
+		expect(result.limits[0]?.resetAt).toBe("2026-05-18T13:00:00.000Z");
+		expect(result.limits[1]?.resetAt).toBe("2026-05-25T12:00:00.000Z");
+	});
+
+	it("requires complete main Codex API rate-limit windows", () => {
+		expect(() =>
+			buildCodexApiUsageResult(
+				{
+					rate_limit: {
+						primary_window: {
+							used_percent: 6,
+							limit_window_seconds: 18_000,
+						},
+					},
+				},
+				{
+					targetId: "codex",
+					displayName: "OpenAI Codex",
+					now: new Date("2026-05-18T12:00:00.000Z"),
+				},
+			),
+		).toThrow("Codex usage API response did not include complete main rate-limit windows.");
+	});
+
+	it("extracts Codex ChatGPT backend auth from auth.json", () => {
+		expect(
+			extractCodexBackendAuth(
+				JSON.stringify({
+					tokens: {
+						access_token: "access-token-value",
+						account_id: "account-id-value",
+					},
+				}),
+			),
+		).toEqual({
+			accessToken: "access-token-value",
+			accountId: "account-id-value",
+		});
+		expect(extractCodexBackendAuth("{}")).toBeNull();
+	});
+
 	it("parses main and Spark status limits", () => {
 		const parsed = parseCodexStatus(`
 ╭──────────────────────────╮
