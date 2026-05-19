@@ -227,6 +227,54 @@ describe.sequential("usage command", () => {
 		});
 	});
 
+	it("renders the built-in Codex usage table label as Codex CLI", async () => {
+		await withTempRepo(async (root) => {
+			await writeConfig(
+				root,
+				`
+module.exports = {
+	disableTargets: ["claude", "gemini"],
+	targets: [
+		{
+			id: "codex",
+			displayName: "OpenAI Codex",
+			usage: {
+				windows: ["hourly"],
+				extract: async (ctx) => ({
+					targetId: ctx.targetId,
+					displayName: ctx.displayName,
+					limits: [
+						{
+							id: "codex.hourly",
+							targetId: ctx.targetId,
+							agent: ctx.targetId,
+							window: "hourly",
+							percentUsed: 4,
+							percentRemaining: 96,
+							resetAt: null,
+							resetText: "soon",
+							raw: "4% used"
+						}
+					]
+				})
+			}
+		}
+	]
+};
+`,
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage"]);
+			});
+
+			const output = joinOutput(logSpy.mock.calls);
+			expect(output).toContain("Codex CLI");
+			expect(output).not.toContain("OpenAI Codex");
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
 	it("labels duplicate scoped windows without prefixing the main limits", async () => {
 		await withTempRepo(async (root) => {
 			await createFakeCliBin(root, ["codex"]);

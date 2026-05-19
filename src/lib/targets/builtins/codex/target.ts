@@ -2,7 +2,7 @@ import type { TargetDefinition } from "../../config-types.js";
 
 export const codexTarget: TargetDefinition = {
 	id: "codex",
-	displayName: "Codex CLI",
+	displayName: "OpenAI Codex",
 	cli: {
 		modes: {
 			interactive: { command: "codex" },

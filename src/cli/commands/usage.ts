@@ -672,16 +672,21 @@ function formatWindowLabel(window: string): string {
 	return window;
 }
 
+function formatUsageAgentName(targetId: string, displayName: string): string {
+	return targetId === "codex" && displayName === "OpenAI Codex" ? "Codex CLI" : displayName;
+}
+
 function formatUsageTable(envelope: NormalizedUsageEnvelope, sortKey: UsageSortKey | null): string {
 	const useColor = shouldUseColor();
 	const generatedAt = parseDate(envelope.generatedAt) ?? new Date();
 	const rows: UsageDisplayRow[] = [];
 	for (const target of envelope.targets) {
 		const limitLabels = formatLimitLabels(target.limits);
+		const agentName = formatUsageAgentName(target.targetId, target.displayName);
 		target.limits.forEach((limit, index) => {
 			rows.push({
 				status: "ok",
-				agent: sortKey == null && index > 0 ? "" : target.displayName,
+				agent: sortKey == null && index > 0 ? "" : agentName,
 				limitLabel: limitLabels[index] ?? formatLimitLabel(limit),
 				reset: formatResetValue(limit, generatedAt),
 				limit,
@@ -691,7 +696,7 @@ function formatUsageTable(envelope: NormalizedUsageEnvelope, sortKey: UsageSortK
 	for (const error of envelope.errors) {
 		rows.push({
 			status: "error",
-			agent: error.displayName,
+			agent: formatUsageAgentName(error.targetId, error.displayName),
 			limitLabel: "error",
 			message: error.message,
 		});
@@ -1260,7 +1265,8 @@ export const usageCommand: CommandModule<unknown, UsageArgs> = {
 			})
 			.option("agentsDir", {
 				type: "string",
-				describe: "Override the agents directory (relative paths resolve from the project root)",
+				describe:
+					"Override the agents directory (relative paths resolve from the project root, or the current directory outside a repo)",
 				defaultDescription: DEFAULT_AGENTS_DIR,
 				coerce: (value) => {
 					if (typeof value !== "string") {

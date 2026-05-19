@@ -31,7 +31,7 @@ describe("codex builtin target", () => {
 
 	it("defines core metadata", () => {
 		expect(codexTarget.id).toBe("codex");
-		expect(codexTarget.displayName).toBe("Codex CLI");
+		expect(codexTarget.displayName).toBe("OpenAI Codex");
 	});
 
 	it("routes skills and subagents to .codex/skills with conversion fallback", () => {

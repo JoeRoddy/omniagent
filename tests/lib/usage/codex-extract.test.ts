@@ -40,7 +40,7 @@ Weekly limit: 41% left
 
 		const result = await extractCodexUsage({
 			targetId: "codex",
-			displayName: "Codex CLI",
+			displayName: "OpenAI Codex",
 			command: "codex",
 			window: "hourly",
 			windows: ["hourly", "weekly"],
