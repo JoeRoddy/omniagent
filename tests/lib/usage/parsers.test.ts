@@ -20,7 +20,11 @@ import {
 	parseResetAt,
 	parseResetText,
 } from "../../../src/lib/usage/format.js";
-import { parseGeminiModelDialog } from "../../../src/lib/usage/gemini.js";
+import {
+	buildGeminiApiUsageResult,
+	extractGeminiOAuthCredentials,
+	parseGeminiModelDialog,
+} from "../../../src/lib/usage/gemini.js";
 
 describe("usage parser utilities", () => {
 	it("cleans control output and parses common limit fragments", () => {
@@ -526,6 +530,87 @@ Current week
 });
 
 describe("Gemini usage parser", () => {
+	it("builds Gemini usage limits from Code Assist quota buckets", () => {
+		const now = new Date("2026-05-18T12:00:00.000Z");
+		const result = buildGeminiApiUsageResult(
+			{
+				buckets: [
+					{
+						modelId: "gemini-2.5-flash",
+						remainingFraction: 1,
+						resetTime: "2026-05-19T12:00:00Z",
+					},
+					{
+						modelId: "gemini-2.5-flash-lite",
+						remainingFraction: 0.999,
+						resetTime: "2026-05-19T01:00:00Z",
+					},
+					{
+						modelId: "gemini-2.5-pro",
+						remainingFraction: 0,
+						resetTime: "1970-01-01T00:00:00Z",
+					},
+					{
+						modelId: "gemini-3.1-flash-lite",
+						remainingFraction: "0.5",
+						resetTime: "2026-05-19T02:00:00Z",
+					},
+					{
+						modelId: "gemini-3.1-flash-lite-preview",
+						remainingFraction: 0.75,
+						resetTime: "2026-05-19T03:00:00Z",
+					},
+				],
+			},
+			{
+				targetId: "gemini",
+				displayName: "Gemini CLI",
+				command: "gemini",
+				now,
+			},
+		);
+
+		expect(result.limits.map((limit) => `${limit.modelId}:${limit.label}`)).toEqual([
+			"flash:Flash",
+			"flash-lite:Flash Lite",
+			"pro:Pro",
+			"gemini-3.1-flash-lite:gemini-3.1-…",
+		]);
+		expect(result.limits.map((limit) => limit.percentUsed)).toEqual([0, 25, 100, 50]);
+		expect(result.limits[0]?.resetAt).toBe("2026-05-19T12:00:00.000Z");
+		expect(result.limits[2]?.resetAt).toBeNull();
+	});
+
+	it("requires Gemini quota buckets", () => {
+		expect(() =>
+			buildGeminiApiUsageResult(
+				{},
+				{
+					targetId: "gemini",
+					displayName: "Gemini CLI",
+					now: new Date("2026-05-18T12:00:00.000Z"),
+				},
+			),
+		).toThrow("Gemini Code Assist quota API response did not include model quota buckets.");
+	});
+
+	it("extracts Gemini OAuth credentials", () => {
+		expect(
+			extractGeminiOAuthCredentials(
+				JSON.stringify({
+					access_token: "access-token-value",
+					refresh_token: "refresh-token-value",
+					expiry_date: "1770000000000",
+				}),
+			),
+		).toEqual({
+			accessToken: "access-token-value",
+			refreshToken: "refresh-token-value",
+			expiryDate: 1770000000000,
+		});
+		expect(extractGeminiOAuthCredentials("{}")).toBeNull();
+	});
+
 	it("parses selected models and usage rows", () => {
 		const parsed = parseGeminiModelDialog(`
 │ ● 1. gemini-2.5-pro │
