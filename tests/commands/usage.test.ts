@@ -1031,7 +1031,10 @@ module.exports = {
 							]
 						})`,
 					},
-				}),
+				}).replace(
+					'launch: { command: "codex" }',
+					'launch: { command: "codex", timeoutMs: 42000 }',
+				),
 			);
 
 			await withCwd(root, async () => {
@@ -1040,6 +1043,50 @@ module.exports = {
 
 			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
 			expect(envelope.targets[0].limits[0].raw).toBe("5000");
+			expect(envelope.targets[0].limits[0].percentUsed).toBe(10);
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	it("uses target config timeout when the CLI timeout flag is omitted", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					disableTargets: ["claude", "gemini"],
+					extractors: {
+						codex: `async (ctx) => ({
+							targetId: ctx.targetId,
+							displayName: ctx.displayName,
+							command: ctx.command,
+							limits: [
+								{
+									id: "codex.hourly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									window: "hourly",
+									percentUsed: ctx.launch.timeoutMs === 42000 ? 10 : 90,
+									percentRemaining: ctx.launch.timeoutMs === 42000 ? 90 : 10,
+									resetAt: null,
+									resetText: String(ctx.launch.timeoutMs),
+									raw: String(ctx.launch.timeoutMs)
+								}
+							]
+						})`,
+					},
+				}).replace(
+					'launch: { command: "codex" }',
+					'launch: { command: "codex", timeoutMs: 42000 }',
+				),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "codex", "--json"]);
+			});
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(envelope.targets[0].limits[0].raw).toBe("42000");
 			expect(envelope.targets[0].limits[0].percentUsed).toBe(10);
 			expect(exitSpy).not.toHaveBeenCalled();
 		});

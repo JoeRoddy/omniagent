@@ -144,9 +144,9 @@ function normalizeOptionalSort(value: string | undefined): UsageSortKey | "" | n
 	return normalized === "reset" || normalized === "left" ? normalized : "";
 }
 
-function parseTimeoutMs(value: string | undefined): number | null {
+function parseTimeoutMs(value: string | undefined): number | null | undefined {
 	if (value == null) {
-		return DEFAULT_USAGE_TIMEOUT_MS;
+		return undefined;
 	}
 	const trimmed = value.trim();
 	if (!trimmed) {
@@ -165,6 +165,10 @@ function parseTimeoutMs(value: string | undefined): number | null {
 		return null;
 	}
 	return Math.ceil(timeoutMs);
+}
+
+function resolveTargetTimeoutMs(target: ResolvedTarget, cliTimeoutMs: number | undefined): number {
+	return cliTimeoutMs ?? target.usage?.launch?.timeoutMs ?? DEFAULT_USAGE_TIMEOUT_MS;
 }
 
 function parseList(value?: string | string[]): string[] {
@@ -830,7 +834,7 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 	const debugOutput = Boolean(argv.debug);
 	const selectedWindow = normalizeOptionalWindow(argv.window);
 	const sortKey = normalizeOptionalSort(argv.sort);
-	const timeoutMs = parseTimeoutMs(argv.timeout);
+	const cliTimeoutMs = parseTimeoutMs(argv.timeout);
 	if (selectedWindow === "") {
 		printError({
 			json: jsonOutput,
@@ -858,7 +862,7 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 		});
 		return null;
 	}
-	if (timeoutMs == null) {
+	if (cliTimeoutMs === null) {
 		printError({
 			json: jsonOutput,
 			code: "invalid_timeout",
@@ -1090,7 +1094,7 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 				agentsDir,
 				homeDir,
 				selectedWindow,
-				timeoutMs,
+				timeoutMs: resolveTargetTimeoutMs(target, cliTimeoutMs),
 				debug: debugOutput,
 				now,
 				command: resolvedUsageCommands.get(target.id),
