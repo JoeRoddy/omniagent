@@ -32,6 +32,7 @@ export async function extractGeminiUsage(
 		cols: 110,
 		rows: 42,
 		timeoutMs: context.launch?.timeoutMs ?? 70_000,
+		signal: context.signal,
 		debug: context.debug,
 		steps: [
 			{ waitFor: isGeminiPromptReady, waitForTimeoutMs: 12_000 },

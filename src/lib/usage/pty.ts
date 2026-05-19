@@ -41,6 +41,7 @@ export type PtyScenarioOptions = {
 	steps: PtyStep[];
 	finalWaitMs?: number;
 	timeoutMs?: number;
+	signal?: AbortSignal;
 	debug?: {
 		enabled?: boolean;
 		includeRawOutput?: boolean;
@@ -143,6 +144,8 @@ export async function runPtyScenario(options: PtyScenarioOptions): Promise<PtySc
 	let terminalDataDisposable: Disposable | null = null;
 	let terminalBinaryDisposable: Disposable | null = null;
 	let timeout: NodeJS.Timeout | null = null;
+	let removeAbortListener: (() => void) | null = null;
+	let cancelScenario: ((message: string) => void) | null = null;
 	const timeoutMs = options.timeoutMs ?? 45_000;
 
 	const buildScenarioError = (message: string): PtyScenarioError =>
@@ -161,20 +164,35 @@ export async function runPtyScenario(options: PtyScenarioOptions): Promise<PtySc
 				snapshots,
 			}),
 		});
-	const timeoutPromise = new Promise<never>((_, reject) => {
-		timeout = setTimeout(() => {
+	const cancellationPromise = new Promise<never>((_, reject) => {
+		cancelScenario = (message: string) => {
 			if (!exited) {
 				timedOut = true;
 				if (child) {
 					safeKillPty(child);
 				}
 			}
-			reject(buildScenarioError(`PTY scenario timed out after ${formatDuration(timeoutMs)}.`));
-		}, timeoutMs);
+			reject(buildScenarioError(message));
+		};
 	});
-	timeoutPromise.catch(() => {});
+	cancellationPromise.catch(() => {});
+	if (options.signal) {
+		const abortHandler = () => {
+			cancelScenario?.(formatAbortReason(options.signal, timeoutMs));
+		};
+		if (options.signal.aborted) {
+			abortHandler();
+		} else {
+			options.signal.addEventListener("abort", abortHandler, { once: true });
+			removeAbortListener = () => options.signal?.removeEventListener("abort", abortHandler);
+		}
+	} else {
+		timeout = setTimeout(() => {
+			cancelScenario?.(`PTY scenario timed out after ${formatDuration(timeoutMs)}.`);
+		}, timeoutMs);
+	}
 	const withScenarioTimeout = async <T>(promise: Promise<T>): Promise<T> =>
-		Promise.race([promise, timeoutPromise]);
+		Promise.race([promise, cancellationPromise]);
 	const throwIfTimedOut = (): void => {
 		if (timedOut) {
 			throw buildScenarioError(`PTY scenario timed out after ${formatDuration(timeoutMs)}.`);
@@ -295,6 +313,7 @@ export async function runPtyScenario(options: PtyScenarioOptions): Promise<PtySc
 		if (timeout) {
 			clearTimeout(timeout);
 		}
+		removeAbortListener?.();
 		terminalDataDisposable?.dispose();
 		terminalBinaryDisposable?.dispose();
 		if (!exited && child) {
@@ -302,6 +321,17 @@ export async function runPtyScenario(options: PtyScenarioOptions): Promise<PtySc
 		}
 		terminal.dispose();
 	}
+}
+
+function formatAbortReason(signal: AbortSignal | undefined, timeoutMs: number): string {
+	const reason = signal?.reason;
+	if (reason instanceof Error) {
+		return reason.message;
+	}
+	if (typeof reason === "string" && reason.trim().length > 0) {
+		return reason;
+	}
+	return `PTY scenario timed out after ${formatDuration(timeoutMs)}.`;
 }
 
 export function readScreen(terminal: HeadlessTerminal): string {

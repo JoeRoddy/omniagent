@@ -24,6 +24,7 @@ export type UsageExtractionContext = {
 	agentsDir: string;
 	homeDir: string;
 	launch?: UsageLaunchDefinition;
+	signal: AbortSignal;
 	debug: UsageDebugRequest;
 };
 

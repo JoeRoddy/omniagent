@@ -142,6 +142,37 @@ describe("PTY usage utility", () => {
 		});
 	});
 
+	it("uses an external abort signal to cancel the scenario", async () => {
+		const { runPtyScenario } = await import("../../../src/lib/usage/pty.js");
+		const controller = new AbortController();
+		const result = runPtyScenario({
+			command: "node",
+			args: ["-e", "ready"],
+			timeoutMs: 1_000,
+			signal: controller.signal,
+			steps: [{ waitMs: 1_000 }],
+			debug: {
+				enabled: true,
+				includeRawOutput: true,
+				includeScreenSnapshots: true,
+			},
+		});
+
+		setTimeout(() => {
+			controller.abort(new Error("external timeout"));
+		}, 20);
+
+		await expect(result).rejects.toMatchObject({
+			name: "PtyScenarioError",
+			timedOut: true,
+			message: "external timeout",
+			debug: expect.arrayContaining([
+				expect.objectContaining({ type: "raw-output", label: "pty.raw" }),
+				expect.objectContaining({ type: "screen-snapshot", label: "final" }),
+			]),
+		});
+	});
+
 	it("rejects spawn failures after terminal setup", async () => {
 		const { runPtyScenario } = await import("../../../src/lib/usage/pty.js");
 

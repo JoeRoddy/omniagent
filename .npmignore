@@ -19,6 +19,7 @@ biome.json
 tsconfig.json
 vite.config.ts
 vitest.config.ts
+pnpm-workspace.yaml
 
 # Tooling
 .claude/

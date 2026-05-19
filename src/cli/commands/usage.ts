@@ -267,6 +267,7 @@ function buildContext(options: {
 	debug: boolean;
 	now: Date;
 	command?: string;
+	signal: AbortSignal;
 }): UsageExtractionContext {
 	const windows = uniqueNormalizedWindows(options.target.usage?.windows ?? []);
 	const launch = {
@@ -284,6 +285,7 @@ function buildContext(options: {
 		agentsDir: options.agentsDir,
 		homeDir: options.homeDir,
 		launch,
+		signal: options.signal,
 		debug: {
 			enabled: options.debug,
 			includeRawOutput: options.debug,
@@ -343,9 +345,8 @@ async function extractUsageForTarget(options: {
 	command?: string;
 }): Promise<TargetExtractionOutcome> {
 	try {
-		const context = buildContext(options);
-		const extraction = options.target.usage?.extract(context);
-		if (!extraction) {
+		const extractor = options.target.usage?.extract;
+		if (!extractor) {
 			return {
 				status: "error",
 				target: options.target,
@@ -357,7 +358,10 @@ async function extractUsageForTarget(options: {
 				debug: [],
 			};
 		}
-		const result = await withUsageTimeout(extraction, options.timeoutMs);
+		const result = await withUsageTimeout((signal) => {
+			const context = buildContext({ ...options, signal });
+			return extractor(context);
+		}, options.timeoutMs);
 		const filtered = filterTargetResult(options.target, result, options.selectedWindow);
 		return {
 			status: "success",
@@ -369,10 +373,9 @@ async function extractUsageForTarget(options: {
 		};
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		const code =
-			error instanceof UsageExtractionTimeoutError
-				? "usage_extraction_timeout"
-				: "usage_extraction_failed";
+		const code = isUsageTimeoutError(error)
+			? "usage_extraction_timeout"
+			: "usage_extraction_failed";
 		return {
 			status: "error",
 			target: options.target,
@@ -380,6 +383,13 @@ async function extractUsageForTarget(options: {
 			debug: options.debug ? getErrorDebugArtifacts(error) : [],
 		};
 	}
+}
+
+function isUsageTimeoutError(error: unknown): boolean {
+	if (error instanceof UsageExtractionTimeoutError) {
+		return true;
+	}
+	return Boolean(error && typeof error === "object" && (error as { timedOut?: unknown }).timedOut);
 }
 
 function getErrorDebugArtifacts(error: unknown): NormalizedUsageDebugArtifact[] {
@@ -404,20 +414,60 @@ function isDebugArtifact(value: unknown): value is NormalizedUsageDebugArtifact 
 	);
 }
 
-function withUsageTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function withUsageTimeout<T>(
+	run: (signal: AbortSignal) => Promise<T>,
+	timeoutMs: number,
+): Promise<T> {
 	return new Promise((resolve, reject) => {
-		const timeout = setTimeout(() => {
-			reject(new UsageExtractionTimeoutError(timeoutMs));
+		const controller = new AbortController();
+		let settled = false;
+		let timeoutFired = false;
+		let timeout: NodeJS.Timeout;
+		const settleResolve = (value: T) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			clearTimeout(timeout);
+			resolve(value);
+		};
+		const settleReject = (error: unknown) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			clearTimeout(timeout);
+			reject(error);
+		};
+		timeout = setTimeout(() => {
+			timeoutFired = true;
+			const error = new UsageExtractionTimeoutError(timeoutMs);
+			controller.abort(error);
+			setImmediate(() => {
+				settleReject(error);
+			});
 		}, timeoutMs);
+
+		let promise: Promise<T>;
+		try {
+			promise = run(controller.signal);
+		} catch (error) {
+			settleReject(error);
+			return;
+		}
 
 		promise.then(
 			(value) => {
-				clearTimeout(timeout);
-				resolve(value);
+				if (timeoutFired) {
+					return;
+				}
+				settleResolve(value);
 			},
 			(error: unknown) => {
-				clearTimeout(timeout);
-				reject(error);
+				if (timeoutFired && !isUsageTimeoutError(error)) {
+					return;
+				}
+				settleReject(error);
 			},
 		);
 	});

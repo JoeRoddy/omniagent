@@ -27,6 +27,7 @@ export async function extractClaudeUsage(
 		cols: 100,
 		rows: 40,
 		timeoutMs: context.launch?.timeoutMs ?? 60_000,
+		signal: context.signal,
 		debug: context.debug,
 		steps: [
 			{ waitFor: /Claude|>|❯/u, waitForSource: "screen", waitForTimeoutMs: 4_000 },

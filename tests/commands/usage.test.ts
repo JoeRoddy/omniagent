@@ -1459,6 +1459,57 @@ module.exports = {
 		});
 	});
 
+	it("preserves abort-aware debug artifacts when extraction times out", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					disableTargets: ["claude", "gemini"],
+					extractors: {
+						codex: `async (ctx) => new Promise((_resolve, reject) => {
+							ctx.signal.addEventListener("abort", () => {
+								const reason = ctx.signal.reason && ctx.signal.reason.message
+									? ctx.signal.reason.message
+									: "usage extraction aborted";
+								const error = new Error(reason);
+								error.timedOut = true;
+								error.debug = [
+									{
+										type: "raw-output",
+										label: "pty.raw",
+										content: "usage screen before timeout",
+										command: "codex --no-alt-screen"
+									}
+								];
+								reject(error);
+							}, { once: true });
+						})`,
+					},
+				}),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "codex", "--debug", "--timeout=10ms"]);
+			});
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(envelope.errors[0]).toMatchObject({
+				targetId: "codex",
+				code: "usage_extraction_timeout",
+				message: "Usage extraction timed out after 10ms.",
+			});
+			expect(envelope.debug[0]).toMatchObject({
+				type: "raw-output",
+				label: "pty.raw",
+				targetId: "codex",
+				displayName: "Mock Codex",
+				content: "usage screen before timeout",
+			});
+			expect(exitSpy).toHaveBeenCalledWith(1);
+		});
+	});
+
 	it("prints JSON envelopes for extraction failures", async () => {
 		await withTempRepo(async (root) => {
 			await createFakeCliBin(root, ["codex"]);

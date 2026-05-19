@@ -15,6 +15,15 @@ Install dependencies:
 npm ci
 ```
 
+pnpm 10 is also supported for local development:
+
+```bash
+pnpm install --frozen-lockfile
+```
+
+Native/build dependencies required by the CLI are approved in `pnpm-workspace.yaml`; pnpm
+installs should not report ignored builds for `node-pty` or `esbuild`.
+
 ## Local Validation
 
 Run the same checks used by CI before opening a PR:
