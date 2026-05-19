@@ -1,4 +1,9 @@
-import { buildClaudeUsageLimits, parseClaudeUsage } from "../../../src/lib/usage/claude.js";
+import {
+	buildClaudeApiUsageResult,
+	buildClaudeUsageLimits,
+	extractClaudeAccessToken,
+	parseClaudeUsage,
+} from "../../../src/lib/usage/claude.js";
 import {
 	buildCodexUsageLimits,
 	buildCodexUsageResult,
@@ -329,6 +334,63 @@ gpt-5.5 xhigh · Context 0% used
 });
 
 describe("Claude usage parser", () => {
+	it("builds Claude usage limits from Anthropic rate-limit headers", () => {
+		const now = new Date("2026-05-18T12:00:00.000Z");
+		const headers = new Headers({
+			"anthropic-ratelimit-unified-5h-utilization": "0.375",
+			"anthropic-ratelimit-unified-5h-reset": String(now.getTime() / 1000 + 60 * 60),
+			"anthropic-ratelimit-unified-7d-utilization": "0.64",
+			"anthropic-ratelimit-unified-7d-reset": String(now.getTime() / 1000 + 7 * 24 * 60 * 60),
+		});
+
+		const result = buildClaudeApiUsageResult(headers, {
+			targetId: "claude",
+			displayName: "Claude Code",
+			command: "claude",
+			now,
+		});
+
+		expect(result.limits).toHaveLength(2);
+		expect(result.limits[0]).toMatchObject({
+			scope: "current_session",
+			window: "hourly",
+			percentUsed: 37.5,
+			percentRemaining: 62.5,
+			resetAt: "2026-05-18T13:00:00.000Z",
+		});
+		expect(result.limits[1]).toMatchObject({
+			scope: "current_week",
+			window: "weekly",
+			percentUsed: 64,
+			percentRemaining: 36,
+			resetAt: "2026-05-25T12:00:00.000Z",
+		});
+	});
+
+	it("requires complete Claude API utilization headers", () => {
+		expect(() =>
+			buildClaudeApiUsageResult(new Headers(), {
+				targetId: "claude",
+				displayName: "Claude Code",
+				now: new Date("2026-05-18T12:00:00.000Z"),
+			}),
+		).toThrow("Claude usage API response did not include complete usage headers.");
+	});
+
+	it("extracts Claude access tokens from known credential shapes", () => {
+		expect(extractClaudeAccessToken('{"accessToken":"direct-token-value-12345"}')).toBe(
+			"direct-token-value-12345",
+		);
+		expect(
+			extractClaudeAccessToken(
+				JSON.stringify({ claudeAiOauth: { accessToken: "nested-token-value-12345" } }),
+			),
+		).toBe("nested-token-value-12345");
+		expect(extractClaudeAccessToken("raw-token-value-with-enough-length")).toBe(
+			"raw-token-value-with-enough-length",
+		);
+	});
+
 	it("parses current session and current week usage", () => {
 		const parsed = parseClaudeUsage(`
 Current session
