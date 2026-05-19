@@ -209,18 +209,14 @@ function uniqueNormalizedWindows(values: string[]): string[] {
 }
 
 function formatUsageTargetLabel(targets: ResolvedTarget[]): string {
-	if (targets.length === 0) {
-		const builtInUsageTargets = BUILTIN_TARGETS.filter((target) => target.usage).map((target) => ({
-			id: target.id,
-			displayName: target.displayName ?? target.id,
-			aliases: target.aliases ?? [],
-			outputs: {},
-			isBuiltIn: true,
-			isCustomized: false,
-		}));
-		return buildSupportedTargetLabel(builtInUsageTargets);
-	}
 	return buildSupportedTargetLabel(targets);
+}
+
+function formatSupportedUsageTargetsMessage(targets: ResolvedTarget[]): string {
+	const supportedUsageTargets = formatUsageTargetLabel(targets);
+	return supportedUsageTargets
+		? `Supported usage targets: ${supportedUsageTargets}.`
+		: "No active usage-capable targets are enabled by the current target configuration.";
 }
 
 function getUsageCommand(target: ResolvedTarget): string | undefined {
@@ -914,7 +910,7 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 	}
 	const agentsDirResolution = resolveAgentsDir(repoRoot, argv.agentsDir);
 	if (agentsDirResolution.source === "override") {
-		const validation = await validateAgentsDir(repoRoot, argv.agentsDir);
+		const validation = await validateAgentsDir(repoRoot, argv.agentsDir, { requireWrite: false });
 		if (validation.validationStatus !== "valid") {
 			printError({
 				json: jsonOutput,
@@ -942,7 +938,7 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 	const resolved = resolveTargets({ config: validation.config, builtIns: BUILTIN_TARGETS });
 	const targetResolver = createTargetNameResolver(resolved.targets);
 	const usageCapableTargets = resolved.targets.filter((target) => target.usage);
-	const supportedUsageTargets = formatUsageTargetLabel(usageCapableTargets);
+	const supportedUsageTargetsMessage = formatSupportedUsageTargetsMessage(usageCapableTargets);
 	const usingOnlySelection = onlyTargets.length > 0;
 	const explicitTargetNames = positionalTargets[0] ? [positionalTargets[0]] : onlyTargets;
 	let selectedTargets: ResolvedTarget[];
@@ -964,8 +960,8 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 		if (unknownTargetNames.length > 0) {
 			const unknownLabel = unknownTargetNames.join(", ");
 			const message = usingOnlySelection
-				? `Unknown target name(s): ${unknownLabel}. Supported usage targets: ${supportedUsageTargets}.`
-				: `Unknown target: ${unknownLabel}. Supported usage targets: ${supportedUsageTargets}.`;
+				? `Unknown target name(s): ${unknownLabel}. ${supportedUsageTargetsMessage}`
+				: `Unknown target: ${unknownLabel}. ${supportedUsageTargetsMessage}`;
 			printError({
 				json: jsonOutput,
 				code: "unknown_target",
@@ -984,9 +980,7 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 			printError({
 				json: jsonOutput,
 				code: "usage_unsupported",
-				message:
-					`${unsupportedLabel} does not support usage extraction. ` +
-					`Supported usage targets: ${supportedUsageTargets}.`,
+				message: `${unsupportedLabel} does not support usage extraction. ${supportedUsageTargetsMessage}`,
 				exitCode: 2,
 				target: unsupportedTargets.length === 1 ? unsupportedTargets[0] : undefined,
 			});
@@ -1067,9 +1061,11 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 			}
 		}
 		if (selectedTargets.length === 0) {
-			const message =
-				"No installed active usage-capable agents were found. Install one of: " +
-				`${supportedUsageTargets}.`;
+			const supportedUsageTargets = formatUsageTargetLabel(usageCapableTargets);
+			const message = supportedUsageTargets
+				? "No installed active usage-capable agents were found. Install one of: " +
+					`${supportedUsageTargets}.`
+				: "No active usage-capable targets are enabled by the current target configuration.";
 			if (jsonOutput) {
 				const now = new Date();
 				const envelope = buildEnvelope({

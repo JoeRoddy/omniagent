@@ -955,6 +955,69 @@ module.exports = {
 		});
 	});
 
+	it("allows read-only agentsDir overrides for usage", async () => {
+		await withTempRepo(async (root) => {
+			await writeConfig(
+				root,
+				`
+module.exports = {
+	disableTargets: ["codex", "claude", "gemini"],
+	targets: [
+		{
+			id: "readonly-meter",
+			displayName: "Readonly Meter",
+			usage: {
+				windows: ["weekly"],
+				extract: async (ctx) => ({
+					targetId: ctx.targetId,
+					displayName: ctx.displayName,
+					limits: [
+						{
+							id: "readonly-meter.weekly",
+							targetId: ctx.targetId,
+							agent: ctx.targetId,
+							window: "weekly",
+							percentUsed: 20,
+							percentRemaining: 80,
+							resetAt: null,
+							resetText: "Monday",
+							raw: "read-only agents dir"
+						}
+					]
+				})
+			}
+		}
+	]
+};
+`,
+				"readonly-agents",
+			);
+			const agentsDir = path.join(root, "readonly-agents");
+			await chmod(agentsDir, 0o555);
+			try {
+				await withCwd(root, async () => {
+					await runCli([
+						"node",
+						"omniagent",
+						"usage",
+						"readonly-meter",
+						"--agentsDir",
+						"readonly-agents",
+						"--json",
+					]);
+				});
+			} finally {
+				await chmod(agentsDir, 0o755);
+			}
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(envelope.targets).toHaveLength(1);
+			expect(envelope.targets[0].targetId).toBe("readonly-meter");
+			expect(envelope.targets[0].limits[0].raw).toBe("read-only agents dir");
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
 	it("reports invalid usage agentsDir overrides", async () => {
 		await withTempRepo(async (root) => {
 			await withCwd(root, async () => {
@@ -1117,6 +1180,23 @@ module.exports = {
 			const output = joinOutput(logSpy.mock.calls);
 			expect(output).toContain("No installed active usage-capable agents were found");
 			expect(output).toContain("codex");
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	it("reports when the current config has no active usage-capable targets", async () => {
+		await withTempRepo(async (root) => {
+			await writeConfig(root, usageConfig({ disableTargets: ["codex", "claude", "gemini"] }));
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage"]);
+			});
+
+			const output = joinOutput(logSpy.mock.calls);
+			expect(output).toContain(
+				"No active usage-capable targets are enabled by the current target configuration.",
+			);
+			expect(output).not.toContain("Install one of: codex");
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});

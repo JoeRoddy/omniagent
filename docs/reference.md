@@ -62,8 +62,10 @@ Target behavior:
   possible, but an agent may still incur cost if it reads repo context or instructions on startup.
 - Some CLIs require session-scoped setup flags to inspect usage, such as Gemini's `--skip-trust`.
 - omniagent does not complete auth or onboarding prompts for you.
-- Each agent extraction times out after 30 seconds by default. Pass `--timeout=<seconds>` to
-  increase it, or use explicit units such as `--timeout=500ms`, `--timeout=5s`, or `--timeout=1m`.
+- Usage extraction times out after 30 seconds unless the target config defines a target-specific
+  timeout. Built-in TUI probes may use longer defaults. Pass `--timeout=<seconds>` to override the
+  per-agent timeout for the current run, or use explicit units such as `--timeout=500ms`,
+  `--timeout=5s`, or `--timeout=1m`.
 - `--agentsDir <path>` reads target configuration from a non-default agents directory. Relative
   paths resolve from the project root and must point to an existing directory.
 
@@ -78,6 +80,7 @@ Timeouts:
 
 - `--timeout=<duration>` controls the per-agent extraction timeout.
 - A bare number is interpreted as seconds, so `--timeout=5` means 5 seconds.
+- `--timeout` overrides target-specific timeout defaults for that run.
 - If one target times out in all-target mode, omniagent renders that target as an error row while
   still showing results from any targets that finished.
 

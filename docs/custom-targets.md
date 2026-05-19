@@ -94,9 +94,10 @@ const config = {
 export default config;
 ```
 
-`omniagent usage` enforces a 30-second per-target timeout by default. A user-supplied
-`--timeout` value overrides `context.launch.timeoutMs` for that run, so custom extractors
-should pass `context.launch.timeoutMs` through to any child-process or TUI probe they start.
+`omniagent usage` enforces a 30-second per-target timeout unless `usage.launch.timeoutMs` is
+configured. A user-supplied `--timeout` value overrides `context.launch.timeoutMs` for that run,
+so custom extractors should pass `context.launch.timeoutMs` through to any child-process or TUI
+probe they start.
 `launch.command` is optional; omit it when an extractor reads usage from another source such as
 a local file, SDK, or API. When provided, launch commands are executed directly, so only use
 trusted binaries.
