@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import os from "node:os";
 import type { CommandModule } from "yargs";
 import { DEFAULT_AGENTS_DIR, resolveAgentsDir, validateAgentsDir } from "../../lib/agents-dir.js";
@@ -234,7 +235,10 @@ async function checkUsageCommandAvailability(
 		};
 	}
 
-	const check = await checkCliOnPath(command);
+	const check = await checkCliOnPath(command, {
+		validateCandidate:
+			target.id === "codex" && command === "codex" ? validateCodexCommand : undefined,
+	});
 	if (check.result === "available") {
 		return {
 			status: "available",
@@ -255,6 +259,31 @@ async function checkUsageCommandAvailability(
 		reason: `Usage CLI not found on PATH: ${command}.`,
 		warnings: [],
 	};
+}
+
+function validateCodexCommand(candidate: string): Promise<boolean> {
+	return new Promise((resolve) => {
+		const child = spawn(candidate, ["--version"], {
+			stdio: "ignore",
+		});
+		let settled = false;
+		let timeout: NodeJS.Timeout;
+		const finish = (valid: boolean) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			clearTimeout(timeout);
+			resolve(valid);
+		};
+		timeout = setTimeout(() => {
+			child.kill();
+			finish(false);
+		}, 2_000);
+
+		child.on("error", () => finish(false));
+		child.on("exit", (code) => finish(code === 0));
+	});
 }
 
 function buildContext(options: {
@@ -948,16 +977,7 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 	}
 
 	const startDir = process.cwd();
-	const repoRoot = await findRepoRoot(startDir);
-	if (!repoRoot) {
-		printError({
-			json: jsonOutput,
-			code: "repo_not_found",
-			message: `Repository root not found starting from ${startDir}. Looked for .git or package.json.`,
-			exitCode: 1,
-		});
-		return null;
-	}
+	const repoRoot = (await findRepoRoot(startDir)) ?? startDir;
 	const agentsDirResolution = resolveAgentsDir(repoRoot, argv.agentsDir);
 	if (agentsDirResolution.source === "override") {
 		const validation = await validateAgentsDir(repoRoot, argv.agentsDir, { requireWrite: false });

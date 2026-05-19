@@ -47,13 +47,15 @@ export async function extractCodexUsage(
 	const ptyResult = await runPtyScenario({
 		command,
 		args: context.launch?.args ?? ["--no-alt-screen"],
-		cwd: context.repoRoot,
+		cwd: context.homeDir,
 		cols: 100,
 		rows: 40,
 		timeoutMs: context.launch?.timeoutMs ?? 60_000,
 		signal: context.signal,
 		debug: context.debug,
 		steps: [
+			{ waitFor: isCodexPromptReadyOrTrustPrompt, waitForTimeoutMs: 10_000 },
+			{ write: enterKey(), skipIf: isCodexPromptReady },
 			{ waitFor: isCodexPromptReady, waitForTimeoutMs: 10_000 },
 			...typeTextSteps("/status", 20),
 			{ write: enterKey() },
@@ -118,6 +120,15 @@ function selectCodexStatus(result: PtyScenarioResult): ParsedCodexStatus {
 function isCodexPromptReady(snapshot: { raw: string; screen: string }): boolean {
 	const cleanedOutput = cleanControlOutput(`${snapshot.screen}\n${snapshot.raw}`);
 	return /(?:\u203a|>)\s/.test(cleanedOutput) && /\bContext\b/i.test(cleanedOutput);
+}
+
+function isCodexPromptReadyOrTrustPrompt(snapshot: { raw: string; screen: string }): boolean {
+	return isCodexPromptReady(snapshot) || isCodexTrustPrompt(snapshot);
+}
+
+function isCodexTrustPrompt(snapshot: { raw: string; screen: string }): boolean {
+	const cleanedOutput = cleanControlOutput(`${snapshot.screen}\n${snapshot.raw}`);
+	return /do you trust the contents of this directory/i.test(cleanedOutput);
 }
 
 function hasCodexStatusLimits(snapshot: { raw: string; screen: string }): boolean {

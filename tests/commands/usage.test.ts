@@ -22,6 +22,22 @@ async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> 
 	}
 }
 
+async function withTempDir(fn: (root: string) => Promise<void>): Promise<void> {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omniagent-usage-"));
+	const homeDir = path.join(root, "home");
+	await mkdir(homeDir, { recursive: true });
+	const homeSpy = vi.spyOn(os, "homedir").mockReturnValue(homeDir);
+	const originalPath = process.env.PATH;
+	try {
+		process.env.PATH = "";
+		await fn(root);
+	} finally {
+		process.env.PATH = originalPath;
+		homeSpy.mockRestore();
+		await rm(root, { recursive: true, force: true });
+	}
+}
+
 async function withCwd(dir: string, fn: () => Promise<void>): Promise<void> {
 	const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(dir);
 	try {
@@ -36,7 +52,7 @@ async function createFakeCliBin(root: string, commands: string[]): Promise<strin
 	await mkdir(binDir, { recursive: true });
 	for (const command of commands) {
 		const cliPath = path.join(binDir, command);
-		await writeFile(cliPath, "#!/usr/bin/env sh\nexit 0\n", "utf8");
+		await writeFile(cliPath, "#!/bin/sh\nexit 0\n", "utf8");
 		await chmod(cliPath, 0o755);
 	}
 	process.env.PATH = [binDir, process.env.PATH].filter(Boolean).join(path.delimiter);
@@ -843,6 +859,36 @@ describe.sequential("usage command", () => {
 		});
 	});
 
+	it("skips broken Codex shims and uses the next working PATH candidate", async () => {
+		await withTempRepo(async (root) => {
+			const brokenBinDir = path.join(root, "broken-bin");
+			const workingBinDir = path.join(root, "working-bin");
+			await mkdir(brokenBinDir, { recursive: true });
+			await mkdir(workingBinDir, { recursive: true });
+			const brokenCodex = path.join(brokenBinDir, "codex");
+			const workingCodex = path.join(workingBinDir, "codex");
+			await writeFile(brokenCodex, "#!/bin/sh\nexit 1\n", "utf8");
+			await writeFile(
+				workingCodex,
+				'#!/bin/sh\nif [ "$1" = "--version" ]; then exit 0; fi\nexit 0\n',
+				"utf8",
+			);
+			await chmod(brokenCodex, 0o755);
+			await chmod(workingCodex, 0o755);
+			process.env.PATH = [brokenBinDir, workingBinDir].join(path.delimiter);
+			await writeConfig(root, usageConfig({ disableTargets: ["claude", "gemini"] }));
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "codex", "--json"]);
+			});
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(envelope.targets).toHaveLength(1);
+			expect(envelope.targets[0].command).toBe(workingCodex);
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
 	it("runs commandless custom usage extractors", async () => {
 		await withTempRepo(async (root) => {
 			await writeConfig(
@@ -1197,6 +1243,19 @@ module.exports = {
 				"No active usage-capable targets are enabled by the current target configuration.",
 			);
 			expect(output).not.toContain("Install one of: codex");
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	it("runs outside a git or package repo", async () => {
+		await withTempDir(async (root) => {
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "--json"]);
+			});
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(envelope.errors).toEqual([]);
+			expect(envelope.notes[0]).toContain("No installed active usage-capable agents were found");
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});

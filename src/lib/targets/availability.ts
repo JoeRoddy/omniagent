@@ -12,6 +12,10 @@ export type CliAvailabilityCheck = {
 	warning?: string;
 };
 
+export type CliAvailabilityOptions = {
+	validateCandidate?: (resolvedPath: string) => Promise<boolean>;
+};
+
 export type TargetAvailability = {
 	targetId: string;
 	status: "available" | "unavailable";
@@ -158,7 +162,10 @@ export function getTargetCliCommands(target: Pick<ResolvedTarget, "cli">): strin
 	return commands;
 }
 
-export async function checkCliOnPath(command: string): Promise<CliAvailabilityCheck> {
+export async function checkCliOnPath(
+	command: string,
+	options: CliAvailabilityOptions = {},
+): Promise<CliAvailabilityCheck> {
 	const normalized = normalizeCommand(command);
 	if (!normalized) {
 		return { command: command ?? "", result: "unavailable" };
@@ -171,7 +178,10 @@ export async function checkCliOnPath(command: string): Promise<CliAvailabilityCh
 	if (hasPathSeparator(normalized)) {
 		for (const candidate of candidates) {
 			const check = await checkExecutable(candidate);
-			if (check.status === "available") {
+			if (
+				check.status === "available" &&
+				(await isValidCandidate(check.resolvedPath, options.validateCandidate))
+			) {
 				return { command: normalized, result: "available", resolvedPath: check.resolvedPath };
 			}
 			if (check.status === "inconclusive") {
@@ -201,7 +211,10 @@ export async function checkCliOnPath(command: string): Promise<CliAvailabilityCh
 		for (const candidate of candidates) {
 			const fullPath = path.join(entry, candidate);
 			const check = await checkExecutable(fullPath);
-			if (check.status === "available") {
+			if (
+				check.status === "available" &&
+				(await isValidCandidate(check.resolvedPath, options.validateCandidate))
+			) {
 				return { command: normalized, result: "available", resolvedPath: check.resolvedPath };
 			}
 			if (check.status === "inconclusive") {
@@ -219,6 +232,20 @@ export async function checkCliOnPath(command: string): Promise<CliAvailabilityCh
 	}
 
 	return { command: normalized, result: "unavailable" };
+}
+
+async function isValidCandidate(
+	resolvedPath: string,
+	validateCandidate: CliAvailabilityOptions["validateCandidate"],
+): Promise<boolean> {
+	if (!validateCandidate) {
+		return true;
+	}
+	try {
+		return await validateCandidate(resolvedPath);
+	} catch {
+		return false;
+	}
 }
 
 export async function checkTargetAvailability(

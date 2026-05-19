@@ -67,7 +67,8 @@ Target behavior:
   per-agent timeout for the current run, or use explicit units such as `--timeout=500ms`,
   `--timeout=5s`, or `--timeout=1m`.
 - `--agentsDir <path>` reads target configuration from a non-default agents directory. Relative
-  paths resolve from the project root and must point to an existing directory.
+  paths resolve from the project root, or from the current directory when no repository root is
+  found, and must point to an existing directory.
 
 Windows:
 
