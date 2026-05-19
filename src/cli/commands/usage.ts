@@ -223,7 +223,7 @@ function formatUsageTargetLabel(targets: ResolvedTarget[]): string {
 }
 
 function getUsageCommand(target: ResolvedTarget): string | undefined {
-	return target.usage?.launch?.command ?? target.cli?.modes.interactive.command;
+	return target.usage?.launch?.command;
 }
 
 async function checkUsageCommandAvailability(
