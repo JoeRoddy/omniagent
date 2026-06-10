@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import {
 	cleanControlOutput,
 	makeUsageLimit,
@@ -25,6 +27,10 @@ const CODEX_WINDOWS = [
 	["spark", "weekly", "sparkWeeklyLimit"],
 ] as const;
 const CLEAR_LINE = "\x15";
+const CODEX_AUTH_PATH = [".codex", "auth.json"];
+const CODEX_INSTALLATION_ID_PATH = [".codex", "installation_id"];
+const CODEX_USAGE_API_URL = "https://chatgpt.com/backend-api/wham/usage";
+const CODEX_USAGE_API_TIMEOUT_MS = 10_000;
 
 export type ParsedCodexStatus = {
 	model: string;
@@ -41,6 +47,19 @@ export type ParsedCodexStatus = {
 };
 
 export async function extractCodexUsage(
+	context: UsageExtractionContext,
+): Promise<UsageExtractionResult> {
+	try {
+		return await extractCodexUsageFromApi(context);
+	} catch (error) {
+		if (context.signal.aborted) {
+			throw error;
+		}
+		return extractCodexUsageFromTui(context);
+	}
+}
+
+async function extractCodexUsageFromTui(
 	context: UsageExtractionContext,
 ): Promise<UsageExtractionResult> {
 	const command = context.command ?? context.launch?.command ?? "codex";
@@ -92,6 +111,341 @@ export async function extractCodexUsage(
 		...result,
 		debug: ptyResult.debug.length > 0 ? ptyResult.debug : undefined,
 	};
+}
+
+async function extractCodexUsageFromApi(
+	context: UsageExtractionContext,
+): Promise<UsageExtractionResult> {
+	const command = context.command ?? context.launch?.command ?? "codex";
+	const auth = await readCodexBackendAuth(context.homeDir);
+	if (auth == null) {
+		throw new Error("Codex ChatGPT backend auth was not available.");
+	}
+
+	const installationId = await readCodexInstallationId(context.homeDir);
+	const response = await fetchCodexUsage(auth, installationId, context.signal);
+	if (response.status >= 400) {
+		throw new Error(`Codex usage API returned HTTP ${response.status}.`);
+	}
+
+	const body = await response.json();
+	return buildCodexApiUsageResult(body, {
+		targetId: context.targetId,
+		displayName: context.displayName,
+		now: context.now,
+		command,
+	});
+}
+
+type CodexApiUsageContext = Pick<UsageExtractionContext, "targetId" | "displayName" | "now"> & {
+	command?: string;
+};
+
+type CodexBackendAuth = {
+	accessToken: string;
+	accountId: string;
+};
+
+type CodexUsageApiResponse = Pick<Response, "json" | "status">;
+
+type CodexUsagePayload = {
+	rate_limit?: CodexApiRateLimit;
+	additional_rate_limits?: CodexApiAdditionalRateLimit[];
+};
+
+type CodexApiAdditionalRateLimit = {
+	limit_name?: unknown;
+	metered_feature?: unknown;
+	rate_limit?: CodexApiRateLimit;
+};
+
+type CodexApiRateLimit = {
+	primary_window?: CodexApiRateLimitWindow;
+	secondary_window?: CodexApiRateLimitWindow;
+};
+
+type CodexApiRateLimitWindow = {
+	used_percent?: unknown;
+	limit_window_seconds?: unknown;
+	reset_at?: unknown;
+};
+
+export function buildCodexApiUsageResult(
+	payload: unknown,
+	context: CodexApiUsageContext,
+): UsageExtractionResult {
+	const usage = isRecord(payload) ? (payload as CodexUsagePayload) : {};
+	const limits = [
+		...buildCodexApiRateLimitUsageLimits({
+			targetId: context.targetId,
+			scope: "main",
+			rateLimit: usage.rate_limit,
+			now: context.now,
+			requireBothWindows: true,
+		}),
+		...buildCodexApiAdditionalUsageLimits(usage.additional_rate_limits, context),
+	];
+
+	const hasMainHourly = limits.some((limit) => limit.scope === "main" && limit.window === "hourly");
+	const hasMainWeekly = limits.some((limit) => limit.scope === "main" && limit.window === "weekly");
+	if (!hasMainHourly || !hasMainWeekly) {
+		throw new Error("Codex usage API response did not include complete main rate-limit windows.");
+	}
+
+	return {
+		targetId: context.targetId,
+		displayName: context.displayName,
+		command: context.command,
+		limits,
+	};
+}
+
+export function extractCodexBackendAuth(blob: string): CodexBackendAuth | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(blob);
+	} catch {
+		return null;
+	}
+	if (!isRecord(parsed) || !isRecord(parsed.tokens)) {
+		return null;
+	}
+
+	const accessToken = parsed.tokens.access_token;
+	const accountId = parsed.tokens.account_id;
+	if (typeof accessToken !== "string" || typeof accountId !== "string") {
+		return null;
+	}
+	if (!accessToken.trim() || !accountId.trim()) {
+		return null;
+	}
+	return {
+		accessToken,
+		accountId,
+	};
+}
+
+async function readCodexBackendAuth(homeDir: string): Promise<CodexBackendAuth | null> {
+	try {
+		const raw = await readFile(path.join(homeDir, ...CODEX_AUTH_PATH), "utf8");
+		return extractCodexBackendAuth(raw);
+	} catch {
+		return null;
+	}
+}
+
+async function readCodexInstallationId(homeDir: string): Promise<string | null> {
+	try {
+		const installationId = await readFile(
+			path.join(homeDir, ...CODEX_INSTALLATION_ID_PATH),
+			"utf8",
+		);
+		const trimmed = installationId.trim();
+		return trimmed.length > 0 ? trimmed : null;
+	} catch {
+		return null;
+	}
+}
+
+async function fetchCodexUsage(
+	auth: CodexBackendAuth,
+	installationId: string | null,
+	parentSignal: AbortSignal,
+): Promise<CodexUsageApiResponse> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => {
+		controller.abort(new Error("Codex usage API request timed out."));
+	}, CODEX_USAGE_API_TIMEOUT_MS);
+	const abortFromParent = () => {
+		controller.abort(parentSignal.reason);
+	};
+	parentSignal.addEventListener("abort", abortFromParent, { once: true });
+
+	try {
+		const headers: Record<string, string> = {
+			accept: "application/json",
+			authorization: `Bearer ${auth.accessToken}`,
+			"chatgpt-account-id": auth.accountId,
+			"user-agent": "codex-cli",
+		};
+		if (installationId != null) {
+			headers["x-codex-installation-id"] = installationId;
+		}
+
+		return await fetch(CODEX_USAGE_API_URL, {
+			method: "GET",
+			headers,
+			signal: controller.signal,
+		});
+	} finally {
+		clearTimeout(timeout);
+		parentSignal.removeEventListener("abort", abortFromParent);
+	}
+}
+
+function buildCodexApiAdditionalUsageLimits(
+	additionalRateLimits: CodexApiAdditionalRateLimit[] | undefined,
+	context: Pick<UsageExtractionContext, "targetId" | "now">,
+): NormalizedUsageLimit[] {
+	if (!Array.isArray(additionalRateLimits)) {
+		return [];
+	}
+
+	return additionalRateLimits.flatMap((entry) => {
+		if (!isRecord(entry)) {
+			return [];
+		}
+
+		const limitName = typeof entry.limit_name === "string" ? entry.limit_name : "";
+		const meteredFeature = typeof entry.metered_feature === "string" ? entry.metered_feature : "";
+		const scope = codexAdditionalLimitScope(limitName, meteredFeature);
+		return buildCodexApiRateLimitUsageLimits({
+			targetId: context.targetId,
+			scope,
+			rateLimit: entry.rate_limit,
+			now: context.now,
+			labelPrefix: scope === "spark" ? undefined : limitName || meteredFeature || scope,
+			requireBothWindows: false,
+		});
+	});
+}
+
+function buildCodexApiRateLimitUsageLimits(options: {
+	targetId: string;
+	scope: string;
+	rateLimit: CodexApiRateLimit | undefined;
+	now: Date;
+	labelPrefix?: string;
+	requireBothWindows: boolean;
+}): NormalizedUsageLimit[] {
+	if (!isRecord(options.rateLimit)) {
+		return [];
+	}
+
+	const windows = [
+		["primary", options.rateLimit.primary_window],
+		["secondary", options.rateLimit.secondary_window],
+	] as const;
+	const limits = windows.flatMap(([kind, window]) => {
+		const limit = makeCodexApiUsageLimit({
+			targetId: options.targetId,
+			scope: options.scope,
+			windowKind: kind,
+			window,
+			now: options.now,
+			labelPrefix: options.labelPrefix,
+		});
+		return limit == null ? [] : [limit];
+	});
+
+	if (options.requireBothWindows && limits.length !== 2) {
+		return [];
+	}
+	return limits;
+}
+
+function makeCodexApiUsageLimit(options: {
+	targetId: string;
+	scope: string;
+	windowKind: "primary" | "secondary";
+	window: CodexApiRateLimitWindow | undefined;
+	now: Date;
+	labelPrefix?: string;
+}): NormalizedUsageLimit | null {
+	if (!isRecord(options.window)) {
+		return null;
+	}
+
+	const percentUsed = parseApiNumber(options.window.used_percent);
+	if (percentUsed == null) {
+		return null;
+	}
+
+	const resetAt = parseApiEpochSeconds(options.window.reset_at);
+	const window = codexApiWindowName(options.window, options.windowKind);
+	const percentUsedClamped = clampPercent(percentUsed);
+	const percentRemaining = 100 - percentUsedClamped;
+	const resetText = resetAt == null ? null : `resets ${resetAt}`;
+	const label =
+		options.labelPrefix == null ? undefined : `${options.labelPrefix} ${formatWindowLabel(window)}`;
+	const raw = `${formatPercent(percentRemaining)} left${resetText == null ? "" : ` (${resetText})`}`;
+	const limit = makeUsageLimit({
+		targetId: options.targetId,
+		scope: options.scope,
+		window,
+		label,
+		percentUsed: percentUsedClamped,
+		percentRemaining,
+		resetText,
+		raw,
+		now: options.now,
+	});
+	return {
+		...limit,
+		resetAt,
+	};
+}
+
+function codexAdditionalLimitScope(limitName: string, meteredFeature: string): string {
+	if (/\bspark\b/i.test(limitName) || /\bbengalfox\b/i.test(meteredFeature)) {
+		return "spark";
+	}
+	const source = limitName || meteredFeature || "additional";
+	const normalized = source
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "_")
+		.replace(/^_+|_+$/g, "");
+	return normalized || "additional";
+}
+
+function codexApiWindowName(
+	window: CodexApiRateLimitWindow,
+	kind: "primary" | "secondary",
+): "5h" | "weekly" | string {
+	const seconds = parseApiNumber(window.limit_window_seconds);
+	if (seconds === 18_000) {
+		return "5h";
+	}
+	if (seconds === 604_800) {
+		return "weekly";
+	}
+	return kind === "primary" ? "5h" : "weekly";
+}
+
+function formatWindowLabel(window: string): string {
+	return window === "weekly" ? "Weekly" : window === "5h" ? "5h" : window;
+}
+
+function parseApiNumber(value: unknown): number | null {
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return value;
+	}
+	if (typeof value !== "string" || !value.trim()) {
+		return null;
+	}
+	const parsed = Number(value);
+	return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseApiEpochSeconds(value: unknown): string | null {
+	const seconds = parseApiNumber(value);
+	if (seconds == null || seconds <= 0) {
+		return null;
+	}
+	return new Date(seconds * 1000).toISOString();
+}
+
+function clampPercent(value: number): number {
+	return Math.max(0, Math.min(100, value));
+}
+
+function formatPercent(value: number): string {
+	return Number.isInteger(value) ? `${value}%` : `${Number(value.toFixed(2))}%`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value != null && typeof value === "object" && !Array.isArray(value);
 }
 
 function selectCodexStatus(result: PtyScenarioResult): ParsedCodexStatus {

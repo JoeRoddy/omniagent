@@ -1,11 +1,36 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { cleanControlOutput, compactLines, makeUsageLimit } from "./format.js";
 import { enterKey, escapeKey, runPtyScenario, typeTextSteps } from "./pty.js";
-import type { UsageExtractionContext, UsageExtractionResult } from "./types.js";
+import type {
+	NormalizedUsageLimit,
+	UsageExtractionContext,
+	UsageExtractionResult,
+} from "./types.js";
 
 const TIER_MODEL_IDS = new Map([
 	["Flash", "flash"],
 	["Flash Lite", "flash-lite"],
 	["Pro", "pro"],
+]);
+const GEMINI_OAUTH_PATH = [".gemini", "oauth_creds.json"];
+const GEMINI_CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com";
+const GEMINI_CODE_ASSIST_API_VERSION = "v1internal";
+const GEMINI_CODE_ASSIST_TIMEOUT_MS = 10_000;
+const GEMINI_OAUTH_EXPIRY_SKEW_MS = 60_000;
+const GEMINI_MODEL_TIERS = new Map([
+	["gemini-2.5-flash", "flash"],
+	["gemini-2.5-flash-lite", "flash-lite"],
+	["gemini-2.5-pro", "pro"],
+	["gemini-3-flash-preview", "flash"],
+	["gemini-3-pro-preview", "pro"],
+	["gemini-3.1-flash-lite-preview", "flash-lite"],
+	["gemini-3.1-pro-preview", "pro"],
+]);
+const GEMINI_TIER_DISPLAY_NAMES = new Map([
+	["flash", "Flash"],
+	["flash-lite", "Flash Lite"],
+	["pro", "Pro"],
 ]);
 
 export type ParsedGeminiUsageRow = {
@@ -22,6 +47,19 @@ export type ParsedGeminiModelDialog = {
 };
 
 export async function extractGeminiUsage(
+	context: UsageExtractionContext,
+): Promise<UsageExtractionResult> {
+	try {
+		return await extractGeminiUsageFromApi(context);
+	} catch (error) {
+		if (context.signal.aborted) {
+			throw error;
+		}
+		return extractGeminiUsageFromTui(context);
+	}
+}
+
+async function extractGeminiUsageFromTui(
 	context: UsageExtractionContext,
 ): Promise<UsageExtractionResult> {
 	const command = context.command ?? context.launch?.command ?? "gemini";
@@ -81,6 +119,337 @@ export async function extractGeminiUsage(
 		}),
 		debug: ptyResult.debug.length > 0 ? ptyResult.debug : undefined,
 	};
+}
+
+async function extractGeminiUsageFromApi(
+	context: UsageExtractionContext,
+): Promise<UsageExtractionResult> {
+	const command = context.command ?? context.launch?.command ?? "gemini";
+	const auth = await readGeminiOAuthCredentials(context.homeDir);
+	if (auth == null) {
+		throw new Error("Gemini OAuth credentials were not available.");
+	}
+
+	const accessToken = resolveGeminiAccessToken(auth);
+	const projectResponse = await fetchGeminiCodeAssistJson(
+		"loadCodeAssist",
+		accessToken,
+		buildGeminiLoadCodeAssistRequest(),
+		context.signal,
+	);
+	if (projectResponse.status >= 400) {
+		throw new Error(`Gemini Code Assist load API returned HTTP ${projectResponse.status}.`);
+	}
+
+	const project = extractGeminiCodeAssistProject(projectResponse.body);
+	if (project == null) {
+		throw new Error("Gemini Code Assist load API did not return a project.");
+	}
+
+	const quotaResponse = await fetchGeminiCodeAssistJson(
+		"retrieveUserQuota",
+		accessToken,
+		{ project },
+		context.signal,
+	);
+	if (quotaResponse.status >= 400) {
+		throw new Error(`Gemini Code Assist quota API returned HTTP ${quotaResponse.status}.`);
+	}
+
+	return buildGeminiApiUsageResult(quotaResponse.body, {
+		targetId: context.targetId,
+		displayName: context.displayName,
+		now: context.now,
+		command,
+	});
+}
+
+type GeminiApiUsageContext = Pick<UsageExtractionContext, "targetId" | "displayName" | "now"> & {
+	command?: string;
+};
+
+type GeminiOAuthCredentials = {
+	accessToken?: string;
+	refreshToken?: string;
+	expiryDate?: number;
+};
+
+type GeminiCodeAssistResponse = {
+	status: number;
+	body: unknown;
+};
+
+type GeminiQuotaPayload = {
+	buckets?: GeminiQuotaBucket[];
+};
+
+type GeminiQuotaBucket = {
+	modelId?: unknown;
+	remainingFraction?: unknown;
+	remainingAmount?: unknown;
+	resetTime?: unknown;
+};
+
+type GeminiQuotaRow = {
+	modelId: string;
+	label: string;
+	remainingFraction: number;
+	resetAt: string | null;
+};
+
+export function buildGeminiApiUsageResult(
+	payload: unknown,
+	context: GeminiApiUsageContext,
+): UsageExtractionResult {
+	const usage = isRecord(payload) ? (payload as GeminiQuotaPayload) : {};
+	const limits = buildGeminiApiUsageLimits(usage.buckets, context);
+	if (limits.length === 0) {
+		throw new Error("Gemini Code Assist quota API response did not include model quota buckets.");
+	}
+
+	return {
+		targetId: context.targetId,
+		displayName: context.displayName,
+		command: context.command,
+		limits,
+	};
+}
+
+export function extractGeminiOAuthCredentials(blob: string): GeminiOAuthCredentials | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(blob);
+	} catch {
+		return null;
+	}
+	if (!isRecord(parsed)) {
+		return null;
+	}
+
+	const accessToken =
+		typeof parsed.access_token === "string" && parsed.access_token.trim()
+			? parsed.access_token
+			: undefined;
+	const refreshToken =
+		typeof parsed.refresh_token === "string" && parsed.refresh_token.trim()
+			? parsed.refresh_token
+			: undefined;
+	const expiryDate = parseApiNumber(parsed.expiry_date) ?? undefined;
+	if (!accessToken && !refreshToken) {
+		return null;
+	}
+	return { accessToken, refreshToken, expiryDate };
+}
+
+async function readGeminiOAuthCredentials(homeDir: string): Promise<GeminiOAuthCredentials | null> {
+	try {
+		const raw = await readFile(path.join(homeDir, ...GEMINI_OAUTH_PATH), "utf8");
+		return extractGeminiOAuthCredentials(raw);
+	} catch {
+		return null;
+	}
+}
+
+function resolveGeminiAccessToken(auth: GeminiOAuthCredentials): string {
+	if (
+		auth.accessToken &&
+		(auth.expiryDate == null || auth.expiryDate - Date.now() > GEMINI_OAUTH_EXPIRY_SKEW_MS)
+	) {
+		return auth.accessToken;
+	}
+	throw new Error("Gemini cached access token was not available or expired.");
+}
+
+async function fetchGeminiCodeAssistJson(
+	method: string,
+	accessToken: string,
+	body: unknown,
+	parentSignal: AbortSignal,
+): Promise<GeminiCodeAssistResponse> {
+	const endpoint = process.env.CODE_ASSIST_ENDPOINT ?? GEMINI_CODE_ASSIST_ENDPOINT;
+	const version = process.env.CODE_ASSIST_API_VERSION ?? GEMINI_CODE_ASSIST_API_VERSION;
+	const response = await fetchWithTimeout(
+		`${endpoint}/${version}:${method}`,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${accessToken}`,
+			},
+			body: JSON.stringify(body),
+		},
+		parentSignal,
+	);
+
+	return {
+		status: response.status,
+		body: await response.json(),
+	};
+}
+
+async function fetchWithTimeout(
+	input: string,
+	init: RequestInit,
+	parentSignal: AbortSignal,
+): Promise<Response> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => {
+		controller.abort(new Error("Gemini Code Assist API request timed out."));
+	}, GEMINI_CODE_ASSIST_TIMEOUT_MS);
+	const abortFromParent = () => {
+		controller.abort(parentSignal.reason);
+	};
+	parentSignal.addEventListener("abort", abortFromParent, { once: true });
+
+	try {
+		return await fetch(input, { ...init, signal: controller.signal });
+	} finally {
+		clearTimeout(timeout);
+		parentSignal.removeEventListener("abort", abortFromParent);
+	}
+}
+
+function buildGeminiLoadCodeAssistRequest(): Record<string, unknown> {
+	const project = process.env.GOOGLE_CLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT_ID;
+	const metadata: Record<string, string> = {
+		ideType: "IDE_UNSPECIFIED",
+		platform: "PLATFORM_UNSPECIFIED",
+		pluginType: "GEMINI",
+	};
+	if (project) {
+		metadata.duetProject = project;
+	}
+	return {
+		...(project ? { cloudaicompanionProject: project } : {}),
+		metadata,
+	};
+}
+
+function extractGeminiCodeAssistProject(payload: unknown): string | null {
+	if (!isRecord(payload)) {
+		return null;
+	}
+	const project = payload.cloudaicompanionProject;
+	if (typeof project === "string" && project.trim()) {
+		return project;
+	}
+	if (isRecord(project) && typeof project.id === "string" && project.id.trim()) {
+		return project.id;
+	}
+	return null;
+}
+
+function buildGeminiApiUsageLimits(
+	buckets: GeminiQuotaBucket[] | undefined,
+	context: Pick<UsageExtractionContext, "targetId" | "now">,
+): NormalizedUsageLimit[] {
+	if (!Array.isArray(buckets)) {
+		return [];
+	}
+
+	return selectGeminiQuotaRows(buckets).map((row) =>
+		makeGeminiApiUsageLimit({
+			targetId: context.targetId,
+			now: context.now,
+			row,
+		}),
+	);
+}
+
+function selectGeminiQuotaRows(buckets: GeminiQuotaBucket[]): GeminiQuotaRow[] {
+	const grouped = new Map<string, GeminiQuotaRow>();
+
+	for (const bucket of buckets) {
+		if (!isRecord(bucket) || typeof bucket.modelId !== "string") {
+			continue;
+		}
+		const remainingFraction = parseApiNumber(bucket.remainingFraction);
+		if (remainingFraction == null) {
+			continue;
+		}
+
+		const modelId = bucket.modelId;
+		const tier = GEMINI_MODEL_TIERS.get(modelId);
+		const groupId = tier ?? modelId;
+		const label =
+			tier == null
+				? formatGeminiModelLabel(modelId)
+				: (GEMINI_TIER_DISPLAY_NAMES.get(tier) ?? tier);
+		const row = {
+			modelId: groupId,
+			label,
+			remainingFraction: clampFraction(remainingFraction),
+			resetAt: parseGeminiResetTime(bucket.resetTime),
+		};
+		const existing = grouped.get(groupId);
+		if (existing == null || row.remainingFraction < existing.remainingFraction) {
+			grouped.set(groupId, row);
+		}
+	}
+
+	return [...grouped.values()];
+}
+
+function makeGeminiApiUsageLimit(options: {
+	targetId: string;
+	now: Date;
+	row: GeminiQuotaRow;
+}): NormalizedUsageLimit {
+	const percentUsed = Math.round((1 - options.row.remainingFraction) * 100);
+	const percentRemaining = 100 - percentUsed;
+	const resetText = options.row.resetAt == null ? null : `resets ${options.row.resetAt}`;
+	const raw = `${options.row.label} ${percentUsed}% used${resetText == null ? "" : ` (${resetText})`}`;
+	const limit = makeUsageLimit({
+		targetId: options.targetId,
+		scope: modelScope(options.row.modelId),
+		window: "model",
+		label: options.row.label,
+		modelId: options.row.modelId,
+		modelLabel: options.row.label,
+		percentUsed,
+		percentRemaining,
+		resetText,
+		raw,
+		now: options.now,
+	});
+	return {
+		...limit,
+		resetAt: options.row.resetAt,
+	};
+}
+
+function formatGeminiModelLabel(modelId: string): string {
+	return modelId.length > 12 ? `${modelId.slice(0, 11)}…` : modelId;
+}
+
+function parseGeminiResetTime(value: unknown): string | null {
+	if (typeof value !== "string" || !value.trim()) {
+		return null;
+	}
+	const reset = new Date(value);
+	if (Number.isNaN(reset.getTime()) || reset.getUTCFullYear() < 2000) {
+		return null;
+	}
+	return reset.toISOString();
+}
+
+function parseApiNumber(value: unknown): number | null {
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return value;
+	}
+	if (typeof value !== "string" || !value.trim()) {
+		return null;
+	}
+	const parsed = Number(value);
+	return Number.isFinite(parsed) ? parsed : null;
+}
+
+function clampFraction(value: number): number {
+	return Math.max(0, Math.min(1, value));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value != null && typeof value === "object" && !Array.isArray(value);
 }
 
 function isGeminiPromptReady(snapshot: { raw: string; screen: string }): boolean {

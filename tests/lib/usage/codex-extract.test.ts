@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { vi } from "vitest";
 
 const ptyMock = vi.hoisted(() => ({
@@ -12,6 +15,8 @@ vi.mock("../../../src/lib/usage/pty.js", () => ({
 }));
 
 describe("Codex usage extraction", () => {
+	let tempDirs: string[] = [];
+
 	beforeEach(() => {
 		ptyMock.runPtyScenario.mockReset();
 		ptyMock.runPtyScenario.mockResolvedValue({
@@ -35,29 +40,106 @@ Weekly limit: 41% left
 		});
 	});
 
+	afterEach(async () => {
+		vi.unstubAllGlobals();
+		await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+		tempDirs = [];
+	});
+
+	it("uses Codex API usage JSON before starting the TUI probe", async () => {
+		const { extractCodexUsage } = await import("../../../src/lib/usage/codex.js");
+		const now = new Date("2026-05-18T12:00:00.000Z");
+		const homeDir = await createCodexHome();
+		const fetchMock = vi.fn().mockResolvedValue({
+			status: 200,
+			json: async () => ({
+				rate_limit: {
+					primary_window: {
+						used_percent: 6,
+						limit_window_seconds: 18_000,
+						reset_at: now.getTime() / 1000 + 30 * 60,
+					},
+					secondary_window: {
+						used_percent: 25,
+						limit_window_seconds: 604_800,
+						reset_at: now.getTime() / 1000 + 7 * 24 * 60 * 60,
+					},
+				},
+				additional_rate_limits: [
+					{
+						limit_name: "GPT-5.3-Codex-Spark",
+						metered_feature: "codex_bengalfox",
+						rate_limit: {
+							primary_window: {
+								used_percent: 0,
+								limit_window_seconds: 18_000,
+							},
+							secondary_window: {
+								used_percent: 1,
+								limit_window_seconds: 604_800,
+							},
+						},
+					},
+				],
+			}),
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const result = await extractCodexUsage(buildContext({ homeDir, now }));
+
+		expect(ptyMock.runPtyScenario).not.toHaveBeenCalled();
+		expect(fetchMock).toHaveBeenCalledWith(
+			"https://chatgpt.com/backend-api/wham/usage",
+			expect.objectContaining({
+				method: "GET",
+				headers: expect.objectContaining({
+					authorization: "Bearer test-access-token",
+					"chatgpt-account-id": "test-account-id",
+					"x-codex-installation-id": "test-installation-id",
+				}),
+			}),
+		);
+		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual([
+			"main:hourly",
+			"main:weekly",
+			"spark:hourly",
+			"spark:weekly",
+		]);
+		expect(result.limits.map((limit) => limit.percentUsed)).toEqual([6, 25, 0, 1]);
+	});
+
+	it("falls back to the TUI probe when the Codex API usage shape is unavailable", async () => {
+		const { extractCodexUsage } = await import("../../../src/lib/usage/codex.js");
+		const homeDir = await createCodexHome();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue({
+				status: 200,
+				json: async () => ({}),
+			}),
+		);
+
+		const result = await extractCodexUsage(
+			buildContext({ homeDir, now: new Date("2026-05-18T12:00:00.000Z") }),
+		);
+
+		expect(ptyMock.runPtyScenario).toHaveBeenCalledOnce();
+		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual([
+			"main:hourly",
+			"main:weekly",
+		]);
+	});
+
 	it("runs the built-in probe from home and continues past the Codex trust gate", async () => {
 		const { extractCodexUsage } = await import("../../../src/lib/usage/codex.js");
 
-		const result = await extractCodexUsage({
-			targetId: "codex",
-			displayName: "OpenAI Codex",
-			command: "codex",
-			window: "hourly",
-			windows: ["hourly", "weekly"],
-			now: new Date("2026-05-18T12:00:00.000Z"),
-			repoRoot: "/tmp/untrusted-repo",
-			agentsDir: "/tmp/untrusted-repo/agents",
-			homeDir: "/Users/tester",
-			launch: {
-				command: "codex",
-				args: ["--no-alt-screen"],
-				timeoutMs: 60_000,
-			},
-			signal: new AbortController().signal,
-			debug: {
-				enabled: false,
-			},
-		});
+		const result = await extractCodexUsage(
+			buildContext({
+				homeDir: "/Users/tester",
+				now: new Date("2026-05-18T12:00:00.000Z"),
+				repoRoot: "/tmp/untrusted-repo",
+			}),
+		);
 
 		const options = ptyMock.runPtyScenario.mock.calls[0]?.[0];
 		expect(options.cwd).toBe("/Users/tester");
@@ -74,4 +156,44 @@ Weekly limit: 41% left
 		expect(steps[1].skipIf({ raw: "", screen: "gpt-5.5 Context 0% used > " })).toBe(true);
 		expect(steps[2].waitFor({ raw: "", screen: "gpt-5.5 Context 0% used > " })).toBe(true);
 	});
+
+	async function createCodexHome(): Promise<string> {
+		const homeDir = await mkdtemp(path.join(os.tmpdir(), "omniagent-codex-usage-"));
+		tempDirs.push(homeDir);
+		await mkdir(path.join(homeDir, ".codex"), { recursive: true });
+		await writeFile(
+			path.join(homeDir, ".codex", "auth.json"),
+			JSON.stringify({
+				tokens: {
+					access_token: "test-access-token",
+					account_id: "test-account-id",
+				},
+			}),
+		);
+		await writeFile(path.join(homeDir, ".codex", "installation_id"), "test-installation-id");
+		return homeDir;
+	}
+
+	function buildContext(options: { homeDir: string; now: Date; repoRoot?: string }) {
+		return {
+			targetId: "codex",
+			displayName: "OpenAI Codex",
+			command: "codex",
+			window: "hourly",
+			windows: ["hourly", "weekly"],
+			now: options.now,
+			repoRoot: options.repoRoot ?? "/repo",
+			agentsDir: `${options.repoRoot ?? "/repo"}/agents`,
+			homeDir: options.homeDir,
+			launch: {
+				command: "codex",
+				args: ["--no-alt-screen"],
+				timeoutMs: 60_000,
+			},
+			signal: new AbortController().signal,
+			debug: {
+				enabled: false,
+			},
+		};
+	}
 });

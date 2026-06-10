@@ -1,7 +1,14 @@
-import { buildClaudeUsageLimits, parseClaudeUsage } from "../../../src/lib/usage/claude.js";
 import {
+	buildClaudeApiUsageResult,
+	buildClaudeUsageLimits,
+	extractClaudeAccessToken,
+	parseClaudeUsage,
+} from "../../../src/lib/usage/claude.js";
+import {
+	buildCodexApiUsageResult,
 	buildCodexUsageLimits,
 	buildCodexUsageResult,
+	extractCodexBackendAuth,
 	parseCodexStatus,
 } from "../../../src/lib/usage/codex.js";
 import {
@@ -13,7 +20,11 @@ import {
 	parseResetAt,
 	parseResetText,
 } from "../../../src/lib/usage/format.js";
-import { parseGeminiModelDialog } from "../../../src/lib/usage/gemini.js";
+import {
+	buildGeminiApiUsageResult,
+	extractGeminiOAuthCredentials,
+	parseGeminiModelDialog,
+} from "../../../src/lib/usage/gemini.js";
 
 describe("usage parser utilities", () => {
 	it("cleans control output and parses common limit fragments", () => {
@@ -66,6 +77,98 @@ describe("usage parser utilities", () => {
 });
 
 describe("Codex usage parser", () => {
+	it("builds Codex usage limits from the ChatGPT usage endpoint", () => {
+		const now = new Date("2026-05-18T12:00:00.000Z");
+		const result = buildCodexApiUsageResult(
+			{
+				rate_limit: {
+					primary_window: {
+						used_percent: 6,
+						limit_window_seconds: 18_000,
+						reset_at: now.getTime() / 1000 + 60 * 60,
+					},
+					secondary_window: {
+						used_percent: 25,
+						limit_window_seconds: 604_800,
+						reset_at: now.getTime() / 1000 + 7 * 24 * 60 * 60,
+					},
+				},
+				additional_rate_limits: [
+					{
+						limit_name: "GPT-5.3-Codex-Spark",
+						metered_feature: "codex_bengalfox",
+						rate_limit: {
+							primary_window: {
+								used_percent: 0,
+								limit_window_seconds: 18_000,
+								reset_at: now.getTime() / 1000 + 5 * 60 * 60,
+							},
+							secondary_window: {
+								used_percent: 1,
+								limit_window_seconds: 604_800,
+								reset_at: now.getTime() / 1000 + 6 * 24 * 60 * 60,
+							},
+						},
+					},
+				],
+			},
+			{
+				targetId: "codex",
+				displayName: "OpenAI Codex",
+				command: "codex",
+				now,
+			},
+		);
+
+		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual([
+			"main:hourly",
+			"main:weekly",
+			"spark:hourly",
+			"spark:weekly",
+		]);
+		expect(result.limits.map((limit) => limit.percentUsed)).toEqual([6, 25, 0, 1]);
+		expect(result.limits.map((limit) => limit.percentRemaining)).toEqual([94, 75, 100, 99]);
+		expect(result.limits[0]?.resetAt).toBe("2026-05-18T13:00:00.000Z");
+		expect(result.limits[1]?.resetAt).toBe("2026-05-25T12:00:00.000Z");
+	});
+
+	it("requires complete main Codex API rate-limit windows", () => {
+		expect(() =>
+			buildCodexApiUsageResult(
+				{
+					rate_limit: {
+						primary_window: {
+							used_percent: 6,
+							limit_window_seconds: 18_000,
+						},
+					},
+				},
+				{
+					targetId: "codex",
+					displayName: "OpenAI Codex",
+					now: new Date("2026-05-18T12:00:00.000Z"),
+				},
+			),
+		).toThrow("Codex usage API response did not include complete main rate-limit windows.");
+	});
+
+	it("extracts Codex ChatGPT backend auth from auth.json", () => {
+		expect(
+			extractCodexBackendAuth(
+				JSON.stringify({
+					tokens: {
+						access_token: "access-token-value",
+						account_id: "account-id-value",
+					},
+				}),
+			),
+		).toEqual({
+			accessToken: "access-token-value",
+			accountId: "account-id-value",
+		});
+		expect(extractCodexBackendAuth("{}")).toBeNull();
+	});
+
 	it("parses main and Spark status limits", () => {
 		const parsed = parseCodexStatus(`
 ╭──────────────────────────╮
@@ -329,6 +432,63 @@ gpt-5.5 xhigh · Context 0% used
 });
 
 describe("Claude usage parser", () => {
+	it("builds Claude usage limits from Anthropic rate-limit headers", () => {
+		const now = new Date("2026-05-18T12:00:00.000Z");
+		const headers = new Headers({
+			"anthropic-ratelimit-unified-5h-utilization": "0.375",
+			"anthropic-ratelimit-unified-5h-reset": String(now.getTime() / 1000 + 60 * 60),
+			"anthropic-ratelimit-unified-7d-utilization": "0.64",
+			"anthropic-ratelimit-unified-7d-reset": String(now.getTime() / 1000 + 7 * 24 * 60 * 60),
+		});
+
+		const result = buildClaudeApiUsageResult(headers, {
+			targetId: "claude",
+			displayName: "Claude Code",
+			command: "claude",
+			now,
+		});
+
+		expect(result.limits).toHaveLength(2);
+		expect(result.limits[0]).toMatchObject({
+			scope: "current_session",
+			window: "hourly",
+			percentUsed: 37.5,
+			percentRemaining: 62.5,
+			resetAt: "2026-05-18T13:00:00.000Z",
+		});
+		expect(result.limits[1]).toMatchObject({
+			scope: "current_week",
+			window: "weekly",
+			percentUsed: 64,
+			percentRemaining: 36,
+			resetAt: "2026-05-25T12:00:00.000Z",
+		});
+	});
+
+	it("requires complete Claude API utilization headers", () => {
+		expect(() =>
+			buildClaudeApiUsageResult(new Headers(), {
+				targetId: "claude",
+				displayName: "Claude Code",
+				now: new Date("2026-05-18T12:00:00.000Z"),
+			}),
+		).toThrow("Claude usage API response did not include complete usage headers.");
+	});
+
+	it("extracts Claude access tokens from known credential shapes", () => {
+		expect(extractClaudeAccessToken('{"accessToken":"direct-token-value-12345"}')).toBe(
+			"direct-token-value-12345",
+		);
+		expect(
+			extractClaudeAccessToken(
+				JSON.stringify({ claudeAiOauth: { accessToken: "nested-token-value-12345" } }),
+			),
+		).toBe("nested-token-value-12345");
+		expect(extractClaudeAccessToken("raw-token-value-with-enough-length")).toBe(
+			"raw-token-value-with-enough-length",
+		);
+	});
+
 	it("parses current session and current week usage", () => {
 		const parsed = parseClaudeUsage(`
 Current session
@@ -345,6 +505,28 @@ Current week
 			currentSessionResets: "3pm",
 			currentWeekUsed: "64% used",
 			currentWeekResets: "May 25 at 9am",
+		});
+	});
+
+	it("prefers aggregate Claude weekly usage over model-specific weekly rows", () => {
+		const parsed = parseClaudeUsage(`
+Current session
+  100% used
+  Resets 2:10pm (America/New_York)
+
+Current week (all models)
+  14% used
+  Resets Jun 11 at 10am (America/New_York)
+
+Current week (Sonnet only)
+  0% used
+`);
+
+		expect(parsed).toEqual({
+			currentSessionUsed: "100% used",
+			currentSessionResets: "2:10pm (America/New_York)",
+			currentWeekUsed: "14% used",
+			currentWeekResets: "Jun 11 at 10am (America/New_York)",
 		});
 	});
 
@@ -370,6 +552,87 @@ Current week
 });
 
 describe("Gemini usage parser", () => {
+	it("builds Gemini usage limits from Code Assist quota buckets", () => {
+		const now = new Date("2026-05-18T12:00:00.000Z");
+		const result = buildGeminiApiUsageResult(
+			{
+				buckets: [
+					{
+						modelId: "gemini-2.5-flash",
+						remainingFraction: 1,
+						resetTime: "2026-05-19T12:00:00Z",
+					},
+					{
+						modelId: "gemini-2.5-flash-lite",
+						remainingFraction: 0.999,
+						resetTime: "2026-05-19T01:00:00Z",
+					},
+					{
+						modelId: "gemini-2.5-pro",
+						remainingFraction: 0,
+						resetTime: "1970-01-01T00:00:00Z",
+					},
+					{
+						modelId: "gemini-3.1-flash-lite",
+						remainingFraction: "0.5",
+						resetTime: "2026-05-19T02:00:00Z",
+					},
+					{
+						modelId: "gemini-3.1-flash-lite-preview",
+						remainingFraction: 0.75,
+						resetTime: "2026-05-19T03:00:00Z",
+					},
+				],
+			},
+			{
+				targetId: "gemini",
+				displayName: "Gemini CLI",
+				command: "gemini",
+				now,
+			},
+		);
+
+		expect(result.limits.map((limit) => `${limit.modelId}:${limit.label}`)).toEqual([
+			"flash:Flash",
+			"flash-lite:Flash Lite",
+			"pro:Pro",
+			"gemini-3.1-flash-lite:gemini-3.1-…",
+		]);
+		expect(result.limits.map((limit) => limit.percentUsed)).toEqual([0, 25, 100, 50]);
+		expect(result.limits[0]?.resetAt).toBe("2026-05-19T12:00:00.000Z");
+		expect(result.limits[2]?.resetAt).toBeNull();
+	});
+
+	it("requires Gemini quota buckets", () => {
+		expect(() =>
+			buildGeminiApiUsageResult(
+				{},
+				{
+					targetId: "gemini",
+					displayName: "Gemini CLI",
+					now: new Date("2026-05-18T12:00:00.000Z"),
+				},
+			),
+		).toThrow("Gemini Code Assist quota API response did not include model quota buckets.");
+	});
+
+	it("extracts Gemini OAuth credentials", () => {
+		expect(
+			extractGeminiOAuthCredentials(
+				JSON.stringify({
+					access_token: "access-token-value",
+					refresh_token: "refresh-token-value",
+					expiry_date: "1770000000000",
+				}),
+			),
+		).toEqual({
+			accessToken: "access-token-value",
+			refreshToken: "refresh-token-value",
+			expiryDate: 1770000000000,
+		});
+		expect(extractGeminiOAuthCredentials("{}")).toBeNull();
+	});
+
 	it("parses selected models and usage rows", () => {
 		const parsed = parseGeminiModelDialog(`
 │ ● 1. gemini-2.5-pro │
