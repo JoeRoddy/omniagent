@@ -508,6 +508,28 @@ Current week
 		});
 	});
 
+	it("prefers aggregate Claude weekly usage over model-specific weekly rows", () => {
+		const parsed = parseClaudeUsage(`
+Current session
+  100% used
+  Resets 2:10pm (America/New_York)
+
+Current week (all models)
+  14% used
+  Resets Jun 11 at 10am (America/New_York)
+
+Current week (Sonnet only)
+  0% used
+`);
+
+		expect(parsed).toEqual({
+			currentSessionUsed: "100% used",
+			currentSessionResets: "2:10pm (America/New_York)",
+			currentWeekUsed: "14% used",
+			currentWeekResets: "Jun 11 at 10am (America/New_York)",
+		});
+	});
+
 	it("omits absent current session or week rows when building normalized results", () => {
 		const limits = buildClaudeUsageLimits(
 			{

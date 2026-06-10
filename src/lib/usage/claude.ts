@@ -431,7 +431,7 @@ function parseClaudeLines(lines: string[]): ParsedClaudeUsage {
 		}
 
 		if (line.startsWith("Current week")) {
-			section = "currentWeek";
+			section = shouldParseClaudeWeeklySection(line, values) ? "currentWeek" : "";
 			continue;
 		}
 
@@ -459,6 +459,14 @@ function parseClaudeLines(lines: string[]): ParsedClaudeUsage {
 	}
 
 	return values;
+}
+
+function shouldParseClaudeWeeklySection(line: string, values: ParsedClaudeUsage): boolean {
+	const sectionLabel = line.toLowerCase();
+	if (/\([^)]*\bonly\)/.test(sectionLabel)) {
+		return false;
+	}
+	return !values.currentWeekUsed || sectionLabel.includes("all models");
 }
 
 function formatRaw(used: string, resets: string): string {
