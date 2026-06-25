@@ -70,7 +70,7 @@ async function extractClaudeUsageFromTui(
 			{ waitFor: /Claude|>|❯/u, waitForSource: "screen", waitForTimeoutMs: 8_000 },
 			{ write: `/usage${enterKey()}` },
 			{
-				waitFor: hasClaudeUsageRows,
+				waitFor: hasClaudeUsageResult,
 				waitForTimeoutMs: 15_000,
 				capture: "usage",
 				captureWaitMs: 500,
@@ -86,6 +86,12 @@ async function extractClaudeUsageFromTui(
 	const parsed = parseClaudeUsage(usageSnapshot.screen, cleanedOutput);
 	const limits = buildClaudeUsageLimits(parsed, context);
 	if (limits.length === 0) {
+		const usageError = extractClaudeUsageError(usageSnapshot.screen, cleanedOutput);
+		if (usageError != null) {
+			const error = new Error(`Claude usage error: ${usageError}`);
+			Object.assign(error, { debug: ptyResult.debug });
+			throw error;
+		}
 		throw new Error("Claude usage output did not include session or weekly usage rows.");
 	}
 
@@ -364,6 +370,33 @@ function formatPercent(value: number): string {
 function hasClaudeUsageRows(snapshot: { raw: string; screen: string }): boolean {
 	const parsed = parseClaudeUsage(snapshot.screen, cleanControlOutput(snapshot.raw));
 	return Boolean(parsed.currentSessionUsed || parsed.currentWeekUsed);
+}
+
+function hasClaudeUsageResult(snapshot: { raw: string; screen: string }): boolean {
+	return hasClaudeUsageRows(snapshot) || extractClaudeUsageError(snapshot.screen) != null;
+}
+
+function extractClaudeUsageError(screen: string, cleanedOutput = ""): string | null {
+	for (const source of [screen, cleanedOutput]) {
+		for (const line of compactLines(source)) {
+			const errorMatch = /^Error:\s*(.+)$/i.exec(line);
+			if (errorMatch?.[1]) {
+				return errorMatch[1].trim();
+			}
+
+			if (isClaudeAuthErrorLine(line)) {
+				return line;
+			}
+		}
+	}
+	return null;
+}
+
+function isClaudeAuthErrorLine(line: string): boolean {
+	return (
+		/\b(?:auth(?:entication)?|credentials?|login|logged in|token)\b/i.test(line) &&
+		/\b(?:error|expired|failed|invalid|missing|not|please|required|sign in)\b/i.test(line)
+	);
 }
 
 export function buildClaudeUsageLimits(

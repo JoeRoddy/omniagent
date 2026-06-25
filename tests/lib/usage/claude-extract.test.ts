@@ -109,6 +109,101 @@ Current week
 		]);
 		expect(result.limits.map((limit) => limit.percentUsed)).toEqual([37, 64]);
 	});
+
+	it("surfaces Claude TUI usage errors instead of waiting for usage rows", async () => {
+		const { extractClaudeUsage } = await import("../../../src/lib/usage/claude.js");
+		fetchMock.mockResolvedValue({
+			status: 200,
+			headers: new Headers(),
+		});
+		ptyMock.runPtyScenario.mockResolvedValueOnce({
+			command: "claude",
+			args: ["--model", "haiku"],
+			exitCode: 0,
+			timedOut: false,
+			raw: "",
+			screen: "",
+			snapshots: {
+				usage: {
+					raw: "",
+					screen: "Error: Usage endpoint is rate limited. Please try again in a moment.",
+				},
+			},
+			debug: [{ type: "screen-snapshot", label: "usage", content: "rate limited" }],
+		});
+
+		await expect(
+			extractClaudeUsage(buildContext({ homeDir, now: new Date("2026-05-18T12:00:00.000Z") })),
+		).rejects.toMatchObject({
+			message: "Claude usage error: Usage endpoint is rate limited. Please try again in a moment.",
+			debug: [{ type: "screen-snapshot", label: "usage", content: "rate limited" }],
+		});
+
+		const scenarioOptions = ptyMock.runPtyScenario.mock.calls[0]?.[0] as {
+			steps: Array<{
+				capture?: string;
+				waitFor?: (snapshot: { raw: string; screen: string }) => boolean;
+			}>;
+		};
+		const usageStep = scenarioOptions.steps.find((step) => step.capture === "usage");
+		expect(
+			usageStep?.waitFor?.({
+				raw: "",
+				screen: "Error: Usage endpoint is rate limited. Please try again in a moment.",
+			}),
+		).toBe(true);
+	});
+
+	it("does not treat stale raw terminal errors as usage results", async () => {
+		const { extractClaudeUsage } = await import("../../../src/lib/usage/claude.js");
+		fetchMock.mockResolvedValue({
+			status: 200,
+			headers: new Headers(),
+		});
+		ptyMock.runPtyScenario.mockResolvedValueOnce({
+			command: "claude",
+			args: ["--model", "haiku"],
+			exitCode: 0,
+			timedOut: false,
+			raw: "",
+			screen: "",
+			snapshots: {
+				usage: {
+					raw: "Error: Previous unrelated startup error.",
+					screen: `
+Current session
+  37% used
+  Resets 3pm
+
+Current week
+  64% used
+  Resets May 25 at 9am
+`,
+				},
+			},
+			debug: [],
+		});
+
+		const result = await extractClaudeUsage(
+			buildContext({ homeDir, now: new Date("2026-05-18T12:00:00.000Z") }),
+		);
+
+		expect(result.limits.map((limit) => limit.percentUsed)).toEqual([37, 64]);
+
+		const scenarioOptions = ptyMock.runPtyScenario.mock.calls[0]?.[0] as {
+			steps: Array<{
+				capture?: string;
+				waitFor?: (snapshot: { raw: string; screen: string }) => boolean;
+			}>;
+		};
+		const usageStep = scenarioOptions.steps.find((step) => step.capture === "usage");
+		expect(
+			usageStep?.waitFor?.({
+				raw: "Error: Previous unrelated startup error.",
+				screen: "Claude >",
+			}),
+		).toBe(false);
+	});
 });
 
 function buildContext(options: { homeDir: string; now: Date }) {
