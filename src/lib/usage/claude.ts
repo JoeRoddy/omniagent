@@ -373,10 +373,7 @@ function hasClaudeUsageRows(snapshot: { raw: string; screen: string }): boolean 
 }
 
 function hasClaudeUsageResult(snapshot: { raw: string; screen: string }): boolean {
-	return (
-		hasClaudeUsageRows(snapshot) ||
-		extractClaudeUsageError(snapshot.screen, cleanControlOutput(snapshot.raw)) != null
-	);
+	return hasClaudeUsageRows(snapshot) || extractClaudeUsageError(snapshot.screen) != null;
 }
 
 function extractClaudeUsageError(screen: string, cleanedOutput = ""): string | null {
