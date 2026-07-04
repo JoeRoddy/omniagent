@@ -4,15 +4,19 @@ import { exitCodeFor, ShimError } from "./errors.js";
 import { type ExecuteOptions, executeInvocation } from "./execute.js";
 import { parseShimFlags } from "./flags.js";
 import { resolveInvocationFromFlags } from "./resolve-invocation.js";
+import { cleanupStructuredOutput } from "./structured-output.js";
+import type { ResolvedInvocation } from "./types.js";
 
 type ShimRuntime = {
 	stdin?: NodeJS.ReadStream;
 	stderr?: NodeJS.WriteStream;
+	stdout?: NodeJS.WriteStream;
 	repoRoot?: string;
 	agentsDir?: string | null;
 	stdinIsTTY?: boolean;
 	stdinText?: string | null;
 	spawn?: ExecuteOptions["spawn"];
+	tempDir?: string;
 };
 
 async function readStreamText(stream: NodeJS.ReadStream): Promise<string> {
@@ -32,6 +36,7 @@ export async function runShim(argv: string[], runtime: ShimRuntime = {}): Promis
 	const stdin = runtime.stdin ?? process.stdin;
 	const repoRoot = runtime.repoRoot ?? (await findRepoRoot(process.cwd())) ?? process.cwd();
 	const stdinIsTTY = runtime.stdinIsTTY ?? stdin.isTTY ?? false;
+	let invocation: ResolvedInvocation | null = null;
 
 	try {
 		const flags = parseShimFlags(argv);
@@ -51,16 +56,18 @@ export async function runShim(argv: string[], runtime: ShimRuntime = {}): Promis
 				? (["ignore", "inherit", "inherit"] as StdioOptions)
 				: "inherit";
 
-		const invocation = await resolveInvocationFromFlags({
+		invocation = await resolveInvocationFromFlags({
 			flags,
 			stdinIsTTY,
 			stdinText,
 			repoRoot,
 			agentsDir: runtime.agentsDir,
+			tempDir: runtime.tempDir,
 		});
 		const result = await executeInvocation(invocation, {
 			spawn: runtime.spawn,
 			stderr,
+			stdout: runtime.stdout,
 			stdio,
 			traceTranslate: flags.traceTranslate,
 		});
@@ -73,11 +80,25 @@ export async function runShim(argv: string[], runtime: ShimRuntime = {}): Promis
 		const message = error instanceof Error ? error.message : String(error);
 		stderr.write(`Error: ${message}\n`);
 		return exitCodeFor("execution-error");
+	} finally {
+		await cleanupStructuredOutput(invocation?.structuredOutput);
 	}
 }
 
 export { buildAgentArgs } from "./build-args.js";
 export * from "./errors.js";
+export {
+	buildFallbackPrompt,
+	buildRetryPrompt,
+	extractJsonPayload,
+} from "./fallback-prompts.js";
 export { parseShimFlags } from "./flags.js";
 export { resolveInvocation, resolveInvocationFromFlags } from "./resolve-invocation.js";
+export { compileSchemaValidator } from "./schema-validator.js";
+export {
+	cleanupStructuredOutput,
+	DEFAULT_SCHEMA_RETRIES,
+	planStructuredOutput,
+	resolveOutputSchema,
+} from "./structured-output.js";
 export * from "./types.js";

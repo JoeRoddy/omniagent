@@ -1,5 +1,8 @@
 import type { StdioOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import {
 	buildAgentArgs,
 	parseShimFlags,
@@ -10,6 +13,7 @@ import {
 type InvocationOptions = {
 	stdinIsTTY?: boolean;
 	stdinText?: string | null;
+	tempDir?: string;
 };
 
 function createSpawnStub(exitCode = 0) {
@@ -29,6 +33,7 @@ async function buildInvocation(argv: string[], options: InvocationOptions = {}) 
 		stdinIsTTY: options.stdinIsTTY ?? true,
 		stdinText: options.stdinText ?? null,
 		repoRoot: process.cwd(),
+		tempDir: options.tempDir,
 	});
 }
 
@@ -101,6 +106,106 @@ describe("CLI shim flag parsing", () => {
 		expect(parseShimFlags(["--trace-translate"]).traceTranslate).toBe(true);
 		expect(parseShimFlags(["--trace-translate=1"]).traceTranslate).toBe(true);
 		expect(parseShimFlags(["--trace-translate=false"]).traceTranslate).toBe(false);
+	});
+
+	it("parses --output-schema in both value forms", () => {
+		expect(parseShimFlags([]).outputSchema).toBeNull();
+		expect(parseShimFlags([]).outputSchemaExplicit).toBe(false);
+
+		const spaced = parseShimFlags(["--output-schema", "./schema.json"]);
+		expect(spaced.outputSchema).toBe("./schema.json");
+		expect(spaced.outputSchemaExplicit).toBe(true);
+
+		const inline = parseShimFlags(['--output-schema={"type":"object"}']);
+		expect(inline.outputSchema).toBe('{"type":"object"}');
+		expect(inline.outputSchemaExplicit).toBe(true);
+	});
+
+	it("rejects --output-schema without a value", () => {
+		expect(() => parseShimFlags(["--output-schema"])).toThrow("Missing value for --output-schema");
+	});
+
+	it("rejects --output-schema combined with explicit output flags", () => {
+		const conflicts = [
+			["--output-schema", "s.json", "--output", "json"],
+			["--output-schema", "s.json", "--output", "text"],
+			["--output-schema", "s.json", "--json"],
+			["--stream-json", "--output-schema", "s.json"],
+		];
+		for (const argv of conflicts) {
+			expect(() => parseShimFlags(argv)).toThrow(
+				"--output-schema cannot be combined with --output, --json, or --stream-json.",
+			);
+		}
+	});
+
+	it("parses --output-schema-retries in both value forms", () => {
+		expect(parseShimFlags([]).outputSchemaRetries).toBeNull();
+
+		const spaced = parseShimFlags(["--output-schema", "s.json", "--output-schema-retries", "4"]);
+		expect(spaced.outputSchemaRetries).toBe(4);
+
+		const inline = parseShimFlags(["--output-schema", "s.json", "--output-schema-retries=0"]);
+		expect(inline.outputSchemaRetries).toBe(0);
+	});
+
+	it("rejects invalid --output-schema-retries values", () => {
+		for (const value of ["1.5", "eleven", "11"]) {
+			expect(() =>
+				parseShimFlags(["--output-schema", "s.json", "--output-schema-retries", value]),
+			).toThrow("Invalid value for --output-schema-retries. Provide an integer between 0 and 10.");
+		}
+	});
+
+	it("rejects --output-schema-retries without --output-schema", () => {
+		expect(() => parseShimFlags(["--output-schema-retries", "2"])).toThrow(
+			"--output-schema-retries requires --output-schema.",
+		);
+	});
+
+	it("appends claude structured output args before the prompt", async () => {
+		const schema = '{"type":"object","properties":{}}';
+		const invocation = await buildInvocation([
+			"--agent",
+			"claude",
+			"--output-schema",
+			schema,
+			"-p",
+			"Hello",
+		]);
+		const result = buildAgentArgs(invocation);
+
+		expect(result.warnings).toEqual([]);
+		expect(result.args).toEqual([
+			"--json-schema",
+			'{"type":"object","properties":{}}',
+			"--output-format",
+			"json",
+			"-p",
+			"Hello",
+		]);
+	});
+
+	it("appends codex structured output file args before the positional prompt", async () => {
+		const tempDir = await mkdtemp(path.join(os.tmpdir(), "oa-flags-test-"));
+		try {
+			const invocation = await buildInvocation(
+				["--agent", "codex", "--output-schema", '{"type":"object"}', "-p", "Hello"],
+				{ tempDir },
+			);
+			const result = buildAgentArgs(invocation);
+
+			expect(result.warnings).toEqual([]);
+			expect(result.args.slice(0, 3)).toEqual(["exec", "--sandbox", "workspace-write"]);
+			const schemaIndex = result.args.indexOf("--output-schema");
+			expect(schemaIndex).toBeGreaterThan(-1);
+			expect(result.args[schemaIndex + 1]).toMatch(/schema\.json$/);
+			expect(result.args[schemaIndex + 2]).toBe("--output-last-message");
+			expect(result.args[schemaIndex + 3]).toMatch(/last-message\.txt$/);
+			expect(result.args[result.args.length - 1]).toBe("Hello");
+		} finally {
+			await rm(tempDir, { recursive: true, force: true });
+		}
 	});
 
 	it("returns invalid usage for bad flag values", async () => {

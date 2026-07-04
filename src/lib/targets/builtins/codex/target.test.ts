@@ -34,6 +34,14 @@ describe("codex builtin target", () => {
 		expect(codexTarget.displayName).toBe("OpenAI Codex");
 	});
 
+	it("declares file-based structured output with last-message extraction", () => {
+		expect(codexTarget.cli?.flags?.structuredOutput).toEqual({
+			delivery: "file",
+			flag: ["--output-schema"],
+			extraction: { type: "last-message-file", flag: ["--output-last-message"] },
+		});
+	});
+
 	it("routes skills and subagents to .codex/skills with conversion fallback", () => {
 		const skills = expectDefined(normalizeOutputDefinition(codexTarget.outputs?.skills), "skills");
 		expect(skills.path).toBe("{repoRoot}/.codex/skills/{itemName}");

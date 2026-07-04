@@ -34,6 +34,10 @@ export const geminiTarget: TargetDefinition = {
 			},
 			model: { flag: ["--model"] },
 			web: { on: [], off: null },
+			structuredOutputFallback: {
+				args: ["--output-format", "json"],
+				extraction: { type: "json-envelope", field: "response" },
+			},
 		},
 	},
 	outputs: {

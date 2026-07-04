@@ -1,5 +1,8 @@
 import type { StdioOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { executeInvocation } from "../../src/cli/shim/execute.js";
 import { parseShimFlags } from "../../src/cli/shim/flags.js";
 import { resolveInvocationFromFlags } from "../../src/cli/shim/resolve-invocation.js";
@@ -9,6 +12,7 @@ type SpawnCall = [string, string[], { stdio: StdioOptions }];
 type InvocationOptions = {
 	stdinIsTTY?: boolean;
 	stdinText?: string | null;
+	tempDir?: string;
 };
 
 function createSpawnStub(exitCode = 0) {
@@ -21,6 +25,31 @@ function createSpawnStub(exitCode = 0) {
 	});
 }
 
+function createCaptureSpawnStub(exitCode: number, chunks: string[]) {
+	return vi.fn((_command: string, _args: string[], _options: { stdio: StdioOptions }) => {
+		const stdout = new EventEmitter();
+		const child = Object.assign(new EventEmitter(), { stdout });
+		process.nextTick(() => {
+			for (const chunk of chunks) {
+				stdout.emit("data", Buffer.from(chunk));
+			}
+			child.emit("close", exitCode);
+		});
+		return child;
+	});
+}
+
+function createWriteCollector() {
+	const writes: string[] = [];
+	const stream = {
+		write: (chunk: string | Uint8Array) => {
+			writes.push(String(chunk));
+			return true;
+		},
+	} as NodeJS.WriteStream;
+	return { writes, stream };
+}
+
 async function buildInvocation(argv: string[], options: InvocationOptions = {}) {
 	const flags = parseShimFlags(argv);
 	return await resolveInvocationFromFlags({
@@ -28,6 +57,7 @@ async function buildInvocation(argv: string[], options: InvocationOptions = {}) 
 		stdinIsTTY: options.stdinIsTTY ?? true,
 		stdinText: options.stdinText ?? null,
 		repoRoot: process.cwd(),
+		tempDir: options.tempDir,
 	});
 }
 
@@ -167,6 +197,222 @@ describe("CLI shim execution", () => {
 		const [, , options] = spawn.mock.calls[0] as SpawnCall;
 		expect(options).toEqual({ stdio: "inherit" });
 		expect(result).toEqual({ exitCode: code, reason });
+	});
+
+	it("prints only the structured payload for claude schema runs", async () => {
+		const invocation = await buildInvocation([
+			"--agent",
+			"claude",
+			"--output-schema",
+			'{"type":"object"}',
+			"-p",
+			"Hello",
+		]);
+		const envelope = JSON.stringify({
+			type: "result",
+			is_error: false,
+			structured_output: { answer: "hi" },
+		});
+		const spawn = createCaptureSpawnStub(0, [envelope.slice(0, 10), envelope.slice(10)]);
+		const stdout = createWriteCollector();
+		const stderr = createWriteCollector();
+
+		const result = await executeInvocation(invocation, {
+			spawn,
+			stdout: stdout.stream,
+			stderr: stderr.stream,
+		});
+
+		const [, , options] = spawn.mock.calls[0] as SpawnCall;
+		expect(options).toEqual({ stdio: ["inherit", "pipe", "inherit"] });
+		expect(stdout.writes.join("")).toBe('{"answer":"hi"}\n');
+		expect(result).toEqual({ exitCode: 0, reason: "success" });
+	});
+
+	it("fails when the claude envelope reports an error", async () => {
+		const invocation = await buildInvocation([
+			"--agent",
+			"claude",
+			"--output-schema",
+			'{"type":"object"}',
+			"-p",
+			"Hello",
+		]);
+		const envelope = JSON.stringify({ type: "result", is_error: true, result: "boom" });
+		const spawn = createCaptureSpawnStub(0, [envelope]);
+		const stdout = createWriteCollector();
+		const stderr = createWriteCollector();
+
+		const result = await executeInvocation(invocation, {
+			spawn,
+			stdout: stdout.stream,
+			stderr: stderr.stream,
+		});
+
+		expect(stdout.writes).toEqual([]);
+		expect(stderr.writes.join("")).toContain(envelope);
+		expect(stderr.writes.join("")).toContain("Error: claude reported an error result.");
+		expect(result).toEqual({ exitCode: 1, reason: "execution-error" });
+	});
+
+	it("fails when the claude envelope is missing structured output", async () => {
+		const invocation = await buildInvocation([
+			"--agent",
+			"claude",
+			"--output-schema",
+			'{"type":"object"}',
+			"-p",
+			"Hello",
+		]);
+		const spawn = createCaptureSpawnStub(0, ['{"type":"result","structured_output":null}']);
+		const stdout = createWriteCollector();
+		const stderr = createWriteCollector();
+
+		const result = await executeInvocation(invocation, {
+			spawn,
+			stdout: stdout.stream,
+			stderr: stderr.stream,
+		});
+
+		expect(stdout.writes).toEqual([]);
+		expect(stderr.writes.join("")).toContain(
+			"Error: claude response is missing structured_output.",
+		);
+		expect(result).toEqual({ exitCode: 1, reason: "execution-error" });
+	});
+
+	it("fails when claude stdout is not a JSON envelope", async () => {
+		const invocation = await buildInvocation([
+			"--agent",
+			"claude",
+			"--output-schema",
+			'{"type":"object"}',
+			"-p",
+			"Hello",
+		]);
+		const spawn = createCaptureSpawnStub(0, ["plain text output"]);
+		const stdout = createWriteCollector();
+		const stderr = createWriteCollector();
+
+		const result = await executeInvocation(invocation, {
+			spawn,
+			stdout: stdout.stream,
+			stderr: stderr.stream,
+		});
+
+		expect(stdout.writes).toEqual([]);
+		expect(stderr.writes.join("")).toContain("Error: claude did not return a JSON envelope.");
+		expect(result).toEqual({ exitCode: 1, reason: "execution-error" });
+	});
+
+	it("dumps captured stdout to stderr when a schema run exits nonzero", async () => {
+		const invocation = await buildInvocation([
+			"--agent",
+			"claude",
+			"--output-schema",
+			'{"type":"object"}',
+			"-p",
+			"Hello",
+		]);
+		const spawn = createCaptureSpawnStub(1, ["diagnostic output"]);
+		const stdout = createWriteCollector();
+		const stderr = createWriteCollector();
+
+		const result = await executeInvocation(invocation, {
+			spawn,
+			stdout: stdout.stream,
+			stderr: stderr.stream,
+		});
+
+		expect(stdout.writes).toEqual([]);
+		expect(stderr.writes.join("")).toContain("diagnostic output");
+		expect(result).toEqual({ exitCode: 1, reason: "execution-error" });
+	});
+
+	it("prints the codex last message and forwards the session log to stderr", async () => {
+		const tempDir = await mkdtemp(path.join(os.tmpdir(), "oa-exec-test-"));
+		try {
+			const invocation = await buildInvocation(
+				["--agent", "codex", "--output-schema", '{"type":"object"}', "-p", "Hello"],
+				{ tempDir },
+			);
+			const plan = invocation.structuredOutput;
+			if (!plan || plan.capture.type !== "last-message-file") {
+				throw new Error("expected a codex last-message plan");
+			}
+			await writeFile(plan.capture.path, '{"answer":"hi"}\n', "utf8");
+
+			const spawn = createCaptureSpawnStub(0, ["session log line\n"]);
+			const stdout = createWriteCollector();
+			const stderr = createWriteCollector();
+
+			const result = await executeInvocation(invocation, {
+				spawn,
+				stdout: stdout.stream,
+				stderr: stderr.stream,
+			});
+
+			expect(stderr.writes.join("")).toContain("session log line");
+			expect(stdout.writes.join("")).toBe('{"answer":"hi"}\n');
+			expect(result).toEqual({ exitCode: 0, reason: "success" });
+		} finally {
+			await rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	it("fails when codex does not write a last message", async () => {
+		const tempDir = await mkdtemp(path.join(os.tmpdir(), "oa-exec-test-"));
+		try {
+			const invocation = await buildInvocation(
+				["--agent", "codex", "--output-schema", '{"type":"object"}', "-p", "Hello"],
+				{ tempDir },
+			);
+			const spawn = createCaptureSpawnStub(0, []);
+			const stdout = createWriteCollector();
+			const stderr = createWriteCollector();
+
+			const result = await executeInvocation(invocation, {
+				spawn,
+				stdout: stdout.stream,
+				stderr: stderr.stream,
+			});
+
+			expect(stdout.writes).toEqual([]);
+			expect(stderr.writes.join("")).toContain(
+				"Error: codex did not produce a structured output message.",
+			);
+			expect(result).toEqual({ exitCode: 1, reason: "execution-error" });
+		} finally {
+			await rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	it("includes structured output metadata in the translation trace", async () => {
+		const invocation = await buildInvocation([
+			"--agent",
+			"claude",
+			"--output-schema",
+			'{"type":"object"}',
+			"-p",
+			"Hello",
+		]);
+		const envelope = JSON.stringify({ structured_output: {} });
+		const spawn = createCaptureSpawnStub(0, [envelope]);
+		const stdout = createWriteCollector();
+		const stderr = createWriteCollector();
+
+		const result = await executeInvocation(invocation, {
+			spawn,
+			stdout: stdout.stream,
+			stderr: stderr.stream,
+			traceTranslate: true,
+		});
+
+		const traceLine = stderr.writes.find((line) => line.startsWith("OA_TRANSLATION="));
+		expect(traceLine).toBeDefined();
+		const payload = JSON.parse(traceLine?.replace("OA_TRANSLATION=", "").trim() ?? "{}");
+		expect(payload.structuredOutput).toEqual({ capture: "json-envelope" });
+		expect(result.exitCode).toBe(0);
 	});
 
 	it("emits a translation trace when enabled", async () => {

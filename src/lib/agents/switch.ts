@@ -9,6 +9,7 @@ import {
 	type ResolvedTarget,
 	SANDBOX_MODES,
 	type SandboxMode,
+	type StructuredOutputPlan,
 } from "../targets/config-types.js";
 import { validateTargetConfig } from "../targets/config-validate.js";
 import { resolveTargets } from "../targets/resolve-targets.js";
@@ -47,6 +48,9 @@ export type ParsedShimFlags = {
 	webExplicit: boolean;
 	agent: string | null;
 	agentExplicit: boolean;
+	outputSchema: string | null;
+	outputSchemaExplicit: boolean;
+	outputSchemaRetries: number | null;
 	traceTranslate: boolean;
 	help: boolean;
 	version: boolean;
@@ -95,6 +99,7 @@ export type ResolvedInvocation = {
 	session: SessionConfiguration;
 	requests: FlagRequests;
 	passthrough: AgentPassthrough;
+	structuredOutput: StructuredOutputPlan | null;
 };
 
 type AgentResolution = {

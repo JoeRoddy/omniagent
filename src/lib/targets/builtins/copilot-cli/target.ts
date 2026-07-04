@@ -47,6 +47,10 @@ export const copilotTarget: TargetDefinition = {
 				},
 			},
 			model: { flag: ["--model"] },
+			structuredOutputFallback: {
+				args: ["--silent"],
+				extraction: { type: "text" },
+			},
 		},
 	},
 	outputs: {

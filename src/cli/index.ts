@@ -39,11 +39,13 @@ const VERSION = resolveVersion();
 const KNOWN_COMMANDS = new Set(["hello", "greet", "echo", "sync", "dev", "profiles", "usage"]);
 const SHIM_CAPABILITIES = [
 	"Capabilities by agent:",
-	"  codex: approval, sandbox, output, model, web",
-	"  claude: approval, output, model",
-	"  gemini: approval, sandbox, output, model, web",
-	"  copilot: approval, model",
+	"  codex: approval, sandbox, output, model, web, output-schema",
+	"  claude: approval, output, model, output-schema",
+	"  gemini: approval, sandbox, output, model, web, output-schema (fallback)",
+	"  copilot: approval, model, output-schema (fallback)",
 	"Unsupported shared flags for a selected agent emit a warning and are ignored.",
+	"--output-schema is one-shot only; agents without native support use a prompt-based",
+	"fallback with client-side validation and retries (--output-schema-retries, default 2).",
 ].join("\n");
 
 function formatError(message: string, args: string[]) {
@@ -170,6 +172,16 @@ export function runCli(argv = process.argv, options: RunCliOptions = {}) {
 					.option("agent", {
 						type: "string",
 						describe: "Select the agent (built-in id or configured alias).",
+					})
+					.option("output-schema", {
+						type: "string",
+						describe:
+							"JSON schema file path or inline JSON; emit the final response as schema-conforming JSON (one-shot only).",
+					})
+					.option("output-schema-retries", {
+						type: "number",
+						describe:
+							"Max retries when a prompt-based --output-schema fallback response fails validation (0-10, default 2).",
 					})
 					.option("trace-translate", {
 						type: "boolean",

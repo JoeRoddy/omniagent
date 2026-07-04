@@ -213,6 +213,18 @@ Example usage:
 ./code-review.sh codex
 ```
 
+The shim also unifies structured outputs: pass a JSON schema (file path or inline JSON) with
+`--output-schema`, and stdout is exactly the schema-conforming JSON regardless of agent. Agents
+with native schema support (claude, codex) enforce it server-side; all others get a prompt-based
+fallback with client-side validation and automatic retries:
+
+```bash
+omniagent -p "Top 3 benefits of TypeScript" --agent claude \
+  --output-schema ./schema.json | jq .answer
+```
+
+See [`docs/cli-shim.md`](docs/cli-shim.md) for the full shared-flag capability matrix.
+
 ## Documentation
 
 - Docs index: [`docs/README.md`](docs/README.md)

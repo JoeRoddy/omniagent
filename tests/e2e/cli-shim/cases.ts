@@ -18,6 +18,15 @@ export type ShimCase = {
 
 export const PROMPT = "Output exactly: 5";
 
+export const STRUCTURED_PROMPT = "Set answer to the integer 5.";
+
+export const STRUCTURED_SCHEMA = JSON.stringify({
+	type: "object",
+	properties: { answer: { type: "integer" } },
+	required: ["answer"],
+	additionalProperties: false,
+});
+
 export const SHARED_CASES: ShimCase[] = [
 	{
 		id: "basic-oneshot",
@@ -68,5 +77,9 @@ export const SHARED_CASES: ShimCase[] = [
 			agent.passthroughArgs && agent.passthroughArgs.length > 0
 				? null
 				: "passthrough args not configured",
+	},
+	{
+		id: "output-schema-inline",
+		buildArgs: () => ["-p", STRUCTURED_PROMPT, "--output-schema", STRUCTURED_SCHEMA],
 	},
 ];

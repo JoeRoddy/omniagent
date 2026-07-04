@@ -42,6 +42,11 @@ export const codexTarget: TargetDefinition = {
 			},
 			model: { flag: ["-m"] },
 			web: { on: ["--search"], off: ["--disable", "web_search_request"] },
+			structuredOutput: {
+				delivery: "file",
+				flag: ["--output-schema"],
+				extraction: { type: "last-message-file", flag: ["--output-last-message"] },
+			},
 		},
 	},
 	outputs: {

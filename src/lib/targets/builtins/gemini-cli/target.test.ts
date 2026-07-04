@@ -35,6 +35,17 @@ describe("gemini builtin target", () => {
 		expect(geminiTarget.displayName).toBe("Gemini CLI");
 	});
 
+	it("does not declare structured output support", () => {
+		expect(geminiTarget.cli?.flags?.structuredOutput).toBeUndefined();
+	});
+
+	it("declares a json-envelope structured output fallback", () => {
+		expect(geminiTarget.cli?.flags?.structuredOutputFallback).toEqual({
+			args: ["--output-format", "json"],
+			extraction: { type: "json-envelope", field: "response" },
+		});
+	});
+
 	it("routes skills and subagents to .gemini/skills with conversion fallback", () => {
 		const skills = expectDefined(normalizeOutputDefinition(geminiTarget.outputs?.skills), "skills");
 		expect(skills.path).toBe("{repoRoot}/.gemini/skills/{itemName}");

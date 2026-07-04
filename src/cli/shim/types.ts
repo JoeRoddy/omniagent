@@ -5,6 +5,11 @@ import {
 	type OutputFormat,
 	SANDBOX_MODES,
 	type SandboxMode,
+	type StructuredOutputFallbackExtraction,
+	type StructuredOutputFallbackSpec,
+	type StructuredOutputPlan,
+	type StructuredOutputSpec,
+	type StructuredOutputValidator,
 } from "../../lib/targets/config-types.js";
 
 export {
@@ -14,6 +19,11 @@ export {
 	type OutputFormat,
 	SANDBOX_MODES,
 	type SandboxMode,
+	type StructuredOutputFallbackExtraction,
+	type StructuredOutputFallbackSpec,
+	type StructuredOutputPlan,
+	type StructuredOutputSpec,
+	type StructuredOutputValidator,
 };
 
 export type {

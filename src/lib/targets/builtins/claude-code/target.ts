@@ -27,6 +27,12 @@ export const claudeTarget: TargetDefinition = {
 				},
 			},
 			model: { flag: ["--model"] },
+			structuredOutput: {
+				delivery: "inline",
+				flag: ["--json-schema"],
+				companionArgs: ["--output-format", "json"],
+				extraction: { type: "json-envelope", field: "structured_output" },
+			},
 		},
 	},
 	outputs: {
