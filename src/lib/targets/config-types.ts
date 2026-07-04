@@ -145,6 +145,28 @@ export type FlagMap<T extends string> = {
 	byMode?: Partial<Record<InvocationMode, Partial<Record<T, string[] | null>>>>;
 };
 
+export type StructuredOutputExtraction =
+	| { type: "json-envelope"; field: string }
+	| { type: "last-message-file"; flag: string[] };
+
+export type StructuredOutputSpec = {
+	delivery: "inline" | "file";
+	flag: string[];
+	companionArgs?: string[];
+	extraction: StructuredOutputExtraction;
+};
+
+export type StructuredOutputCapture =
+	| { type: "json-envelope"; field: string }
+	| { type: "last-message-file"; path: string };
+
+export type StructuredOutputPlan = {
+	schemaJson: string;
+	args: string[];
+	capture: StructuredOutputCapture;
+	tempPaths: string[];
+};
+
 export type TargetCliDefinition = {
 	modes: {
 		interactive: ModeCommand;
@@ -157,6 +179,7 @@ export type TargetCliDefinition = {
 		output?: FlagMap<OutputFormat>;
 		model?: { flag: string[]; modes?: InvocationMode[] };
 		web?: { on?: string[] | null; off?: string[] | null; modes?: InvocationMode[] };
+		structuredOutput?: StructuredOutputSpec;
 	};
 	passthrough?: { position?: "after" | "before-prompt" };
 	translate?: (invocation: TranslationInvocation) => TranslationResult;
@@ -190,6 +213,7 @@ export type TranslationInvocation = {
 		hasDelimiter: boolean;
 		args: string[];
 	};
+	structuredOutput: StructuredOutputPlan | null;
 };
 
 export type TranslationResult = {

@@ -133,6 +133,10 @@ export function translateInvocation(
 		}
 	}
 
+	if (invocation.structuredOutput) {
+		args.push(...invocation.structuredOutput.args);
+	}
+
 	if (mode === "one-shot" && base.args?.includes("exec")) {
 		const searchIndex = args.indexOf("--search");
 		if (searchIndex > -1) {

@@ -1,6 +1,7 @@
 import { InvalidUsageError } from "../../lib/agents/errors.js";
 import { buildRequests, buildSession, resolveAgentSelection } from "../../lib/agents/switch.js";
 import { parseShimFlags } from "./flags.js";
+import { planStructuredOutput } from "./structured-output.js";
 import type { ParsedShimFlags, ResolvedInvocation } from "./types.js";
 
 type ResolveInvocationOptions = {
@@ -9,6 +10,7 @@ type ResolveInvocationOptions = {
 	stdinText: string | null;
 	repoRoot: string;
 	agentsDir?: string | null;
+	tempDir?: string;
 };
 
 type ResolveFromFlagsOptions = {
@@ -17,6 +19,7 @@ type ResolveFromFlagsOptions = {
 	stdinText: string | null;
 	repoRoot: string;
 	agentsDir?: string | null;
+	tempDir?: string;
 };
 
 function normalizeKey(value: string): string {
@@ -51,6 +54,13 @@ export async function resolveInvocationFromFlags(
 	const agent = resolution.selection;
 	const session = buildSession(flags);
 	const requests = buildRequests(flags);
+	const structuredOutput = await planStructuredOutput({
+		rawSchema: flags.outputSchema,
+		mode,
+		agentId: agent.id,
+		spec: target.cli?.flags?.structuredOutput,
+		tempDir: options.tempDir,
+	});
 
 	return {
 		mode,
@@ -64,5 +74,6 @@ export async function resolveInvocationFromFlags(
 			hasDelimiter: flags.hasDelimiter,
 			args: flags.passthroughArgs,
 		},
+		structuredOutput,
 	};
 }

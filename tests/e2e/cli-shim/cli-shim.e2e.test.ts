@@ -6,7 +6,11 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { AGENT_MODULES } from "./agents.js";
 import { type AgentE2EConfig, SHARED_CASES } from "./cases.js";
-import { type ExpectedInvocation, getExpectedInvocation } from "./expected-invocations.js";
+import {
+	type ExpectedInvocation,
+	getExpectedInvocation,
+	TMPFILE_PLACEHOLDER,
+} from "./expected-invocations.js";
 
 type TracePayload = {
 	agent: string;
@@ -35,6 +39,9 @@ const SUITE = ENABLE_E2E && CLI_EXISTS ? describe : describe.skip;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const TRACE_PREFIX = "OA_TRANSLATION=";
 const JSON_CASES = new Set(["output-json", "output-flag-json", "output-stream-json"]);
+// Structured-output runs involve nondeterministic temp paths and model output, so they are
+// asserted structurally instead of against recorded baselines.
+const STRUCTURED_CASES = new Set(["output-schema-inline"]);
 
 if (ENABLE_E2E && !CLI_EXISTS) {
 	console.warn("dist/cli.js not found. Run the build before E2E tests.");
@@ -253,6 +260,17 @@ function normalizeStderr(agentId: string, stderr: string): string {
 	return stderr;
 }
 
+function normalizeTempPaths(args: string[]): string[] {
+	const tempValueFlags = new Set(["--output-schema", "--output-last-message"]);
+	return args.map((arg, index) => {
+		const previous = index > 0 ? args[index - 1] : null;
+		if (previous && tempValueFlags.has(previous) && path.isAbsolute(arg)) {
+			return TMPFILE_PLACEHOLDER;
+		}
+		return arg;
+	});
+}
+
 function ensureCodexModel(agent: AgentE2EConfig, args: string[]): string[] {
 	if (agent.agentId !== "codex" || !agent.model) {
 		return args;
@@ -304,6 +322,11 @@ SUITE("CLI shim e2e", () => {
 				const expectedInvocation = getExpectedInvocation(testCase.id, agent);
 				if (!expectedInvocation) {
 					it.skip(`${agent.agentId} ${testCase.id} (unsupported)`, () => {});
+					continue;
+				}
+
+				if (RECORD_BASELINE && STRUCTURED_CASES.has(testCase.id)) {
+					it.skip(`${agent.agentId} ${testCase.id} (no baseline; asserted structurally)`, () => {});
 					continue;
 				}
 
@@ -373,6 +396,14 @@ SUITE("CLI shim e2e", () => {
 						const { trace, cleaned } = extractTrace(stderr);
 						if (!trace) {
 							throw new Error("Missing translation trace in stderr.");
+						}
+
+						if (STRUCTURED_CASES.has(testCase.id)) {
+							const payload = JSON.parse(stdout) as Record<string, unknown>;
+							expect(payload).toEqual({ answer: 5 });
+							expect(trace.command).toBe(expectedInvocation.command);
+							expect(normalizeTempPaths(trace.args)).toEqual(expectedInvocation.args);
+							return;
 						}
 
 						const cleanedWithoutWarnings = stripWarnings(cleaned, trace.warnings ?? []);

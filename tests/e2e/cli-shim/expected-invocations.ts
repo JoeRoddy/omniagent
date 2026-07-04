@@ -1,10 +1,18 @@
-import { type AgentE2EConfig, PROMPT, type SHARED_CASES } from "./cases.js";
+import {
+	type AgentE2EConfig,
+	PROMPT,
+	type SHARED_CASES,
+	STRUCTURED_PROMPT,
+	STRUCTURED_SCHEMA,
+} from "./cases.js";
 
 export type ExpectedInvocation = {
 	command: string;
 	args: string[];
 	warnings?: string[];
 };
+
+export const TMPFILE_PLACEHOLDER = "<TMPFILE>";
 
 type CaseId = (typeof SHARED_CASES)[number]["id"];
 type AgentId = "codex" | "claude" | "gemini" | "copilot";
@@ -65,10 +73,11 @@ function buildCodexInvocation(
 	flags: string[],
 	passthrough: string[],
 	prefixFlags: string[] = [],
+	prompt: string = PROMPT,
 ): ExpectedInvocation {
 	return {
 		command: agent.cliCommand,
-		args: [...prefixFlags, "exec", ...flags, ...passthrough, PROMPT],
+		args: [...prefixFlags, "exec", ...flags, ...passthrough, prompt],
 	};
 }
 
@@ -76,10 +85,11 @@ function buildFlagPromptInvocation(
 	agent: AgentE2EConfig,
 	flags: string[],
 	passthrough: string[],
+	prompt: string = PROMPT,
 ): ExpectedInvocation {
 	return {
 		command: agent.cliCommand,
-		args: [...flags, "-p", PROMPT, ...passthrough],
+		args: [...flags, "-p", prompt, ...passthrough],
 	};
 }
 
@@ -125,6 +135,16 @@ function buildCodex(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation |
 		flags.push("--disable", "web_search_request");
 	}
 
+	if (caseId === "output-schema-inline") {
+		flags.push(
+			"--output-schema",
+			TMPFILE_PLACEHOLDER,
+			"--output-last-message",
+			TMPFILE_PLACEHOLDER,
+		);
+		return buildCodexInvocation(agent, flags, passthrough, prefixFlags, STRUCTURED_PROMPT);
+	}
+
 	if (caseId === "web-on") {
 		return buildCodexInvocation(agent, flags, passthrough, prefixFlags);
 	}
@@ -153,6 +173,7 @@ function buildClaude(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation 
 			? collectPassthrough(agent, agent.passthroughArgs ?? [])
 			: collectPassthrough(agent);
 	let flags: string[] = [];
+	let prompt = PROMPT;
 	const warnings: string[] = [];
 
 	switch (caseId) {
@@ -186,11 +207,15 @@ function buildClaude(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation 
 			break;
 		case "passthrough":
 			break;
+		case "output-schema-inline":
+			flags = ["--json-schema", STRUCTURED_SCHEMA, "--output-format", "json"];
+			prompt = STRUCTURED_PROMPT;
+			break;
 		default:
 			return null;
 	}
 
-	const invocation = buildFlagPromptInvocation(agent, flags, passthrough);
+	const invocation = buildFlagPromptInvocation(agent, flags, passthrough, prompt);
 	return withWarnings(invocation, warnings);
 }
 

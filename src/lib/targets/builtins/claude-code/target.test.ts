@@ -35,6 +35,15 @@ describe("claude builtin target", () => {
 		expect(claudeTarget.displayName).toBe("Claude Code");
 	});
 
+	it("declares inline structured output with envelope extraction", () => {
+		expect(claudeTarget.cli?.flags?.structuredOutput).toEqual({
+			delivery: "inline",
+			flag: ["--json-schema"],
+			companionArgs: ["--output-format", "json"],
+			extraction: { type: "json-envelope", field: "structured_output" },
+		});
+	});
+
 	it("routes skills and subagents to .claude directories", () => {
 		const skills = expectDefined(normalizeOutputDefinition(claudeTarget.outputs?.skills), "skills");
 		expect(skills.path).toBe("{repoRoot}/.claude/skills/{itemName}");

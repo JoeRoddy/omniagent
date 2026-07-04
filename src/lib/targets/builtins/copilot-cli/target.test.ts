@@ -35,6 +35,10 @@ describe("copilot builtin target", () => {
 		expect(copilotTarget.displayName).toBe("GitHub Copilot CLI");
 	});
 
+	it("does not declare structured output support", () => {
+		expect(copilotTarget.cli?.flags?.structuredOutput).toBeUndefined();
+	});
+
 	it("routes skills to .github/skills", () => {
 		const skills = expectDefined(
 			normalizeOutputDefinition(copilotTarget.outputs?.skills),

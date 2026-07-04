@@ -39,11 +39,12 @@ const VERSION = resolveVersion();
 const KNOWN_COMMANDS = new Set(["hello", "greet", "echo", "sync", "dev", "profiles", "usage"]);
 const SHIM_CAPABILITIES = [
 	"Capabilities by agent:",
-	"  codex: approval, sandbox, output, model, web",
-	"  claude: approval, output, model",
+	"  codex: approval, sandbox, output, model, web, output-schema",
+	"  claude: approval, output, model, output-schema",
 	"  gemini: approval, sandbox, output, model, web",
 	"  copilot: approval, model",
 	"Unsupported shared flags for a selected agent emit a warning and are ignored.",
+	"--output-schema is one-shot only and errors on agents without native support.",
 ].join("\n");
 
 function formatError(message: string, args: string[]) {
@@ -170,6 +171,11 @@ export function runCli(argv = process.argv, options: RunCliOptions = {}) {
 					.option("agent", {
 						type: "string",
 						describe: "Select the agent (built-in id or configured alias).",
+					})
+					.option("output-schema", {
+						type: "string",
+						describe:
+							"JSON schema file path or inline JSON; emit the final response as schema-conforming JSON (one-shot only).",
 					})
 					.option("trace-translate", {
 						type: "boolean",

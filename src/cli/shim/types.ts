@@ -5,6 +5,8 @@ import {
 	type OutputFormat,
 	SANDBOX_MODES,
 	type SandboxMode,
+	type StructuredOutputPlan,
+	type StructuredOutputSpec,
 } from "../../lib/targets/config-types.js";
 
 export {
@@ -14,6 +16,8 @@ export {
 	type OutputFormat,
 	SANDBOX_MODES,
 	type SandboxMode,
+	type StructuredOutputPlan,
+	type StructuredOutputSpec,
 };
 
 export type {

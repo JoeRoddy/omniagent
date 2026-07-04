@@ -94,6 +94,48 @@ const config = {
 export default config;
 ```
 
+## Structured output (`cli.flags.structuredOutput`)
+
+Custom targets whose CLI supports schema-constrained responses can declare a
+`structuredOutput` spec so the shim's `--output-schema` flag works for them:
+
+```ts
+const config = {
+	targets: [
+		{
+			id: "acme",
+			cli: {
+				modes: {
+					interactive: { command: "acme" },
+					oneShot: { command: "acme", args: ["run"] },
+				},
+				flags: {
+					structuredOutput: {
+						// "inline": schema JSON is passed as the flag value.
+						// "file": schema is written to a temp file and its path is passed.
+						delivery: "file",
+						flag: ["--schema"],
+						// Extra args always added alongside the schema (e.g. forcing JSON output).
+						companionArgs: ["--format", "json"],
+						// How the shim extracts the final payload:
+						// { type: "json-envelope", field: "structured_output" } parses captured
+						// stdout as JSON and prints only that field, or
+						// { type: "last-message-file", flag: ["--last-message"] } passes a temp
+						// file path via the given flag and prints its contents after the run.
+						extraction: { type: "last-message-file", flag: ["--last-message"] },
+					},
+				},
+			},
+		},
+	],
+};
+```
+
+Targets inheriting a built-in (`inherits: "codex"` or `inherits: "claude"`) get the built-in's
+spec automatically. Targets that define a custom `cli.translate` function receive the resolved
+plan as `invocation.structuredOutput` and must append `invocation.structuredOutput.args`
+themselves; the default translator does this automatically.
+
 `omniagent usage` enforces a 30-second per-target timeout unless `usage.launch.timeoutMs` is
 configured. A user-supplied `--timeout` value overrides `context.launch.timeoutMs` for that run,
 so custom extractors should pass `context.launch.timeoutMs` through to any child-process or TUI

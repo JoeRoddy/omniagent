@@ -87,6 +87,8 @@ export function parseShimFlags(argv: string[]): ParsedShimFlags {
 	let webExplicit = false;
 	let agent: string | null = null;
 	let agentExplicit = false;
+	let outputSchema: string | null = null;
+	let outputSchemaExplicit = false;
 	let traceTranslate = false;
 	let help = false;
 	let version = false;
@@ -226,6 +228,18 @@ export function parseShimFlags(argv: string[]): ParsedShimFlags {
 			agentExplicit = true;
 			continue;
 		}
+		if (arg === "--output-schema") {
+			const [value, nextIndex] = readFlagValue(preArgs, index, "--output-schema");
+			outputSchema = normalizeValue(value, "--output-schema");
+			outputSchemaExplicit = true;
+			index = nextIndex;
+			continue;
+		}
+		if (arg.startsWith("--output-schema=")) {
+			outputSchema = normalizeValue(arg.slice("--output-schema=".length), "--output-schema");
+			outputSchemaExplicit = true;
+			continue;
+		}
 		if (arg === "--trace-translate") {
 			traceTranslate = true;
 			continue;
@@ -247,6 +261,12 @@ export function parseShimFlags(argv: string[]): ParsedShimFlags {
 		output = outputSelections[outputSelections.length - 1];
 	}
 
+	if (outputSchema !== null && outputExplicit) {
+		throw new InvalidUsageError(
+			"--output-schema cannot be combined with --output, --json, or --stream-json.",
+		);
+	}
+
 	if (approval === "yolo" && !sandboxExplicit) {
 		sandbox = "off";
 	}
@@ -266,6 +286,8 @@ export function parseShimFlags(argv: string[]): ParsedShimFlags {
 		webExplicit,
 		agent,
 		agentExplicit,
+		outputSchema,
+		outputSchemaExplicit,
 		traceTranslate,
 		help,
 		version,
