@@ -146,6 +146,37 @@ function validateStructuredOutputSpec(value: unknown, label: string, errors: str
 	errors.push(`${label}.extraction.type must be "json-envelope" or "last-message-file".`);
 }
 
+function validateStructuredOutputFallbackSpec(
+	value: unknown,
+	label: string,
+	errors: string[],
+): void {
+	if (!isPlainObject(value)) {
+		errors.push(`${label} must be an object.`);
+		return;
+	}
+	if (value.args !== undefined) {
+		validateStringArray(value.args, `${label}.args`, errors, { allowEmpty: true });
+	}
+	if (value.extraction === undefined) {
+		return;
+	}
+	if (!isPlainObject(value.extraction)) {
+		errors.push(`${label}.extraction must be an object.`);
+		return;
+	}
+	if (value.extraction.type === "text") {
+		return;
+	}
+	if (value.extraction.type === "json-envelope") {
+		if (normalizeString(value.extraction.field) === null) {
+			errors.push(`${label}.extraction.field must be a non-empty string.`);
+		}
+		return;
+	}
+	errors.push(`${label}.extraction.type must be "text" or "json-envelope".`);
+}
+
 function validateModeCommand(value: unknown, label: string, errors: string[]): void {
 	if (!isPlainObject(value)) {
 		errors.push(`${label} must be an object.`);
@@ -232,6 +263,13 @@ function validateCliDefinition(
 				validateStructuredOutputSpec(
 					cli.flags.structuredOutput,
 					`${label}.flags.structuredOutput`,
+					errors,
+				);
+			}
+			if (cli.flags.structuredOutputFallback !== undefined) {
+				validateStructuredOutputFallbackSpec(
+					cli.flags.structuredOutputFallback,
+					`${label}.flags.structuredOutputFallback`,
 					errors,
 				);
 			}

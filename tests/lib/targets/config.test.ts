@@ -235,6 +235,66 @@ describe("target config validation", () => {
 		);
 	});
 
+	it("accepts custom structured output fallback specs", () => {
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "custom-agent",
+					cli: {
+						modes: {
+							interactive: { command: "custom" },
+							oneShot: { command: "custom" },
+						},
+						prompt: { type: "flag", flag: ["-p"] },
+						flags: {
+							structuredOutputFallback: {
+								args: ["--quiet"],
+								extraction: { type: "json-envelope", field: "response" },
+							},
+						},
+					},
+				},
+			],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(true);
+		expect(validation.errors).toEqual([]);
+	});
+
+	it("rejects invalid structured output fallback specs", () => {
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "custom-agent",
+					cli: {
+						modes: {
+							interactive: { command: "custom" },
+							oneShot: { command: "custom" },
+						},
+						flags: {
+							structuredOutputFallback: {
+								args: [42],
+								extraction: { type: "telepathy" },
+							},
+						},
+					},
+				} as unknown as TargetDefinition,
+			],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(false);
+		expect(validation.errors).toEqual(
+			expect.arrayContaining([
+				"targets[0].cli.flags.structuredOutputFallback.args[0] must be a non-empty string.",
+				'targets[0].cli.flags.structuredOutputFallback.extraction.type must be "text" or "json-envelope".',
+			]),
+		);
+	});
+
 	it("rejects json-envelope extraction without a field", () => {
 		const config: OmniagentConfig = {
 			targets: [

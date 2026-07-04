@@ -39,6 +39,13 @@ describe("copilot builtin target", () => {
 		expect(copilotTarget.cli?.flags?.structuredOutput).toBeUndefined();
 	});
 
+	it("declares a silent text structured output fallback", () => {
+		expect(copilotTarget.cli?.flags?.structuredOutputFallback).toEqual({
+			args: ["--silent"],
+			extraction: { type: "text" },
+		});
+	});
+
 	it("routes skills to .github/skills", () => {
 		const skills = expectDefined(
 			normalizeOutputDefinition(copilotTarget.outputs?.skills),

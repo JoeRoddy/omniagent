@@ -139,6 +139,30 @@ describe("CLI shim flag parsing", () => {
 		}
 	});
 
+	it("parses --output-schema-retries in both value forms", () => {
+		expect(parseShimFlags([]).outputSchemaRetries).toBeNull();
+
+		const spaced = parseShimFlags(["--output-schema", "s.json", "--output-schema-retries", "4"]);
+		expect(spaced.outputSchemaRetries).toBe(4);
+
+		const inline = parseShimFlags(["--output-schema", "s.json", "--output-schema-retries=0"]);
+		expect(inline.outputSchemaRetries).toBe(0);
+	});
+
+	it("rejects invalid --output-schema-retries values", () => {
+		for (const value of ["1.5", "eleven", "11"]) {
+			expect(() =>
+				parseShimFlags(["--output-schema", "s.json", "--output-schema-retries", value]),
+			).toThrow("Invalid value for --output-schema-retries. Provide an integer between 0 and 10.");
+		}
+	});
+
+	it("rejects --output-schema-retries without --output-schema", () => {
+		expect(() => parseShimFlags(["--output-schema-retries", "2"])).toThrow(
+			"--output-schema-retries requires --output-schema.",
+		);
+	});
+
 	it("appends claude structured output args before the prompt", async () => {
 		const schema = '{"type":"object","properties":{}}';
 		const invocation = await buildInvocation([

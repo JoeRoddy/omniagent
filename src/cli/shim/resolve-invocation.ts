@@ -59,6 +59,9 @@ export async function resolveInvocationFromFlags(
 		mode,
 		agentId: agent.id,
 		spec: target.cli?.flags?.structuredOutput,
+		fallbackSpec: target.cli?.flags?.structuredOutputFallback,
+		retries: flags.outputSchemaRetries,
+		promptDeliverable: Boolean(target.cli?.prompt),
 		tempDir: options.tempDir,
 	});
 

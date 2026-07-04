@@ -85,15 +85,15 @@ describe("planStructuredOutput", () => {
 		expect(plan).toBeNull();
 	});
 
-	it("rejects agents without a structured output spec", async () => {
-		await expect(
-			planStructuredOutput({
-				rawSchema: SCHEMA_JSON,
-				mode: "one-shot",
-				agentId: "gemini",
-				spec: undefined,
-			}),
-		).rejects.toThrow("gemini does not support --output-schema.");
+	it("falls back to a prompt-based plan for agents without a native spec", async () => {
+		const plan = await planStructuredOutput({
+			rawSchema: SCHEMA_JSON,
+			mode: "one-shot",
+			agentId: "gemini",
+			spec: undefined,
+		});
+		expect(plan?.capture.type).toBe("fallback");
+		expect(plan?.tempPaths).toEqual([]);
 	});
 
 	it("rejects interactive mode", async () => {
@@ -182,18 +182,39 @@ describe("runShim with --output-schema", () => {
 		return { writes, stderr };
 	}
 
-	it.each(["gemini", "copilot"])("fails with exit 2 for %s", async (agent) => {
+	it.each([
+		["gemini", JSON.stringify({ response: '{"answer":"hi"}', stats: {} })],
+		["copilot", '{"answer":"hi"}'],
+	])("runs the prompt fallback for %s", async (agent, response) => {
 		const { writes, stderr } = collectStderr();
-		const spawn = createSpawnStub(0);
+		const stdoutWrites: string[] = [];
+		const stdout = {
+			write: (chunk: string | Uint8Array) => {
+				stdoutWrites.push(String(chunk));
+				return true;
+			},
+		} as NodeJS.WriteStream;
+		const spawn = vi.fn((_command: string, _args: string[], _options: { stdio: StdioOptions }) => {
+			const childStdout = new EventEmitter();
+			const child = Object.assign(new EventEmitter(), { stdout: childStdout });
+			process.nextTick(() => {
+				childStdout.emit("data", Buffer.from(response));
+				child.emit("close", 0);
+			});
+			return child;
+		});
 
 		const exitCode = await runShim(
 			["--agent", agent, "-p", "Hello", "--output-schema", SCHEMA_JSON],
-			{ stdinIsTTY: true, stderr, spawn, repoRoot: process.cwd(), tempDir },
+			{ stdinIsTTY: true, stderr, stdout, spawn, repoRoot: process.cwd(), tempDir },
 		);
 
-		expect(exitCode).toBe(2);
-		expect(writes.join("")).toContain(`Error: ${agent} does not support --output-schema.`);
-		expect(spawn).not.toHaveBeenCalled();
+		expect(exitCode).toBe(0);
+		expect(stdoutWrites).toEqual(['{"answer":"hi"}\n']);
+		expect(writes.join("")).toContain(
+			`Notice: ${agent} lacks native --output-schema support; using prompt-based fallback with client-side validation.`,
+		);
+		expect(spawn).toHaveBeenCalledTimes(1);
 	});
 
 	it("fails with exit 2 in interactive mode", async () => {

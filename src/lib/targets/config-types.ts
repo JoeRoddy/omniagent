@@ -156,15 +156,29 @@ export type StructuredOutputSpec = {
 	extraction: StructuredOutputExtraction;
 };
 
+export type StructuredOutputFallbackExtraction =
+	| { type: "text" }
+	| { type: "json-envelope"; field: string };
+
+export type StructuredOutputFallbackSpec = {
+	args?: string[];
+	extraction?: StructuredOutputFallbackExtraction;
+};
+
 export type StructuredOutputCapture =
 	| { type: "json-envelope"; field: string }
-	| { type: "last-message-file"; path: string };
+	| { type: "last-message-file"; path: string }
+	| { type: "fallback"; extraction: StructuredOutputFallbackExtraction; maxAttempts: number };
+
+export type StructuredOutputValidator = (data: unknown) => { valid: boolean; errors: string[] };
 
 export type StructuredOutputPlan = {
 	schemaJson: string;
 	args: string[];
 	capture: StructuredOutputCapture;
 	tempPaths: string[];
+	validate?: StructuredOutputValidator;
+	notices?: string[];
 };
 
 export type TargetCliDefinition = {
@@ -180,6 +194,7 @@ export type TargetCliDefinition = {
 		model?: { flag: string[]; modes?: InvocationMode[] };
 		web?: { on?: string[] | null; off?: string[] | null; modes?: InvocationMode[] };
 		structuredOutput?: StructuredOutputSpec;
+		structuredOutputFallback?: StructuredOutputFallbackSpec;
 	};
 	passthrough?: { position?: "after" | "before-prompt" };
 	translate?: (invocation: TranslationInvocation) => TranslationResult;

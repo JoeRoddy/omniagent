@@ -136,6 +136,51 @@ spec automatically. Targets that define a custom `cli.translate` function receiv
 plan as `invocation.structuredOutput` and must append `invocation.structuredOutput.args`
 themselves; the default translator does this automatically.
 
+## Structured output fallback (`cli.flags.structuredOutputFallback`)
+
+Targets without a native `structuredOutput` spec automatically use the shim's prompt-based
+fallback for `--output-schema`: the schema is embedded in the prompt, the response is captured
+and validated client-side, and failed attempts are retried with feedback (up to
+`--output-schema-retries`, default 2). The target must define `cli.prompt`; a target with no
+prompt mechanism exits with code 2 for schema runs.
+
+By default the fallback captures the agent's raw stdout as text. Declare a
+`structuredOutputFallback` spec to add one-shot args for clean capture or to unwrap a JSON
+envelope first:
+
+```ts
+const config = {
+	targets: [
+		{
+			id: "acme",
+			cli: {
+				modes: {
+					interactive: { command: "acme" },
+					oneShot: { command: "acme", args: ["run"] },
+				},
+				prompt: { type: "flag", flag: ["-p"] },
+				flags: {
+					structuredOutputFallback: {
+						// Extra one-shot args that keep stdout parseable (quiet/log flags etc.).
+						args: ["--quiet"],
+						// "text" (default): stdout is the response text.
+						// "json-envelope": stdout is JSON; the response text is read from `field`.
+						extraction: { type: "text" },
+					},
+				},
+			},
+		},
+	],
+};
+```
+
+The built-in gemini target uses `{ args: ["--output-format", "json"], extraction: { type:
+"json-envelope", field: "response" } }`; copilot uses `{ args: ["--silent"], extraction: { type:
+"text" } }`. Targets with a custom `cli.translate` function receive fallback plans as
+`invocation.structuredOutput` too — append `invocation.structuredOutput.args` yourself, and note
+the prompt passed to `translate` is already augmented with the schema instructions on each
+attempt.
+
 `omniagent usage` enforces a 30-second per-target timeout unless `usage.launch.timeoutMs` is
 configured. A user-supplied `--timeout` value overrides `context.launch.timeoutMs` for that run,
 so custom extractors should pass `context.launch.timeoutMs` through to any child-process or TUI

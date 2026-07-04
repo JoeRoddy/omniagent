@@ -50,6 +50,7 @@ export type ParsedShimFlags = {
 	agentExplicit: boolean;
 	outputSchema: string | null;
 	outputSchemaExplicit: boolean;
+	outputSchemaRetries: number | null;
 	traceTranslate: boolean;
 	help: boolean;
 	version: boolean;

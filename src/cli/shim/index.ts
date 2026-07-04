@@ -87,10 +87,17 @@ export async function runShim(argv: string[], runtime: ShimRuntime = {}): Promis
 
 export { buildAgentArgs } from "./build-args.js";
 export * from "./errors.js";
+export {
+	buildFallbackPrompt,
+	buildRetryPrompt,
+	extractJsonPayload,
+} from "./fallback-prompts.js";
 export { parseShimFlags } from "./flags.js";
 export { resolveInvocation, resolveInvocationFromFlags } from "./resolve-invocation.js";
+export { compileSchemaValidator } from "./schema-validator.js";
 export {
 	cleanupStructuredOutput,
+	DEFAULT_SCHEMA_RETRIES,
 	planStructuredOutput,
 	resolveOutputSchema,
 } from "./structured-output.js";

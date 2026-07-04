@@ -4,12 +4,16 @@ import path from "node:path";
 import type {
 	InvocationMode,
 	StructuredOutputCapture,
+	StructuredOutputFallbackSpec,
 	StructuredOutputPlan,
 	StructuredOutputSpec,
 } from "../../lib/targets/config-types.js";
 import { InvalidUsageError } from "./errors.js";
+import { compileSchemaValidator } from "./schema-validator.js";
 
 const SCHEMA_LABEL = "--output-schema";
+
+export const DEFAULT_SCHEMA_RETRIES = 2;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -49,6 +53,9 @@ export type PlanStructuredOutputOptions = {
 	mode: InvocationMode;
 	agentId: string;
 	spec: StructuredOutputSpec | undefined;
+	fallbackSpec?: StructuredOutputFallbackSpec;
+	retries?: number | null;
+	promptDeliverable?: boolean;
 	tempDir?: string;
 };
 
@@ -59,12 +66,19 @@ export async function planStructuredOutput(
 	if (rawSchema === null) {
 		return null;
 	}
-	if (!spec) {
-		throw new InvalidUsageError(`${agentId} does not support ${SCHEMA_LABEL}.`);
-	}
 	if (mode !== "one-shot") {
 		throw new InvalidUsageError(
 			`${SCHEMA_LABEL} requires one-shot mode; provide -p/--prompt or pipe stdin.`,
+		);
+	}
+	if (!spec) {
+		return planFallback(options);
+	}
+
+	const notices: string[] = [];
+	if (options.retries !== null && options.retries !== undefined) {
+		notices.push(
+			`Warning: ${agentId} uses native ${SCHEMA_LABEL} support; ignoring ${SCHEMA_LABEL}-retries.`,
 		);
 	}
 
@@ -95,7 +109,40 @@ export async function planStructuredOutput(
 		capture = { type: "last-message-file", path: lastMessagePath };
 	}
 
-	return { schemaJson, args, capture, tempPaths };
+	return { schemaJson, args, capture, tempPaths, notices };
+}
+
+async function planFallback(
+	options: PlanStructuredOutputOptions,
+): Promise<StructuredOutputPlan | null> {
+	const { rawSchema, agentId, fallbackSpec } = options;
+	if (rawSchema === null) {
+		return null;
+	}
+	if (options.promptDeliverable === false) {
+		throw new InvalidUsageError(
+			`${agentId} cannot use the ${SCHEMA_LABEL} fallback: target defines no prompt flag.`,
+		);
+	}
+
+	const schemaJson = await resolveOutputSchema(rawSchema);
+	const validate = compileSchemaValidator(schemaJson);
+	const maxAttempts = (options.retries ?? DEFAULT_SCHEMA_RETRIES) + 1;
+
+	return {
+		schemaJson,
+		args: [...(fallbackSpec?.args ?? [])],
+		capture: {
+			type: "fallback",
+			extraction: fallbackSpec?.extraction ?? { type: "text" },
+			maxAttempts,
+		},
+		tempPaths: [],
+		validate,
+		notices: [
+			`Notice: ${agentId} lacks native ${SCHEMA_LABEL} support; using prompt-based fallback with client-side validation.`,
+		],
+	};
 }
 
 export async function cleanupStructuredOutput(
