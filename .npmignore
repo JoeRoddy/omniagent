@@ -22,6 +22,7 @@ vitest.config.ts
 pnpm-workspace.yaml
 
 # Tooling
+.agents/
 .claude/
 .codex/
 .specify/

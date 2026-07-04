@@ -12,7 +12,7 @@
 ## Target behavior
 
 - Claude supports native subagents.
-- Codex, Gemini, and Copilot receive converted outputs where needed.
+- Codex, Antigravity (agy), and Copilot receive converted outputs where needed.
 - Target-specific output paths are handled by built-in target definitions.
 
 ## Run-time filtering
@@ -29,13 +29,13 @@ Use these flags per sync run:
 ```yaml
 ---
 name: release-helper
-targets: [claude, gemini]
+targets: [claude, agy]
 ---
 ```
 
 Supported fields:
 
-- `targets` or `targetAgents`: `claude`, `gemini`, `codex`, `copilot`
+- `targets` or `targetAgents`: `claude`, `agy` (alias: `gemini`), `codex`, `copilot`
 - `enabled`: `false` hides the item by default; profiles can opt it back in
 - `name`: overrides filename where supported
 - `description`: optional metadata

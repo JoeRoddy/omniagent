@@ -317,6 +317,7 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 					agentsDir: agentsDirPath,
 					homeDir,
 					targetId: target.id,
+					targetAliases: target.aliases,
 					outputType: "skills",
 					validAgents: request.validAgents,
 				});
@@ -380,6 +381,7 @@ export async function syncSkills(request: SkillSyncRequest): Promise<SyncSummary
 					agentsDir: agentsDirPath,
 					homeDir,
 					targetId: target.id,
+					targetAliases: target.aliases,
 					outputType: "skills",
 					validAgents: request.validAgents,
 					templateScriptRuntime,

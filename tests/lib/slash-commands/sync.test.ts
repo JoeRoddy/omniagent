@@ -148,7 +148,7 @@ describe("slash command sync planning", () => {
 		});
 	});
 
-	it("defaults to project scope for Claude and Gemini", async () => {
+	it("defaults to project scope for Claude and Antigravity", async () => {
 		await withTempRepo(async (root) => {
 			await createCanonicalCommand(root);
 
@@ -160,10 +160,11 @@ describe("slash command sync planning", () => {
 			});
 
 			const claudePlan = plan.targetPlans.find((target) => target.targetName === "claude");
-			const geminiPlan = plan.targetPlans.find((target) => target.targetName === "gemini");
+			const agyPlan = plan.targetPlans.find((target) => target.targetName === "agy");
 
 			expect(claudePlan?.scope).toBe("project");
-			expect(geminiPlan?.scope).toBe("project");
+			expect(agyPlan?.mode).toBe("skills");
+			expect(agyPlan?.scope).toBe("project");
 		});
 	});
 
@@ -456,8 +457,10 @@ describe("slash command sync planning", () => {
 				path.join(root, ".claude", "commands", "templated.md"),
 				"utf8",
 			);
-			const geminiOutput = await readFile(
-				path.join(root, ".gemini", "commands", "templated.toml"),
+			// The gemini selector matches the agy target via its alias, and the
+			// converted output lands in agy's skills tree.
+			const agyOutput = await readFile(
+				path.join(root, ".agents", "skills", "templated", "SKILL.md"),
 				"utf8",
 			);
 
@@ -466,10 +469,10 @@ describe("slash command sync planning", () => {
 			expect(claudeOutput).not.toContain("Hello Gemini");
 			expect(claudeOutput).not.toContain("GEMINI");
 
-			expect(geminiOutput).toContain("Hello Gemini");
-			expect(geminiOutput).toContain("GEMINI");
-			expect(geminiOutput).not.toContain("Hello Claude");
-			expect(geminiOutput).not.toContain("CLAUDE");
+			expect(agyOutput).toContain("Hello Gemini");
+			expect(agyOutput).toContain("GEMINI");
+			expect(agyOutput).not.toContain("Hello Claude");
+			expect(agyOutput).not.toContain("CLAUDE");
 		});
 	});
 
@@ -674,12 +677,12 @@ describe("slash command sync planning", () => {
 			});
 			await applySlashCommandSync(plan);
 
-			const geminiOutput = await readFile(
-				path.join(root, ".gemini", "commands", "canonical.toml"),
+			const agyOutput = await readFile(
+				path.join(root, ".agents", "skills", "canonical", "SKILL.md"),
 				"utf8",
 			);
-			expect(geminiOutput).toContain('description = "Do the thing"');
-			expect(geminiOutput).toContain('prompt = "Run the canonical prompt."');
+			expect(agyOutput).toContain('description: "Do the thing"');
+			expect(agyOutput).toContain("Run the canonical prompt.");
 
 			const copilotOutput = await readFile(
 				path.join(root, ".github", "agents", "canonical.agent.md"),

@@ -971,6 +971,7 @@ async function buildTargetPlan(
 		const templatedContents = applyAgentTemplating({
 			content: withScripts,
 			target: targetName,
+			targetAliases: target.aliases,
 			validAgents,
 			sourcePath: subagent.sourcePath,
 		});
@@ -1666,6 +1667,7 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 					agentsDir: agentsDirPath,
 					homeDir,
 					targetId: target.id,
+					targetAliases: target.aliases,
 					outputType: "subagents",
 					validAgents,
 				});
@@ -1729,6 +1731,7 @@ export async function syncSubagents(request: SubagentSyncRequestV2): Promise<Sub
 					agentsDir: agentsDirPath,
 					homeDir,
 					targetId: target.id,
+					targetAliases: target.aliases,
 					outputType: "subagents",
 					validAgents,
 					templateScriptRuntime,

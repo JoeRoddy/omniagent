@@ -1,0 +1,10 @@
+{
+  "command": "agy",
+  "args": [
+    "--sandbox",
+    "--model",
+    "Gemini 3.5 Flash (Low)",
+    "-p",
+    "Output exactly: 5"
+  ]
+}

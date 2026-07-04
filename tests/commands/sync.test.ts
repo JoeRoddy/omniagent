@@ -198,8 +198,8 @@ describe.sequential("sync command", () => {
 				path.join(root, ".github", "skills", "example", "SKILL.md"),
 				"utf8",
 			);
-			const gemini = await readFile(
-				path.join(root, ".gemini", "skills", "example", "SKILL.md"),
+			const agy = await readFile(
+				path.join(root, ".agents", "skills", "example", "SKILL.md"),
 				"utf8",
 			);
 			const claudeCommand = await readFile(
@@ -210,7 +210,7 @@ describe.sequential("sync command", () => {
 			expect(codex).toBe("hello");
 			expect(claude).toBe("hello");
 			expect(copilot).toBe("hello");
-			expect(gemini).toBe("hello");
+			expect(agy).toBe("hello");
 			expect(claudeCommand).toContain("Say hello.");
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
@@ -749,12 +749,12 @@ describe.sequential("sync command", () => {
 				path.join(root, ".claude", "commands", "counter.md"),
 				"utf8",
 			);
-			const geminiOutput = await readFile(
-				path.join(root, ".gemini", "commands", "counter.toml"),
+			const agyOutput = await readFile(
+				path.join(root, ".agents", "skills", "counter", "SKILL.md"),
 				"utf8",
 			);
 			expect(claudeOutput).toContain("1");
-			expect(geminiOutput).toContain("1");
+			expect(agyOutput).toContain("1");
 		});
 	});
 
@@ -1086,7 +1086,7 @@ describe.sequential("sync command", () => {
 
 			expect(errorSpy).toHaveBeenCalled();
 			expect(errorSpy).toHaveBeenCalledWith(
-				expect.stringContaining("Valid agents: codex, claude, gemini, copilot."),
+				expect.stringContaining("Valid agents: codex, claude, agy, copilot, gemini."),
 			);
 			expect(exitSpy).toHaveBeenCalledWith(1);
 			expect(await pathExists(path.join(root, ".claude", "commands"))).toBe(false);
@@ -1127,7 +1127,7 @@ describe.sequential("sync command", () => {
 			expect(await pathExists(path.join(root, ".codex", "skills", "example", "SKILL.md"))).toBe(
 				true,
 			);
-			expect(await pathExists(path.join(root, ".gemini", "skills", "example", "SKILL.md"))).toBe(
+			expect(await pathExists(path.join(root, ".agents", "skills", "example", "SKILL.md"))).toBe(
 				true,
 			);
 		});
@@ -1161,7 +1161,7 @@ describe.sequential("sync command", () => {
 			expect(output).toContain("Supported targets:");
 			expect(output).toContain("claude");
 			expect(output).toContain("codex");
-			expect(output).toContain("gemini");
+			expect(output).toContain("agy (alias: gemini)");
 			expect(output).toContain("copilot");
 		});
 	});
@@ -1293,22 +1293,22 @@ describe.sequential("sync command", () => {
 
 			const claudeSkill = path.join(root, ".claude", "skills", "targeted", "SKILL.md");
 			const codexSkill = path.join(root, ".codex", "skills", "targeted", "SKILL.md");
-			const geminiSkill = path.join(root, ".gemini", "skills", "targeted", "SKILL.md");
+			const agySkill = path.join(root, ".agents", "skills", "targeted", "SKILL.md");
 			const copilotSkill = path.join(root, ".github", "skills", "targeted", "SKILL.md");
 
 			expect(await pathExists(claudeSkill)).toBe(true);
 			expect(await pathExists(codexSkill)).toBe(true);
-			expect(await pathExists(geminiSkill)).toBe(false);
+			expect(await pathExists(agySkill)).toBe(false);
 			expect(await pathExists(copilotSkill)).toBe(false);
 
 			const skillOutput = await readFile(claudeSkill, "utf8");
 			expect(skillOutput).not.toContain("targets:");
 			expect(skillOutput).not.toContain("targetAgents");
 
-			const geminiSubagent = path.join(root, ".gemini", "skills", "router", "SKILL.md");
-			expect(await pathExists(geminiSubagent)).toBe(true);
+			const agySubagent = path.join(root, ".agents", "skills", "router", "SKILL.md");
+			expect(await pathExists(agySubagent)).toBe(true);
 			expect(await pathExists(path.join(root, ".claude", "agents", "router.md"))).toBe(false);
-			const subagentOutput = await readFile(geminiSubagent, "utf8");
+			const subagentOutput = await readFile(agySubagent, "utf8");
 			expect(subagentOutput).not.toContain("targets:");
 			expect(subagentOutput).not.toContain("targetAgents");
 
@@ -1318,12 +1318,12 @@ describe.sequential("sync command", () => {
 			);
 
 			const claudeCommand = path.join(root, ".claude", "commands", "targeted-command.md");
-			const geminiCommand = path.join(root, ".gemini", "commands", "targeted-command.toml");
+			const agyCommand = path.join(root, ".agents", "skills", "targeted-command", "SKILL.md");
 			const codexCommand = path.join(root, ".codex", "skills", "targeted-command", "SKILL.md");
 			const copilotCommand = path.join(root, ".github", "agents", "targeted-command.agent.md");
 			const copilotPrompt = path.join(root, ".github", "prompts", "targeted-command.prompt.md");
 			expect(await pathExists(claudeCommand)).toBe(true);
-			expect(await pathExists(geminiCommand)).toBe(true);
+			expect(await pathExists(agyCommand)).toBe(true);
 			expect(await pathExists(codexCommand)).toBe(false);
 			expect(await pathExists(copilotCommand)).toBe(false);
 			expect(await pathExists(copilotPrompt)).toBe(false);
@@ -1333,13 +1333,13 @@ describe.sequential("sync command", () => {
 			expect(claudeCommandOutput).not.toContain("targetAgents");
 
 			const globalClaude = path.join(root, ".claude", "commands", "global.md");
-			const globalGemini = path.join(root, ".gemini", "commands", "global.toml");
+			const globalAgy = path.join(root, ".agents", "skills", "global", "SKILL.md");
 			const globalCodex = path.join(root, ".codex", "skills", "global", "SKILL.md");
 			const globalCopilot = path.join(root, ".github", "agents", "global.agent.md");
 			const globalCopilotPrompt = path.join(root, ".github", "prompts", "global.prompt.md");
 
 			expect(await pathExists(globalClaude)).toBe(true);
-			expect(await pathExists(globalGemini)).toBe(true);
+			expect(await pathExists(globalAgy)).toBe(true);
 			expect(await pathExists(globalCodex)).toBe(true);
 			expect(await pathExists(globalCopilot)).toBe(true);
 			expect(await pathExists(globalCopilotPrompt)).toBe(true);

@@ -431,6 +431,7 @@ export async function syncInstructions(
 			const content = applyAgentTemplating({
 				content: withScripts,
 				target: targetName,
+				targetAliases: selection.target.aliases,
 				validAgents: request.validAgents,
 				sourcePath: template.sourcePath,
 			});
@@ -647,6 +648,7 @@ export async function syncInstructions(
 					agentsDir: agentsRoot,
 					homeDir,
 					targetId: candidate.targetName,
+					targetAliases: selectionById.get(candidate.targetName)?.target.aliases,
 					outputType: "instructions",
 					validAgents: request.validAgents,
 				});
@@ -701,6 +703,7 @@ export async function syncInstructions(
 					agentsDir: agentsRoot,
 					homeDir,
 					targetId: candidate.targetName,
+					targetAliases: selectionById.get(candidate.targetName)?.target.aliases,
 					outputType: "instructions",
 					validAgents: request.validAgents,
 					templateScriptRuntime,

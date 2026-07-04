@@ -14,8 +14,8 @@ Shared content.
 Only Claude and Codex see this.
 </agents>
 
-<agents not:claude,gemini>
-Everyone except Claude and Gemini sees this.
+<agents not:claude,agy>
+Everyone except Claude and Antigravity sees this.
 </agents>
 ```
 

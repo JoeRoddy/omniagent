@@ -36,8 +36,13 @@ You can set `defaultAgent` in `agents/omniagent.config.*` to avoid repeating `--
 |---------|----------|---------|--------|-------|-----|---------------|
 | codex   | ✓        | ✓       | ✓      | ✓     | ✓   | ✓ (native)    |
 | claude  | ✓        | ✗       | ✓      | ✓     | ✗   | ✓ (native)    |
-| gemini  | ✓        | ✓       | ✓      | ✓     | ✓   | ✓ (fallback)  |
+| agy     | ✓        | ✓       | ✗      | ✓     | ✗   | ✓ (fallback)  |
 | copilot | ✓        | ✗       | ✓      | ✓     | ✗   | ✓ (fallback)  |
+
+`gemini` is accepted as an alias for `agy` (Antigravity CLI, Google's replacement for the
+retired Gemini CLI). agy has no approval granularity beyond `--yolo`
+(`--dangerously-skip-permissions`) and no JSON output mode; `--output json`/`--stream-json`
+requests warn and are ignored.
 
 ## Structured output
 
@@ -62,7 +67,7 @@ The stdout contract is the same for every agent: stdout is exactly the schema-co
   prints only its `structured_output` payload.
 - codex (native): the shim passes the schema via a temp file plus `--output-last-message`,
   forwards the session log to stderr, and prints the final message to stdout.
-- gemini, copilot, custom targets (fallback): see below.
+- agy, copilot, custom targets (fallback): see below.
 
 ### Prompt-based fallback
 
@@ -74,11 +79,10 @@ retries (default 2, so 3 attempts total). Each attempt is a fresh agent run and 
 cost. A notice is written to stderr when the fallback engages:
 
 ```text
-Notice: gemini lacks native --output-schema support; using prompt-based fallback with client-side validation.
+Notice: agy lacks native --output-schema support; using prompt-based fallback with client-side validation.
 ```
 
-- gemini: the shim adds `--output-format json` and reads the model text from the envelope's
-  `response` field.
+- agy: the shim reads the response text directly from stdout (agy has no JSON output mode).
 - copilot: the shim adds `--silent` and reads the response text from stdout.
 - Custom targets: declare `cli.flags.structuredOutputFallback` for clean capture, or get a plain
   text-mode fallback by default (see [`docs/custom-targets.md`](custom-targets.md)).
@@ -107,8 +111,8 @@ Rules:
 - Unsupported shared flags are ignored with a warning.
 - Output is passed through unmodified, except for `--output-schema` runs (see above).
 - Passthrough args after `--` are not checked for collisions with shim-generated flags such as
-  `--output-schema` or fallback-injected flags (gemini's `--output-format json`, copilot's
-  `--silent`); the agent CLI's own duplicate-flag error surfaces instead.
+  `--output-schema` or fallback-injected flags (copilot's `--silent`); the agent CLI's own
+  duplicate-flag error surfaces instead.
 - Some approval values are agent-specific.
 - Some output formats are one-shot only for specific CLIs.
 - Copilot exposes JSONL via `--output-format json`, so `--output json` and `--output stream-json` both map to that flag in one-shot mode.

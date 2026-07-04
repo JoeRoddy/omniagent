@@ -524,9 +524,11 @@ export function validateTargetConfig(options: {
 
 	const builtInIds = new Set(options.builtIns.map((target) => normalizeLower(target.id)));
 	const builtInAliasSet = new Set<string>();
+	const builtInAliasToId = new Map<string, string>();
 	for (const target of options.builtIns) {
 		for (const alias of target.aliases ?? []) {
 			builtInAliasSet.add(normalizeLower(alias));
+			builtInAliasToId.set(normalizeLower(alias), normalizeLower(target.id));
 		}
 	}
 
@@ -545,7 +547,8 @@ export function validateTargetConfig(options: {
 					errors.push("disableTargets entries must be non-empty strings.");
 					continue;
 				}
-				const key = normalizeLower(normalized);
+				const rawKey = normalizeLower(normalized);
+				const key = builtInAliasToId.get(rawKey) ?? rawKey;
 				if (!builtInIds.has(key)) {
 					errors.push(`disableTargets includes unknown built-in: ${normalized}.`);
 					continue;
@@ -634,7 +637,10 @@ export function validateTargetConfig(options: {
 								errors.push(`${label}.aliases collides with existing target id (${aliasValue}).`);
 								continue;
 							}
-							if (seenAliases.has(aliasKey) || builtInAliasSet.has(aliasKey)) {
+							// An override may re-declare its own built-in's alias (e.g. agy keeping "gemini").
+							const collidesWithOtherBuiltInAlias =
+								builtInAliasSet.has(aliasKey) && builtInAliasToId.get(aliasKey) !== idKey;
+							if (seenAliases.has(aliasKey) || collidesWithOtherBuiltInAlias) {
 								errors.push(`${label}.aliases collides with existing alias (${aliasValue}).`);
 								continue;
 							}
@@ -653,7 +659,8 @@ export function validateTargetConfig(options: {
 
 	if (config.disableTargets && Array.isArray(config.disableTargets)) {
 		for (const targetId of config.disableTargets) {
-			const normalized = normalizeLower(targetId);
+			const rawKey = normalizeLower(targetId);
+			const normalized = builtInAliasToId.get(rawKey) ?? rawKey;
 			if (customBuiltInIds.has(normalized)) {
 				errors.push(`disableTargets cannot include overridden/inherited target (${targetId}).`);
 			}

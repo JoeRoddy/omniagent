@@ -27,7 +27,7 @@ Run-level override behavior:
 npx omniagent@latest usage
 npx omniagent@latest usage codex
 npx omniagent@latest usage claude
-npx omniagent@latest usage gemini
+npx omniagent@latest usage agy
 npx omniagent@latest usage --only codex,claude
 npx omniagent@latest usage --sort=reset
 npx omniagent@latest usage --sort=left
@@ -49,7 +49,8 @@ Command surface:
 - `omniagent usage --sort=left` sorts human table rows globally by lowest percent left.
 - The command accepts at most one positional target.
 - `--sort` is only supported for human table output, not `--json` or `--debug`.
-- Built-in usage targets for v1 are Codex, Claude, and Gemini. Copilot does not support
+- Built-in usage targets are Codex, Claude, and Antigravity (`agy`; `gemini` is accepted as
+  an alias). Copilot does not support
   usage extraction in v1.
 
 Target behavior:
@@ -60,7 +61,7 @@ Target behavior:
 - Unknown targets and targets without usage extraction are invalid usage errors.
 - Usage extraction may launch agent TUIs. omniagent uses cheap/minimal launch settings where
   possible, but an agent may still incur cost if it reads repo context or instructions on startup.
-- Some CLIs require session-scoped setup flags to inspect usage, such as Gemini's `--skip-trust`.
+- Some CLIs gate usage inspection behind onboarding state — Antigravity requires the project to be trusted (run `agy` once and accept the trust prompt).
 - omniagent does not complete auth or onboarding prompts for you.
 - Usage extraction times out after 30 seconds unless the target config defines a target-specific
   timeout. Built-in TUI probes may use longer defaults. Pass `--timeout=<seconds>` to override the

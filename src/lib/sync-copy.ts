@@ -22,6 +22,7 @@ export async function copyDirectoryWithTemplating(options: {
 	source: string;
 	destination: string;
 	target: string;
+	targetAliases?: string[];
 	validAgents: string[];
 }): Promise<void> {
 	await mkdir(options.destination, { recursive: true });
@@ -53,6 +54,7 @@ export async function copyDirectoryWithTemplating(options: {
 		const output = applyAgentTemplating({
 			content: decoded,
 			target: options.target,
+			targetAliases: options.targetAliases,
 			validAgents: options.validAgents,
 			sourcePath,
 		});

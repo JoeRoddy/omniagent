@@ -197,16 +197,17 @@ function parseJsonAgentMessages(output: string): { messages: string[]; parseErro
 }
 
 function normalizeStdout(agentId: string, caseId: string, stdout: string): string {
+	if (agentId === "agy") {
+		// agy has no JSON output mode; JSON cases run as warn-and-ignore text output.
+		return stdout.trim().length > 0 ? "__NONEMPTY__" : "";
+	}
+
 	if (JSON_CASES.has(caseId)) {
 		const { messages, parseErrors } = parseJsonAgentMessages(stdout);
 		if (parseErrors > 0 || messages.length === 0) {
 			return "__INVALID_JSON__";
 		}
 		return canonicalizeAnswer(messages[messages.length - 1]);
-	}
-
-	if (agentId === "gemini") {
-		return stdout.trim().length > 0 ? "__NONEMPTY__" : "";
 	}
 
 	return canonicalizeAnswer(stdout);
@@ -241,7 +242,7 @@ function normalizeStderr(agentId: string, stderr: string): string {
 	if (agentId === "codex") {
 		return normalizeCodexStderr(stderr);
 	}
-	if (agentId === "gemini") {
+	if (agentId === "agy") {
 		const lines = stderr.split(/\r?\n/);
 		const filtered = lines.filter((line) => {
 			if (line.trim().length === 0) {

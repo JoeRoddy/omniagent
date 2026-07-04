@@ -1,6 +1,7 @@
 export type AgentTemplatingOptions = {
 	content: string;
 	target: string;
+	targetAliases?: string[];
 	validAgents: string[];
 	sourcePath?: string;
 };
@@ -118,6 +119,7 @@ function processTemplating(
 	content: string,
 	options: {
 		target?: string | null;
+		targetAliases?: string[];
 		validAgents: string[];
 		sourcePath?: string;
 	},
@@ -126,6 +128,21 @@ function processTemplating(
 	const validSet = new Set(normalizedValid);
 	const context = { sourcePath: options.sourcePath, validAgents: normalizedValid };
 	const target = options.target ? options.target.toLowerCase() : null;
+	// A selector matches the target's id or any of its aliases (e.g. "gemini" for target "agy").
+	const targetKeys = target
+		? new Set([target, ...(options.targetAliases ?? []).map((alias) => alias.toLowerCase())])
+		: null;
+	const intersects = (set: Set<string>): boolean => {
+		if (!targetKeys) {
+			return false;
+		}
+		for (const key of targetKeys) {
+			if (set.has(key)) {
+				return true;
+			}
+		}
+		return false;
+	};
 
 	let output = "";
 	let index = 0;
@@ -167,8 +184,8 @@ function processTemplating(
 			target === null
 				? false
 				: include.size > 0
-					? include.has(target) && !exclude.has(target)
-					: !exclude.has(target);
+					? intersects(include) && !intersects(exclude)
+					: !intersects(exclude);
 
 		let cursor = contentStart;
 		let blockOutput = "";
@@ -230,6 +247,7 @@ export function validateAgentTemplating(options: AgentTemplatingValidationOption
 export function applyAgentTemplating(options: AgentTemplatingOptions): string {
 	return processTemplating(options.content, {
 		target: options.target,
+		targetAliases: options.targetAliases,
 		validAgents: options.validAgents,
 		sourcePath: options.sourcePath,
 	});

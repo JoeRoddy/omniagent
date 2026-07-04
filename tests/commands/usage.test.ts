@@ -530,6 +530,60 @@ module.exports = {
 		});
 	});
 
+	it("selects the agy target via its built-in gemini alias", async () => {
+		await withTempRepo(async (root) => {
+			const binDir = await createFakeCliBin(root, ["codex", "claude", "agy"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					disableTargets: [],
+					extraTargets: `
+		{
+			id: "agy",
+			displayName: "Mock Antigravity",
+			aliases: ["gemini"],
+			usage: {
+				windows: ["credits"],
+				launch: { command: "agy" },
+				extract: async (ctx) => ({
+					targetId: ctx.targetId,
+					displayName: ctx.displayName,
+					command: ctx.command,
+					limits: [
+						{
+							id: ctx.targetId + ".ai_credits.credits",
+							targetId: ctx.targetId,
+							agent: ctx.targetId,
+							scope: "ai_credits",
+							window: "credits",
+							label: "AI Credits",
+							percentUsed: null,
+							percentRemaining: null,
+							resetAt: null,
+							resetText: null,
+							raw: "Remaining AI Credits: 1,234"
+						}
+					]
+				})
+			}
+		}`,
+				}),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "gemini", "--json"]);
+			});
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(envelope.targets).toHaveLength(1);
+			expect(envelope.targets[0].targetId).toBe("agy");
+			expect(envelope.targets[0].displayName).toBe("Mock Antigravity");
+			expect(envelope.targets[0].command).toBe(path.join(binDir, "agy"));
+			expect(envelope.targets[0].limits[0].raw).toBe("Remaining AI Credits: 1,234");
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
 	it("selects multiple explicit targets with --only", async () => {
 		await withTempRepo(async (root) => {
 			await createFakeCliBin(root, ["codex", "claude"]);

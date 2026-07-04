@@ -89,7 +89,7 @@ describe("planStructuredOutput", () => {
 		const plan = await planStructuredOutput({
 			rawSchema: SCHEMA_JSON,
 			mode: "one-shot",
-			agentId: "gemini",
+			agentId: "agy",
 			spec: undefined,
 		});
 		expect(plan?.capture.type).toBe("fallback");
@@ -183,7 +183,7 @@ describe("runShim with --output-schema", () => {
 	}
 
 	it.each([
-		["gemini", JSON.stringify({ response: '{"answer":"hi"}', stats: {} })],
+		["agy", '{"answer":"hi"}'],
 		["copilot", '{"answer":"hi"}'],
 	])("runs the prompt fallback for %s", async (agent, response) => {
 		const { writes, stderr } = collectStderr();

@@ -41,7 +41,7 @@ const SHIM_CAPABILITIES = [
 	"Capabilities by agent:",
 	"  codex: approval, sandbox, output, model, web, output-schema",
 	"  claude: approval, output, model, output-schema",
-	"  gemini: approval, sandbox, output, model, web, output-schema (fallback)",
+	"  agy: approval, sandbox, model, output-schema (fallback) (alias: gemini)",
 	"  copilot: approval, model, output-schema (fallback)",
 	"Unsupported shared flags for a selected agent emit a warning and are ignored.",
 	"--output-schema is one-shot only; agents without native support use a prompt-based",

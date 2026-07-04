@@ -98,6 +98,20 @@ describe("CLI shim capability warnings", () => {
 
 	it("uses per-agent prompt flag mappings", async () => {
 		const spawn = createSpawnStub(0);
+		await runCli(["node", "omniagent", "-p", "Hello Antigravity", "--agent", "agy"], {
+			shim: {
+				stdinIsTTY: true,
+				spawn,
+			},
+		});
+
+		const [command, args] = spawn.mock.calls[0] as SpawnCall;
+		expect(command).toBe("agy");
+		expect(args).toEqual(["--sandbox", "-p", "Hello Antigravity"]);
+	});
+
+	it("resolves the gemini alias to the agy target", async () => {
+		const spawn = createSpawnStub(0);
 		await runCli(["node", "omniagent", "-p", "Hello Gemini", "--agent", "gemini"], {
 			shim: {
 				stdinIsTTY: true,
@@ -105,7 +119,8 @@ describe("CLI shim capability warnings", () => {
 			},
 		});
 
-		const [, args] = spawn.mock.calls[0] as SpawnCall;
-		expect(args).toEqual(["--approval-mode", "default", "--sandbox", "-p", "Hello Gemini"]);
+		const [command, args] = spawn.mock.calls[0] as SpawnCall;
+		expect(command).toBe("agy");
+		expect(args).toEqual(["--sandbox", "-p", "Hello Gemini"]);
 	});
 });

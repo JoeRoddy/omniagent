@@ -37,6 +37,30 @@ describe("agent templating", () => {
 		expect(output).toBe("A1BC3D");
 	});
 
+	it("matches selectors against target aliases", () => {
+		const content = "A<agents gemini> alias</agents>B<agents claude> other</agents>C";
+		const output = applyAgentTemplating({
+			content,
+			target: "agy",
+			targetAliases: ["gemini"],
+			validAgents: ["claude", "codex", "agy", "gemini"],
+		});
+
+		expect(output).toBe("A aliasBC");
+	});
+
+	it("excludes blocks when a not: selector names a target alias", () => {
+		const content = "A<agents not:gemini> skip</agents>B";
+		const output = applyAgentTemplating({
+			content,
+			target: "agy",
+			targetAliases: ["gemini"],
+			validAgents: ["claude", "codex", "agy", "gemini"],
+		});
+
+		expect(output).toBe("AB");
+	});
+
 	it("supports not: exclusions and case-insensitive matching", () => {
 		const content = "A<agents not:claude,gemini> skip</agents>B<agents ClAuDe> keep</agents>C";
 		const claudeOutput = applyAgentTemplating({

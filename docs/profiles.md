@@ -43,7 +43,7 @@ emits a one-line notice so the choice is never silent.
   "targets": {
     "claude":  { "enabled": true },
     "codex":   { "enabled": true },
-    "gemini":  { "enabled": false }
+    "agy":     { "enabled": false }
   },
 
   // Allowlist. Values are glob patterns matched against canonical item names.

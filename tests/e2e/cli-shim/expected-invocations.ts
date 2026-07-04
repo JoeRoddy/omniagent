@@ -15,7 +15,7 @@ export type ExpectedInvocation = {
 export const TMPFILE_PLACEHOLDER = "<TMPFILE>";
 
 type CaseId = (typeof SHARED_CASES)[number]["id"];
-type AgentId = "codex" | "claude" | "gemini" | "copilot";
+type AgentId = "codex" | "claude" | "agy" | "copilot";
 type ApprovalValue = "prompt" | "auto-edit" | "yolo";
 type SandboxValue = "workspace-write" | "off";
 type OutputValue = "text" | "json" | "stream-json";
@@ -219,58 +219,50 @@ function buildClaude(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation 
 	return withWarnings(invocation, warnings);
 }
 
-function buildGemini(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation | null {
+function buildAgy(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation | null {
 	const passthrough =
 		caseId === "passthrough"
 			? collectPassthrough(agent, agent.passthroughArgs ?? [])
 			: collectPassthrough(agent);
-	const approval = resolveApproval(caseId);
-	const sandbox = resolveSandbox(caseId);
-	const output = resolveOutput(caseId);
-	const flags: string[] = [];
+	let flags: string[] = ["--sandbox"];
+	const warnings: string[] = [];
 
-	if (approval === "prompt") {
-		flags.push("--approval-mode", "default");
-	} else if (approval === "auto-edit") {
-		flags.push("--approval-mode", "auto_edit");
-	} else {
-		flags.push("--yolo");
-	}
-
-	if (sandbox === "workspace-write") {
-		flags.push("--sandbox");
-	}
-
-	if (output === "json") {
-		flags.push("--output-format", "json");
-	} else if (output === "stream-json") {
-		flags.push("--output-format", "stream-json");
-	}
-
-	if (caseId === "model") {
-		if (!agent.model) {
+	switch (caseId) {
+		case "basic-oneshot":
+			break;
+		case "approval-auto-edit":
+		case "auto-edit-alias":
+			warnings.push(formatWarning(agent.agentId, "--approval", "auto-edit"));
+			break;
+		case "approval-yolo":
+			flags = ["--dangerously-skip-permissions"];
+			break;
+		case "sandbox-workspace-write":
+			break;
+		case "output-json":
+		case "output-flag-json":
+			warnings.push(formatWarning(agent.agentId, "--output", "json"));
+			break;
+		case "output-stream-json":
+			warnings.push(formatWarning(agent.agentId, "--output", "stream-json"));
+			break;
+		case "web-on":
+			warnings.push(formatWarning(agent.agentId, "--web", "on"));
+			break;
+		case "model":
+			if (!agent.model) {
+				return null;
+			}
+			flags = ["--sandbox", "--model", agent.model];
+			break;
+		case "passthrough":
+			break;
+		default:
 			return null;
-		}
-		flags.push("--model", agent.model);
 	}
 
-	if (
-		caseId !== "basic-oneshot" &&
-		caseId !== "approval-auto-edit" &&
-		caseId !== "auto-edit-alias" &&
-		caseId !== "approval-yolo" &&
-		caseId !== "sandbox-workspace-write" &&
-		caseId !== "output-json" &&
-		caseId !== "output-flag-json" &&
-		caseId !== "output-stream-json" &&
-		caseId !== "web-on" &&
-		caseId !== "model" &&
-		caseId !== "passthrough"
-	) {
-		return null;
-	}
-
-	return buildFlagPromptInvocation(agent, flags, passthrough);
+	const invocation = buildFlagPromptInvocation(agent, flags, passthrough);
+	return withWarnings(invocation, warnings);
 }
 
 function buildCopilot(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation | null {
@@ -329,8 +321,8 @@ export function getExpectedInvocation(
 			return buildCodex(caseId, agent);
 		case "claude":
 			return buildClaude(caseId, agent);
-		case "gemini":
-			return buildGemini(caseId, agent);
+		case "agy":
+			return buildAgy(caseId, agent);
 		case "copilot":
 			return buildCopilot(caseId, agent);
 		default:

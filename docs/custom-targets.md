@@ -174,9 +174,10 @@ const config = {
 };
 ```
 
-The built-in gemini target uses `{ args: ["--output-format", "json"], extraction: { type:
-"json-envelope", field: "response" } }`; copilot uses `{ args: ["--silent"], extraction: { type:
-"text" } }`. Targets with a custom `cli.translate` function receive fallback plans as
+The built-in agy target uses `{ extraction: { type: "text" } }` (no extra args); copilot uses
+`{ args: ["--silent"], extraction: { type: "text" } }`. A `json-envelope` extraction remains
+available for CLIs that wrap responses in a JSON envelope: `{ args: ["--output-format", "json"],
+extraction: { type: "json-envelope", field: "response" } }`. Targets with a custom `cli.translate` function receive fallback plans as
 `invocation.structuredOutput` too — append `invocation.structuredOutput.args` yourself, and note
 the prompt passed to `translate` is already augmented with the schema instructions on each
 attempt.
@@ -189,8 +190,8 @@ probe they start.
 a local file, SDK, or API. When provided, launch commands are executed directly, so only use
 trusted binaries.
 
-Built-in usage extraction is available for Codex, Claude, and Gemini in v1. Copilot is not
-supported for usage extraction in v1.
+Built-in usage extraction is available for Codex, Claude, and Antigravity (agy). Copilot is
+not supported for usage extraction in v1.
 
 ## Related docs
 
@@ -204,4 +205,14 @@ For examples and implementation reference, see [`/src/lib/targets/builtins/`](..
 - [Claude Code](../src/lib/targets/builtins/claude-code/target.ts)
 - [Codex](../src/lib/targets/builtins/codex/target.ts)
 - [Copilot](../src/lib/targets/builtins/copilot-cli/target.ts)
-- [Gemini](../src/lib/targets/builtins/gemini-cli/target.ts)
+- [Antigravity](../src/lib/targets/builtins/antigravity-cli/target.ts)
+
+## Legacy Gemini CLI
+
+The built-in `gemini` target was replaced by `agy` (Antigravity CLI) after Google retired
+Gemini CLI for individual accounts in June 2026; `gemini` now resolves as an alias of `agy`
+everywhere a target name is accepted. Enterprise users who still run the legacy Gemini CLI can
+re-create it as a custom target using the definition shape above (`.gemini/skills/`,
+`.gemini/commands/*.toml`, `GEMINI.md`, and a `gemini` binary with `--approval-mode`/
+`--output-format` flags). Note the id `gemini` itself now collides with agy's alias and is
+rejected by validation — pick a distinct id such as `gemini-legacy`.

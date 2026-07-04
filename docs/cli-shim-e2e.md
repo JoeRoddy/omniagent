@@ -32,18 +32,18 @@ The trace is emitted as a single stderr line:
 
 ## Prereqs
 - Build before running E2E: `npm run build`
-- Install the target CLIs (codex/claude/gemini/copilot)
+- Install the target CLIs (codex/claude/agy/copilot)
 - Set required env for each CLI per `agent.config.ts` (auth, model, etc.)
 
 ## Environment flags
 - `OA_E2E=1` enables compare mode.
 - `OA_E2E_RECORD_BASELINE=1` enables baseline record mode.
   - Also accepts `OA_E2E_RECORD=baseline` or `OA_E2E_RECORD=1`.
-- `OA_E2E_AGENT=codex|claude|gemini|copilot` filters agents (comma-separated allowed).
+- `OA_E2E_AGENT=codex|claude|agy|copilot` filters agents (comma-separated allowed).
 - Model envs:
   - `OA_E2E_CODEX_MODEL`
   - `OA_E2E_CLAUDE_MODEL`
-  - `OA_E2E_GEMINI_MODEL`
+  - `OA_E2E_AGY_MODEL`
   - `OA_E2E_COPILOT_MODEL`
 
 ## Commands

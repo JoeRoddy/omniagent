@@ -88,12 +88,19 @@ export function resolveTargets(options: {
 		builtInMap.set(normalizeKey(target.id), target);
 	}
 
+	const builtInAliasToId = new Map<string, string>();
+	for (const target of builtIns) {
+		for (const alias of target.aliases ?? []) {
+			builtInAliasToId.set(normalizeKey(alias), normalizeKey(target.id));
+		}
+	}
+
 	const disabledTargets: string[] = [];
 	const disableSet = new Set<string>();
 	if (options.config?.disableTargets) {
 		for (const entry of options.config.disableTargets) {
-			const key = normalizeKey(entry);
-			disableSet.add(key);
+			const rawKey = normalizeKey(entry);
+			disableSet.add(builtInAliasToId.get(rawKey) ?? rawKey);
 			disabledTargets.push(entry);
 		}
 	}
@@ -145,7 +152,7 @@ export function resolveTargets(options: {
 			resolvedTargets.push({
 				id: customTarget.id,
 				displayName: customTarget.displayName ?? customTarget.id,
-				aliases: customTarget.aliases ?? [],
+				aliases: customTarget.aliases ?? builtIn.aliases ?? [],
 				outputs: cloneOutputs(customTarget.outputs),
 				cli: cloneCli(customTarget.cli),
 				usage: cloneUsage(customTarget.usage),

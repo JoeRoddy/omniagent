@@ -239,7 +239,7 @@ Profile files must be valid JSON. This commented version is just a guide:
 
   "targets": {
     "claude": { "enabled": true }, // includes Claude; overrides an earlier profile setting it false
-    "gemini": { "enabled": false } // skips Gemini for this profile
+    "agy": { "enabled": false } // skips Antigravity for this profile
   },
 
   "enable": { // names/globs to include; also opts in items marked enabled:false

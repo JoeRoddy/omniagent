@@ -3,9 +3,6 @@ import type { TargetUsageDefinition } from "../usage/types.js";
 
 export type { TargetUsageDefinition } from "../usage/types.js";
 
-export const AGENT_IDS = ["claude", "codex", "gemini", "copilot"] as const;
-export type AgentId = (typeof AGENT_IDS)[number];
-
 export const APPROVAL_POLICIES = ["prompt", "auto-edit", "yolo"] as const;
 export type ApprovalPolicy = (typeof APPROVAL_POLICIES)[number];
 
@@ -49,6 +46,7 @@ export type ConverterContext = {
 	agentsDir: string;
 	homeDir: string;
 	targetId: string;
+	targetAliases?: string[];
 	outputType: OutputType;
 	commandLocation?: CommandLocation;
 	validAgents: string[];
@@ -67,6 +65,7 @@ export type WriterContext = {
 	agentsDir: string;
 	homeDir: string;
 	targetId: string;
+	targetAliases?: string[];
 	outputType: OutputType;
 	commandLocation?: CommandLocation;
 	validAgents: string[];

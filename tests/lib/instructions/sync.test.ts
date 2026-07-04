@@ -50,15 +50,15 @@ describe("instruction sync", () => {
 			});
 
 			const claude = await readFile(path.join(root, "docs", "CLAUDE.md"), "utf8");
-			const gemini = await readFile(path.join(root, "docs", "GEMINI.md"), "utf8");
 			const agents = await readFile(path.join(root, "docs", "AGENTS.md"), "utf8");
 
 			expect(claude).toBe("Repo instructions");
-			expect(gemini).toBe("Repo instructions");
 			expect(agents).toBe("Repo instructions");
+			expect(await pathExists(path.join(root, "docs", "GEMINI.md"))).toBe(false);
 
-			const codexResult = summary.results.find((result) => result.targetName === "codex");
-			expect(codexResult?.counts.skipped).toBe(1);
+			// agy (selected via its gemini alias) is the shared AGENTS.md group primary here.
+			const agyResult = summary.results.find((result) => result.targetName === "agy");
+			expect(agyResult?.counts.skipped).toBe(1);
 		});
 	});
 
@@ -80,10 +80,11 @@ describe("instruction sync", () => {
 			});
 
 			const claude = await readFile(path.join(root, "docs", "CLAUDE.md"), "utf8");
-			const gemini = await readFile(path.join(root, "docs", "GEMINI.md"), "utf8");
+			const agents = await readFile(path.join(root, "docs", "AGENTS.md"), "utf8");
 
 			expect(claude).toBe(content);
-			expect(gemini).toBe(content);
+			expect(agents).toBe(content);
+			expect(await pathExists(path.join(root, "docs", "GEMINI.md"))).toBe(false);
 		});
 	});
 
@@ -422,14 +423,14 @@ describe("instruction sync", () => {
 			await syncInstructions({
 				repoRoot: root,
 				targets: ["claude", "gemini"],
-				overrideOnly: ["gemini"],
+				overrideOnly: ["claude"],
 				validAgents: VALID_AGENTS,
 				removeMissing: true,
 				nonInteractive: true,
 			});
 
-			expect(await pathExists(path.join(root, "docs", "GEMINI.md"))).toBe(true);
-			await writeInstruction(root, path.join("docs", "CLAUDE.md"), "Untracked output");
+			expect(await pathExists(path.join(root, "docs", "CLAUDE.md"))).toBe(true);
+			await writeInstruction(root, path.join("lib", "CLAUDE.md"), "Untracked output");
 			await rm(path.join(root, "docs", "AGENTS.md"), { force: true });
 
 			await syncInstructions({
@@ -440,9 +441,9 @@ describe("instruction sync", () => {
 				nonInteractive: true,
 			});
 
-			expect(await pathExists(path.join(root, "docs", "GEMINI.md"))).toBe(false);
-			const claude = await readFile(path.join(root, "docs", "CLAUDE.md"), "utf8");
-			expect(claude).toBe("Untracked output");
+			expect(await pathExists(path.join(root, "docs", "CLAUDE.md"))).toBe(false);
+			const untracked = await readFile(path.join(root, "lib", "CLAUDE.md"), "utf8");
+			expect(untracked).toBe("Untracked output");
 		});
 	});
 
@@ -453,14 +454,14 @@ describe("instruction sync", () => {
 			await syncInstructions({
 				repoRoot: root,
 				targets: ["claude", "gemini"],
-				overrideOnly: ["gemini"],
+				overrideOnly: ["claude"],
 				validAgents: VALID_AGENTS,
 				removeMissing: true,
 				nonInteractive: true,
 			});
 
-			expect(await pathExists(path.join(root, "docs", "GEMINI.md"))).toBe(true);
-			await writeInstruction(root, path.join("docs", "CLAUDE.md"), "Unmanaged output");
+			expect(await pathExists(path.join(root, "docs", "CLAUDE.md"))).toBe(true);
+			await writeInstruction(root, path.join("docs", "GEMINI.md"), "Unmanaged output");
 
 			await syncInstructions({
 				repoRoot: root,
@@ -470,9 +471,9 @@ describe("instruction sync", () => {
 				nonInteractive: true,
 			});
 
-			expect(await pathExists(path.join(root, "docs", "GEMINI.md"))).toBe(false);
-			const claude = await readFile(path.join(root, "docs", "CLAUDE.md"), "utf8");
-			expect(claude).toBe("Unmanaged output");
+			expect(await pathExists(path.join(root, "docs", "CLAUDE.md"))).toBe(false);
+			const unmanaged = await readFile(path.join(root, "docs", "GEMINI.md"), "utf8");
+			expect(unmanaged).toBe("Unmanaged output");
 		});
 	});
 
@@ -502,7 +503,7 @@ describe("instruction sync", () => {
 				"clickup-api",
 				"actions",
 				"create-task-comment",
-				"GEMINI.md",
+				"AGENTS.md",
 			);
 			expect(await pathExists(outputPath)).toBe(true);
 

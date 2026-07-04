@@ -7,8 +7,8 @@ import { parseShimFlags } from "../../src/cli/shim/flags.js";
 import { resolveInvocationFromFlags } from "../../src/cli/shim/resolve-invocation.js";
 import { compileSchemaValidator } from "../../src/cli/shim/schema-validator.js";
 import { planStructuredOutput } from "../../src/cli/shim/structured-output.js";
+import { agyTarget } from "../../src/lib/targets/builtins/antigravity-cli/target.js";
 import { claudeTarget } from "../../src/lib/targets/builtins/claude-code/target.js";
-import { geminiTarget } from "../../src/lib/targets/builtins/gemini-cli/target.js";
 
 const SCHEMA = {
 	type: "object",
@@ -66,10 +66,6 @@ async function buildInvocation(argv: string[]) {
 		stdinText: null,
 		repoRoot: process.cwd(),
 	});
-}
-
-function envelope(response: string): string {
-	return JSON.stringify({ response, stats: {} });
 }
 
 function promptArg(call: SpawnCall): string {
@@ -177,9 +173,34 @@ describe("planStructuredOutput fallback", () => {
 		const plan = await planStructuredOutput({
 			rawSchema: SCHEMA_JSON,
 			mode: "one-shot",
-			agentId: "gemini",
+			agentId: "agy",
 			spec: undefined,
-			fallbackSpec: geminiTarget.cli?.flags?.structuredOutputFallback,
+			fallbackSpec: agyTarget.cli?.flags?.structuredOutputFallback,
+		});
+
+		expect(plan?.args).toEqual([]);
+		expect(plan?.capture).toEqual({
+			type: "fallback",
+			extraction: { type: "text" },
+			maxAttempts: 3,
+		});
+		expect(plan?.tempPaths).toEqual([]);
+		expect(plan?.validate?.({ answer: 5 })).toEqual({ valid: true, errors: [] });
+		expect(plan?.notices).toEqual([
+			"Notice: agy lacks native --output-schema support; using prompt-based fallback with client-side validation.",
+		]);
+	});
+
+	it("honors a json-envelope fallback spec from a custom target", async () => {
+		const plan = await planStructuredOutput({
+			rawSchema: SCHEMA_JSON,
+			mode: "one-shot",
+			agentId: "acme",
+			spec: undefined,
+			fallbackSpec: {
+				args: ["--output-format", "json"],
+				extraction: { type: "json-envelope", field: "response" },
+			},
 		});
 
 		expect(plan?.args).toEqual(["--output-format", "json"]);
@@ -188,11 +209,6 @@ describe("planStructuredOutput fallback", () => {
 			extraction: { type: "json-envelope", field: "response" },
 			maxAttempts: 3,
 		});
-		expect(plan?.tempPaths).toEqual([]);
-		expect(plan?.validate?.({ answer: 5 })).toEqual({ valid: true, errors: [] });
-		expect(plan?.notices).toEqual([
-			"Notice: gemini lacks native --output-schema support; using prompt-based fallback with client-side validation.",
-		]);
 	});
 
 	it("defaults to text extraction with no fallback spec", async () => {
@@ -215,7 +231,7 @@ describe("planStructuredOutput fallback", () => {
 		const plan = await planStructuredOutput({
 			rawSchema: SCHEMA_JSON,
 			mode: "one-shot",
-			agentId: "gemini",
+			agentId: "agy",
 			spec: undefined,
 			retries: 0,
 		});
@@ -255,7 +271,7 @@ describe("planStructuredOutput fallback", () => {
 			planStructuredOutput({
 				rawSchema: '{"type":"nonsense"}',
 				mode: "one-shot",
-				agentId: "gemini",
+				agentId: "agy",
 				spec: undefined,
 			}),
 		).rejects.toBeInstanceOf(InvalidUsageError);
@@ -263,16 +279,16 @@ describe("planStructuredOutput fallback", () => {
 });
 
 describe("fallback execution", () => {
-	it("succeeds on the first attempt for gemini and prints only the payload", async () => {
+	it("succeeds on the first attempt for agy and prints only the payload", async () => {
 		const invocation = await buildInvocation([
 			"--agent",
-			"gemini",
+			"agy",
 			"-p",
 			"Give me five",
 			"--output-schema",
 			SCHEMA_JSON,
 		]);
-		const spawn = createSequenceSpawnStub([{ chunks: [envelope('```json\n{"answer":5}\n```')] }]);
+		const spawn = createSequenceSpawnStub([{ chunks: ['```json\n{"answer":5}\n```'] }]);
 		const stdout = createWriteCollector();
 		const stderr = createWriteCollector();
 
@@ -287,17 +303,16 @@ describe("fallback execution", () => {
 		expect(stdout.writes).toEqual(['{"answer":5}\n']);
 
 		const call = spawn.mock.calls[0] as SpawnCall;
-		expect(call[0]).toBe("gemini");
-		expect(call[1]).toContain("--output-format");
-		expect(call[1]).toContain("json");
+		expect(call[0]).toBe("agy");
+		expect(call[1]).not.toContain("--output-format");
 		expect(call[2]).toEqual({ stdio: ["inherit", "pipe", "inherit"] });
 		const prompt = promptArg(call);
 		expect(prompt).toContain("Give me five");
 		expect(prompt).toContain(SCHEMA_JSON);
-		expect(stderr.writes.join("")).toContain("Notice: gemini lacks native --output-schema support");
+		expect(stderr.writes.join("")).toContain("Notice: agy lacks native --output-schema support");
 	});
 
-	it("retries with validation feedback and succeeds", async () => {
+	it("resolves the gemini alias to the agy target", async () => {
 		const invocation = await buildInvocation([
 			"--agent",
 			"gemini",
@@ -306,9 +321,35 @@ describe("fallback execution", () => {
 			"--output-schema",
 			SCHEMA_JSON,
 		]);
+		const spawn = createSequenceSpawnStub([{ chunks: ['{"answer":5}'] }]);
+		const stdout = createWriteCollector();
+		const stderr = createWriteCollector();
+
+		const result = await executeInvocation(invocation, {
+			spawn,
+			stdout: stdout.stream,
+			stderr: stderr.stream,
+		});
+
+		expect(result).toEqual({ exitCode: 0, reason: "success" });
+		const call = spawn.mock.calls[0] as SpawnCall;
+		expect(call[0]).toBe("agy");
+		expect(stdout.writes).toEqual(['{"answer":5}\n']);
+		expect(stderr.writes.join("")).toContain("Notice: agy lacks native --output-schema support");
+	});
+
+	it("retries with validation feedback and succeeds", async () => {
+		const invocation = await buildInvocation([
+			"--agent",
+			"agy",
+			"-p",
+			"Give me five",
+			"--output-schema",
+			SCHEMA_JSON,
+		]);
 		const spawn = createSequenceSpawnStub([
-			{ chunks: [envelope('{"answer":"five"}')] },
-			{ chunks: [envelope('{"answer":5}')] },
+			{ chunks: ['{"answer":"five"}'] },
+			{ chunks: ['{"answer":5}'] },
 		]);
 		const stdout = createWriteCollector();
 		const stderr = createWriteCollector();
@@ -337,13 +378,13 @@ describe("fallback execution", () => {
 	it("exits 1 after exhausting all attempts", async () => {
 		const invocation = await buildInvocation([
 			"--agent",
-			"gemini",
+			"agy",
 			"-p",
 			"Give me five",
 			"--output-schema",
 			SCHEMA_JSON,
 		]);
-		const spawn = createSequenceSpawnStub([{ chunks: [envelope('{"answer":"five"}')] }]);
+		const spawn = createSequenceSpawnStub([{ chunks: ['{"answer":"five"}'] }]);
 		const stdout = createWriteCollector();
 		const stderr = createWriteCollector();
 
@@ -359,15 +400,13 @@ describe("fallback execution", () => {
 		const stderrText = stderr.writes.join("");
 		expect(stderrText).toContain('{"answer":"five"}');
 		expect(stderrText).toContain("- /answer: must be integer");
-		expect(stderrText).toContain(
-			"Error: gemini response failed schema validation after 3 attempts.",
-		);
+		expect(stderrText).toContain("Error: agy response failed schema validation after 3 attempts.");
 	});
 
 	it("does not retry when the agent exits nonzero", async () => {
 		const invocation = await buildInvocation([
 			"--agent",
-			"gemini",
+			"agy",
 			"-p",
 			"Give me five",
 			"--output-schema",
@@ -388,15 +427,29 @@ describe("fallback execution", () => {
 		expect(stderr.writes.join("")).toContain("agent usage error");
 	});
 
-	it("does not retry when the envelope reports an error", async () => {
+	// The json-envelope fallback extraction is no longer used by any builtin target,
+	// but remains supported for custom targets; override the capture to exercise it.
+	async function buildEnvelopeFallbackInvocation() {
 		const invocation = await buildInvocation([
 			"--agent",
-			"gemini",
+			"agy",
 			"-p",
 			"Give me five",
 			"--output-schema",
 			SCHEMA_JSON,
 		]);
+		if (invocation.structuredOutput) {
+			invocation.structuredOutput.capture = {
+				type: "fallback",
+				extraction: { type: "json-envelope", field: "response" },
+				maxAttempts: 3,
+			};
+		}
+		return invocation;
+	}
+
+	it("does not retry when the envelope reports an error", async () => {
+		const invocation = await buildEnvelopeFallbackInvocation();
 		const spawn = createSequenceSpawnStub([
 			{
 				chunks: [
@@ -415,18 +468,11 @@ describe("fallback execution", () => {
 
 		expect(result).toEqual({ exitCode: 1, reason: "execution-error" });
 		expect(spawn).toHaveBeenCalledTimes(1);
-		expect(stderr.writes.join("")).toContain("Error: gemini reported an error result.");
+		expect(stderr.writes.join("")).toContain("Error: agy reported an error result.");
 	});
 
 	it("does not retry when the envelope is unparseable", async () => {
-		const invocation = await buildInvocation([
-			"--agent",
-			"gemini",
-			"-p",
-			"Give me five",
-			"--output-schema",
-			SCHEMA_JSON,
-		]);
+		const invocation = await buildEnvelopeFallbackInvocation();
 		const spawn = createSequenceSpawnStub([{ chunks: ["not an envelope"] }]);
 		const stderr = createWriteCollector();
 
@@ -438,7 +484,7 @@ describe("fallback execution", () => {
 
 		expect(result).toEqual({ exitCode: 1, reason: "execution-error" });
 		expect(spawn).toHaveBeenCalledTimes(1);
-		expect(stderr.writes.join("")).toContain("Error: gemini did not return a JSON envelope.");
+		expect(stderr.writes.join("")).toContain("Error: agy did not return a JSON envelope.");
 	});
 
 	it("captures copilot text output with --silent and retries on empty responses", async () => {
@@ -478,13 +524,13 @@ describe("fallback execution", () => {
 	it("exits 1 without retrying when spawn fails", async () => {
 		const invocation = await buildInvocation([
 			"--agent",
-			"gemini",
+			"agy",
 			"-p",
 			"Give me five",
 			"--output-schema",
 			SCHEMA_JSON,
 		]);
-		const spawn = createSequenceSpawnStub([{ error: new Error("spawn gemini ENOENT") }]);
+		const spawn = createSequenceSpawnStub([{ error: new Error("spawn agy ENOENT") }]);
 		const stderr = createWriteCollector();
 
 		const result = await executeInvocation(invocation, {
@@ -495,13 +541,13 @@ describe("fallback execution", () => {
 
 		expect(result).toEqual({ exitCode: 1, reason: "execution-error" });
 		expect(spawn).toHaveBeenCalledTimes(1);
-		expect(stderr.writes.join("")).toContain("spawn gemini ENOENT");
+		expect(stderr.writes.join("")).toContain("spawn agy ENOENT");
 	});
 
 	it("makes exactly one attempt with --output-schema-retries 0", async () => {
 		const invocation = await buildInvocation([
 			"--agent",
-			"gemini",
+			"agy",
 			"-p",
 			"Give me five",
 			"--output-schema",
@@ -509,7 +555,7 @@ describe("fallback execution", () => {
 			"--output-schema-retries",
 			"0",
 		]);
-		const spawn = createSequenceSpawnStub([{ chunks: [envelope("no json at all")] }]);
+		const spawn = createSequenceSpawnStub([{ chunks: ["no json at all"] }]);
 		const stderr = createWriteCollector();
 
 		const result = await executeInvocation(invocation, {
@@ -521,22 +567,22 @@ describe("fallback execution", () => {
 		expect(result).toEqual({ exitCode: 1, reason: "execution-error" });
 		expect(spawn).toHaveBeenCalledTimes(1);
 		expect(stderr.writes.join("")).toContain(
-			"Error: gemini response failed schema validation after 1 attempts.",
+			"Error: agy response failed schema validation after 1 attempts.",
 		);
 	});
 
 	it("emits fallback trace metadata once", async () => {
 		const invocation = await buildInvocation([
 			"--agent",
-			"gemini",
+			"agy",
 			"-p",
 			"Give me five",
 			"--output-schema",
 			SCHEMA_JSON,
 		]);
 		const spawn = createSequenceSpawnStub([
-			{ chunks: [envelope('{"answer":"five"}')] },
-			{ chunks: [envelope('{"answer":5}')] },
+			{ chunks: ['{"answer":"five"}'] },
+			{ chunks: ['{"answer":5}'] },
 		]);
 		const stderr = createWriteCollector();
 

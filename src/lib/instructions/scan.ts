@@ -33,6 +33,7 @@ const DEFAULT_SKIP_DIRS = new Set([
 	".git",
 	"node_modules",
 	"dist",
+	".agents",
 	".claude",
 	".codex",
 	".gemini",

@@ -151,6 +151,28 @@ describe("target config validation", () => {
 		expect(validation.errors).toContain("defaultAgent must be a non-empty string when provided.");
 	});
 
+	it("accepts built-in aliases in disableTargets", () => {
+		const config: OmniagentConfig = {
+			disableTargets: ["gemini"],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(true);
+		expect(validation.errors).toEqual([]);
+	});
+
+	it("rejects disableTargets entries that duplicate a target via its alias", () => {
+		const config: OmniagentConfig = {
+			disableTargets: ["gemini", "agy"],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(false);
+		expect(validation.errors).toContain("disableTargets includes duplicate target: agy.");
+	});
+
 	it("allows command outputs that convert directly into skills", () => {
 		const config: OmniagentConfig = {
 			targets: [
@@ -412,8 +434,14 @@ describe("target resolution", () => {
 		const resolved = resolveTargets({ config, builtIns: BUILTIN_TARGETS });
 		const ids = resolved.targets.map((target) => target.id);
 
-		expect(ids).toEqual(expect.arrayContaining(["codex", "claude", "gemini", "acme"]));
+		expect(ids).toEqual(expect.arrayContaining(["codex", "claude", "agy", "acme"]));
 		expect(ids).not.toContain("copilot");
+
+		const disabledByAlias = resolveTargets({
+			config: { disableTargets: ["gemini"] },
+			builtIns: BUILTIN_TARGETS,
+		});
+		expect(disabledByAlias.targets.map((target) => target.id)).not.toContain("agy");
 
 		const builtinClaude = BUILTIN_TARGETS.find((target) => target.id === "claude");
 		const claude = resolved.targets.find((target) => target.id === "claude");

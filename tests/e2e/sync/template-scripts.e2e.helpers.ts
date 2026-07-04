@@ -9,7 +9,7 @@ const ROOT_DIR = process.cwd();
 const CLI_PATH = path.join(ROOT_DIR, "dist", "cli.js");
 export const CLI_EXISTS = existsSync(CLI_PATH);
 export const DEFAULT_TIMEOUT_MS = 60_000;
-const DEFAULT_CLI_COMMANDS = ["codex", "claude", "gemini", "copilot"];
+const DEFAULT_CLI_COMMANDS = ["codex", "claude", "agy", "copilot"];
 
 if (ENABLE_E2E_SYNC && !CLI_EXISTS) {
 	console.warn("dist/cli.js not found. Run the build before E2E tests.");

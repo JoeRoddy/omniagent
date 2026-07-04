@@ -531,6 +531,7 @@ async function applyTemplatingToCommand(
 	targetName: TargetName,
 	validAgents: string[],
 	runtime?: TemplateScriptRuntime,
+	targetAliases?: string[],
 ): Promise<SlashCommandDefinition> {
 	const withScripts = runtime
 		? await evaluateTemplateScripts({
@@ -542,6 +543,7 @@ async function applyTemplatingToCommand(
 	const templatedContents = applyAgentTemplating({
 		content: withScripts,
 		target: targetName,
+		targetAliases,
 		validAgents,
 		sourcePath: command.sourcePath,
 	});
@@ -771,6 +773,7 @@ async function buildTargetPlan(
 			targetName,
 			validAgents,
 			request.templateScriptRuntime,
+			target.aliases,
 		);
 		const nameKey = normalizeName(command.name);
 		catalogNames.add(nameKey);
@@ -1596,6 +1599,7 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 				target.id,
 				validAgents,
 				templateScriptRuntime,
+				target.aliases,
 			);
 			const writer = resolveWriter(commandDef.writer, writerRegistry);
 			const converter = resolveConverter(commandDef.converter, converterRegistry);
@@ -1674,6 +1678,7 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 					agentsDir: agentsDirPath,
 					homeDir,
 					targetId: target.id,
+					targetAliases: target.aliases,
 					outputType: "commands",
 					commandLocation: selected.location,
 					validAgents,
@@ -1738,6 +1743,7 @@ export async function syncSlashCommands(request: SyncRequestV2): Promise<SyncSum
 						agentsDir: agentsDirPath,
 						homeDir,
 						targetId: target.id,
+						targetAliases: target.aliases,
 						outputType: "commands",
 						commandLocation: selected.location,
 						validAgents,

@@ -1,0 +1,8 @@
+{
+  "command": "agy",
+  "args": [
+    "--sandbox",
+    "-p",
+    "Output exactly: 5"
+  ]
+}

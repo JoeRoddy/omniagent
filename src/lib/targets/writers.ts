@@ -244,6 +244,7 @@ async function copySkillDirectory(options: {
 	source: string;
 	destination: string;
 	targetId: string;
+	targetAliases?: string[];
 	validAgents: string[];
 	skillFileName: string;
 	outputFileName: string;
@@ -296,6 +297,7 @@ async function copySkillDirectory(options: {
 		const templated = applyAgentTemplating({
 			content: withScripts,
 			target: options.targetId,
+			targetAliases: options.targetAliases,
 			validAgents: options.validAgents,
 			sourcePath: winner.sourcePath,
 		});
@@ -323,6 +325,7 @@ export const defaultSkillWriter: OutputWriter = {
 			source: item.directoryPath,
 			destination: options.outputPath,
 			targetId: options.context.targetId,
+			targetAliases: options.context.targetAliases,
 			validAgents: options.context.validAgents,
 			skillFileName: item.skillFileName,
 			outputFileName: item.outputFileName,
@@ -356,6 +359,7 @@ export const defaultSubagentWriter: OutputWriter = {
 		const templated = applyAgentTemplating({
 			content: withScripts,
 			target: options.context.targetId,
+			targetAliases: options.context.targetAliases,
 			validAgents: options.context.validAgents,
 			sourcePath: item.sourcePath,
 		});

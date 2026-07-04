@@ -115,7 +115,9 @@ type SyncArgs = {
 	var?: string | string[];
 };
 
-const DEFAULT_SUPPORTED_TARGETS = BUILTIN_TARGETS.map((target) => target.id).join(", ");
+const DEFAULT_SUPPORTED_TARGETS = BUILTIN_TARGETS.map((target) =>
+	target.aliases?.length ? `${target.id} (alias: ${target.aliases.join(", ")})` : target.id,
+).join(", ");
 const LOCAL_CATEGORIES = ["skills", "commands", "agents", "instructions"] as const;
 type LocalCategory = (typeof LOCAL_CATEGORIES)[number];
 const LOCAL_CATEGORY_SET = new Set(LOCAL_CATEGORIES);

@@ -1,3 +1,4 @@
+import { parseAgyCredits } from "../../../src/lib/usage/agy.js";
 import {
 	buildClaudeApiUsageResult,
 	buildClaudeUsageLimits,
@@ -20,11 +21,6 @@ import {
 	parseResetAt,
 	parseResetText,
 } from "../../../src/lib/usage/format.js";
-import {
-	buildGeminiApiUsageResult,
-	extractGeminiOAuthCredentials,
-	parseGeminiModelDialog,
-} from "../../../src/lib/usage/gemini.js";
 
 describe("usage parser utilities", () => {
 	it("cleans control output and parses common limit fragments", () => {
@@ -551,120 +547,64 @@ Current week (Sonnet only)
 	});
 });
 
-describe("Gemini usage parser", () => {
-	it("builds Gemini usage limits from Code Assist quota buckets", () => {
-		const now = new Date("2026-05-18T12:00:00.000Z");
-		const result = buildGeminiApiUsageResult(
-			{
-				buckets: [
-					{
-						modelId: "gemini-2.5-flash",
-						remainingFraction: 1,
-						resetTime: "2026-05-19T12:00:00Z",
-					},
-					{
-						modelId: "gemini-2.5-flash-lite",
-						remainingFraction: 0.999,
-						resetTime: "2026-05-19T01:00:00Z",
-					},
-					{
-						modelId: "gemini-2.5-pro",
-						remainingFraction: 0,
-						resetTime: "1970-01-01T00:00:00Z",
-					},
-					{
-						modelId: "gemini-3.1-flash-lite",
-						remainingFraction: "0.5",
-						resetTime: "2026-05-19T02:00:00Z",
-					},
-					{
-						modelId: "gemini-3.1-flash-lite-preview",
-						remainingFraction: 0.75,
-						resetTime: "2026-05-19T03:00:00Z",
-					},
-				],
-			},
-			{
-				targetId: "gemini",
-				displayName: "Gemini CLI",
-				command: "gemini",
-				now,
-			},
+describe("Antigravity credits parser", () => {
+	it("parses remaining credits and the plan label from the credits panel", () => {
+		const screen = `
+Antigravity CLI 1.0.16
+user@example.com (Antigravity Starter Quota)
+Antigravity CLI  credits
+Model AI Credits
+Remaining AI Credits: 1,234
+Actions
+> Get More AI Credits
+See Activity
+`;
+
+		const parsed = parseAgyCredits(screen);
+		expect(parsed.remaining).toBe("1,234");
+		expect(parsed.notEnabled).toBe(false);
+		expect(parsed.plan).toBe("Antigravity Starter Quota");
+		expect(parsed.rawLine).toBe("Remaining AI Credits: 1,234");
+	});
+
+	it("detects the credits-not-enabled variant", () => {
+		const screen = `
+Antigravity CLI  credits
+Model AI Credits
+Remaining AI Credits: AI Credits not enabled (enable in /settings)
+Actions
+`;
+
+		const parsed = parseAgyCredits(screen);
+		expect(parsed.remaining).toBeNull();
+		expect(parsed.notEnabled).toBe(true);
+		expect(parsed.rawLine).toBe(
+			"Remaining AI Credits: AI Credits not enabled (enable in /settings)",
 		);
-
-		expect(result.limits.map((limit) => `${limit.modelId}:${limit.label}`)).toEqual([
-			"flash:Flash",
-			"flash-lite:Flash Lite",
-			"pro:Pro",
-			"gemini-3.1-flash-lite:gemini-3.1-…",
-		]);
-		expect(result.limits.map((limit) => limit.percentUsed)).toEqual([0, 25, 100, 50]);
-		expect(result.limits[0]?.resetAt).toBe("2026-05-19T12:00:00.000Z");
-		expect(result.limits[2]?.resetAt).toBeNull();
 	});
 
-	it("requires Gemini quota buckets", () => {
-		expect(() =>
-			buildGeminiApiUsageResult(
-				{},
-				{
-					targetId: "gemini",
-					displayName: "Gemini CLI",
-					now: new Date("2026-05-18T12:00:00.000Z"),
-				},
-			),
-		).toThrow("Gemini Code Assist quota API response did not include model quota buckets.");
+	it("parses a standalone plan line rendered apart from the account email", () => {
+		const screen = `
+user@example.com
+(Antigravity Starter Quota)
+Remaining AI Credits: 88
+`;
+
+		const parsed = parseAgyCredits(screen);
+		expect(parsed.remaining).toBe("88");
+		expect(parsed.plan).toBe("Antigravity Starter Quota");
 	});
 
-	it("extracts Gemini OAuth credentials", () => {
-		expect(
-			extractGeminiOAuthCredentials(
-				JSON.stringify({
-					access_token: "access-token-value",
-					refresh_token: "refresh-token-value",
-					expiry_date: "1770000000000",
-				}),
-			),
-		).toEqual({
-			accessToken: "access-token-value",
-			refreshToken: "refresh-token-value",
-			expiryDate: 1770000000000,
-		});
-		expect(extractGeminiOAuthCredentials("{}")).toBeNull();
+	it("falls back to cleaned raw output when the screen has no credits panel", () => {
+		const raw = "\u001b[32mRemaining AI Credits: 42\u001b[0m\r\n";
+		const parsed = parseAgyCredits("", cleanControlOutput(raw));
+		expect(parsed.remaining).toBe("42");
 	});
 
-	it("parses selected models and usage rows", () => {
-		const parsed = parseGeminiModelDialog(`
-│ ● 1. gemini-2.5-pro │
-│   2. gemini-2.5-flash │
-│ Model usage │
-│ Flash       █████     21% Resets: 4pm │
-│ Pro         ▬▬▬       73% Resets: May 25 │
-│ gemini-2.5-pro-exp…   5% │
-│ (Esc to close) │
-`);
-
-		expect(parsed.selectedModel).toBe("gemini-2.5-pro");
-		expect(parsed.availableModels).toEqual(["gemini-2.5-pro", "gemini-2.5-flash"]);
-		expect(parsed.usage).toEqual([
-			{
-				name: "Flash",
-				percentUsed: 21,
-				resetText: "4pm",
-				raw: "Flash       █████     21% Resets: 4pm",
-			},
-			{
-				name: "Pro",
-				percentUsed: 73,
-				resetText: "May 25",
-				raw: "Pro         ▬▬▬       73% Resets: May 25",
-			},
-			{
-				name: "gemini-2.5-pro-exp…",
-				percentUsed: 5,
-				resetText: "",
-				raw: "gemini-2.5-pro-exp…   5%",
-			},
-		]);
+	it("returns empty values when no credits information is present", () => {
+		const parsed = parseAgyCredits("just a prompt screen", "");
+		expect(parsed.remaining).toBeNull();
+		expect(parsed.notEnabled).toBe(false);
+		expect(parsed.plan).toBeNull();
 	});
 });
