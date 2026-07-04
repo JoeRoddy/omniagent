@@ -135,6 +135,41 @@ describe("compileSchemaValidator", () => {
 	it("throws InvalidUsageError for uncompilable schemas", () => {
 		expect(() => compileSchemaValidator('{"type":"nonsense"}')).toThrow(InvalidUsageError);
 	});
+
+	it("compiles schemas declaring the 2020-12 dialect", () => {
+		const validate = compileSchemaValidator(
+			JSON.stringify({
+				$schema: "https://json-schema.org/draft/2020-12/schema",
+				type: "array",
+				prefixItems: [{ type: "integer" }],
+				items: false,
+			}),
+		);
+		expect(validate([5])).toEqual({ valid: true, errors: [] });
+		expect(validate(["five"]).valid).toBe(false);
+		expect(validate([5, 6]).valid).toBe(false);
+	});
+
+	it("compiles schemas declaring the 2019-09 dialect", () => {
+		const validate = compileSchemaValidator(
+			JSON.stringify({
+				$schema: "https://json-schema.org/draft/2019-09/schema",
+				...SCHEMA,
+			}),
+		);
+		expect(validate({ answer: 5 })).toEqual({ valid: true, errors: [] });
+		expect(validate({ answer: "five" }).valid).toBe(false);
+	});
+
+	it("compiles schemas declaring the draft-07 dialect", () => {
+		const validate = compileSchemaValidator(
+			JSON.stringify({
+				$schema: "http://json-schema.org/draft-07/schema#",
+				...SCHEMA,
+			}),
+		);
+		expect(validate({ answer: 5 })).toEqual({ valid: true, errors: [] });
+	});
 });
 
 describe("planStructuredOutput fallback", () => {

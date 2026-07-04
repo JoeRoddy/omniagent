@@ -91,7 +91,9 @@ Rules:
 - Native runs (codex, claude) are not re-validated client-side (enforcement is delegated to the
   agent); `--output-schema-retries` is ignored with a warning.
 - Fallback runs validate with ajv (`strict: false`); unknown schema keywords and `format` are not
-  enforced. Schemas that fail to compile exit with code 2 before the agent is spawned.
+  enforced. The validator dialect follows the schema's `$schema` declaration — draft 2020-12,
+  draft 2019-09, and draft-07 (also the default when `$schema` is absent) are supported. Schemas
+  that fail to compile exit with code 2 before the agent is spawned.
 - The schema must be a JSON object.
 - Failures exit with code 1 and write diagnostics to stderr: extraction failures (missing
   payload, error result, unparseable envelope) for native runs, and exhausted retries for
