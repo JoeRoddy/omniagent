@@ -507,6 +507,32 @@ describe("target resolution", () => {
 		expect(resolved.configSourceById.get("acme")).toBe("inherits");
 	});
 
+	it("keeps aliases with the overridden built-in when inheriting another built-in", () => {
+		const resolved = resolveTargets({
+			config: { targets: [{ id: "copilot", inherits: "gemini" }] },
+			builtIns: BUILTIN_TARGETS,
+		});
+
+		const builtinAgy = BUILTIN_TARGETS.find((target) => target.id === "agy");
+		const copilot = resolved.targets.find((target) => target.id === "copilot");
+
+		expect(copilot?.outputs.skills).toEqual(builtinAgy?.outputs?.skills);
+		expect(copilot?.aliases).toEqual([]);
+		expect(resolved.aliasToId.get("gemini")).toBe("agy");
+	});
+
+	it("keeps a built-in's own aliases when it inherits from another built-in", () => {
+		const resolved = resolveTargets({
+			config: { targets: [{ id: "agy", inherits: "claude" }] },
+			builtIns: BUILTIN_TARGETS,
+		});
+
+		const agy = resolved.targets.find((target) => target.id === "agy");
+
+		expect(agy?.aliases).toEqual(["gemini"]);
+		expect(resolved.aliasToId.get("gemini")).toBe("agy");
+	});
+
 	it("resolves inherits references via a built-in alias", () => {
 		const resolved = resolveTargets({
 			config: { targets: [{ id: "gemini-legacy", inherits: "gemini" }] },

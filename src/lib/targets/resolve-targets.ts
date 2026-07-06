@@ -141,7 +141,9 @@ export function resolveTargets(options: {
 			resolvedTargets.push({
 				id: customTarget.id,
 				displayName: customTarget.displayName ?? inherited?.displayName ?? customTarget.id,
-				aliases: customTarget.aliases ?? inherited?.aliases ?? [],
+				// Aliases follow the overridden built-in's identity, not the inherited
+				// definition — inheriting them would move the alias between targets.
+				aliases: customTarget.aliases ?? builtIn.aliases ?? [],
 				outputs: mergedOutputs,
 				cli: cloneCli(customTarget.cli ?? inherited?.cli),
 				usage: cloneUsage(customTarget.usage ?? inherited?.usage),
