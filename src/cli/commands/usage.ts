@@ -809,6 +809,9 @@ function leftCellText(row: UsageDisplayRow): string {
 	if (row.status === "error") {
 		return "-";
 	}
+	if (row.limit.percentRemaining == null && row.limit.remainingText) {
+		return row.limit.remainingText;
+	}
 	return percentText(row.limit.percentRemaining);
 }
 

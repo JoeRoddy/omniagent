@@ -584,6 +584,14 @@ export function validateTargetConfig(options: {
 				} else {
 					seenIds.add(idKey);
 				}
+				const aliasOwner = builtInAliasToId.get(idKey);
+				if (aliasOwner) {
+					errors.push(
+						`${label}.id collides with built-in alias (${id}) of target ${aliasOwner}. Pick a distinct id.`,
+					);
+				} else if (seenAliases.has(idKey)) {
+					errors.push(`${label}.id collides with existing alias (${id}).`);
+				}
 
 				if (entry.displayName !== undefined && normalizeString(entry.displayName) === null) {
 					errors.push(`${label}.displayName must be a non-empty string when provided.`);
@@ -595,7 +603,8 @@ export function validateTargetConfig(options: {
 				}
 				if (inherits) {
 					const inheritKey = normalizeLower(inherits);
-					if (!builtInIds.has(inheritKey)) {
+					const canonicalInherit = builtInAliasToId.get(inheritKey) ?? inheritKey;
+					if (!builtInIds.has(canonicalInherit)) {
 						errors.push(`${label}.inherits references unknown built-in: ${inherits}.`);
 					}
 				}

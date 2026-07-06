@@ -39,6 +39,7 @@ export type NormalizedUsageLimit = {
 	modelLabel?: string;
 	percentUsed: number | null;
 	percentRemaining: number | null;
+	remainingText?: string;
 	resetAt: string | null;
 	resetText: string | null;
 	raw: string;

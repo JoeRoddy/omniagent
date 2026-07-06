@@ -64,7 +64,9 @@ function resolveInheritTarget(
 	inherits: string,
 ): TargetDefinition | null {
 	const key = normalizeKey(inherits);
-	const found = builtIns.find((target) => normalizeKey(target.id) === key);
+	const found =
+		builtIns.find((target) => normalizeKey(target.id) === key) ??
+		builtIns.find((target) => (target.aliases ?? []).some((alias) => normalizeKey(alias) === key));
 	return found ?? null;
 }
 
@@ -176,7 +178,9 @@ export function resolveTargets(options: {
 		resolvedTargets.push({
 			id: target.id,
 			displayName: target.displayName ?? inherited?.displayName ?? target.id,
-			aliases: target.aliases ?? inherited?.aliases ?? [],
+			// Aliases name a specific target, so a new custom target never inherits
+			// them — otherwise it would shadow the built-in's alias in aliasToId.
+			aliases: target.aliases ?? [],
 			outputs: mergedOutputs,
 			cli: cloneCli(target.cli ?? inherited?.cli),
 			usage: cloneUsage(target.usage ?? inherited?.usage),

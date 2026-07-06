@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { runCli } from "../../src/cli/index.js";
 
-const DEFAULT_CLI_COMMANDS = ["codex", "claude", "gemini", "copilot"];
+const DEFAULT_CLI_COMMANDS = ["codex", "claude", "agy", "copilot"];
 
 async function createFakeCliBin(
 	root: string,

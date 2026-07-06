@@ -94,6 +94,10 @@ const config = {
 export default config;
 ```
 
+Limits that report an absolute balance instead of percentages (like Antigravity's AI Credits)
+can set `percentUsed`/`percentRemaining` to `null` and provide `remainingText` (for example
+`"1,234"`), which the human table renders in the Left column.
+
 ## Structured output (`cli.flags.structuredOutput`)
 
 Custom targets whose CLI supports schema-constrained responses can declare a

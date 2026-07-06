@@ -173,6 +173,56 @@ describe("target config validation", () => {
 		expect(validation.errors).toContain("disableTargets includes duplicate target: agy.");
 	});
 
+	it("rejects custom target ids that collide with a built-in alias", () => {
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "gemini",
+					outputs: { skills: "{repoRoot}/.gemini/skills/{itemName}" },
+				},
+			],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(false);
+		expect(validation.errors).toContain(
+			"targets[0].id collides with built-in alias (gemini) of target agy. Pick a distinct id.",
+		);
+	});
+
+	it("rejects custom target ids that collide with an earlier custom alias", () => {
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "acme",
+					aliases: ["acme-ai"],
+					outputs: { skills: "{repoRoot}/.acme/skills/{itemName}" },
+				},
+				{
+					id: "acme-ai",
+					outputs: { skills: "{repoRoot}/.acme-ai/skills/{itemName}" },
+				},
+			],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(false);
+		expect(validation.errors).toContain("targets[1].id collides with existing alias (acme-ai).");
+	});
+
+	it("accepts inherits references via a built-in alias", () => {
+		const config: OmniagentConfig = {
+			targets: [{ id: "gemini-legacy", inherits: "gemini" }],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(true);
+		expect(validation.errors).toEqual([]);
+	});
+
 	it("allows command outputs that convert directly into skills", () => {
 		const config: OmniagentConfig = {
 			targets: [
@@ -455,6 +505,23 @@ describe("target resolution", () => {
 		expect(resolved.aliasToId.get("acme-ai")).toBe("acme");
 		expect(resolved.configSourceById.get("claude")).toBe("inherits");
 		expect(resolved.configSourceById.get("acme")).toBe("inherits");
+	});
+
+	it("resolves inherits references via a built-in alias", () => {
+		const resolved = resolveTargets({
+			config: { targets: [{ id: "gemini-legacy", inherits: "gemini" }] },
+			builtIns: BUILTIN_TARGETS,
+		});
+
+		const builtinAgy = BUILTIN_TARGETS.find((target) => target.id === "agy");
+		const legacy = resolved.targets.find((target) => target.id === "gemini-legacy");
+
+		expect(legacy).toBeDefined();
+		expect(legacy?.outputs.skills).toEqual(builtinAgy?.outputs?.skills);
+		expect(resolved.configSourceById.get("gemini-legacy")).toBe("inherits");
+		// The built-in's aliases stay with the built-in instead of being inherited.
+		expect(legacy?.aliases).toEqual([]);
+		expect(resolved.aliasToId.get("gemini")).toBe("agy");
 	});
 
 	it("exports target-agnostic default writers", () => {

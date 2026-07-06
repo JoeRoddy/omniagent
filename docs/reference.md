@@ -62,6 +62,8 @@ Target behavior:
 - Usage extraction may launch agent TUIs. omniagent uses cheap/minimal launch settings where
   possible, but an agent may still incur cost if it reads repo context or instructions on startup.
 - Some CLIs gate usage inspection behind onboarding state — Antigravity requires the project to be trusted (run `agy` once and accept the trust prompt).
+- Antigravity reports a single absolute AI Credits balance in the Left column rather than
+  percent-based windows.
 - omniagent does not complete auth or onboarding prompts for you.
 - Usage extraction times out after 30 seconds unless the target config defines a target-specific
   timeout. Built-in TUI probes may use longer defaults. Pass `--timeout=<seconds>` to override the

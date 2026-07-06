@@ -4,7 +4,7 @@ import path from "node:path";
 import { runCli } from "../../src/cli/index.js";
 import { resolveManagedOutputsPath } from "../../src/lib/targets/managed-outputs.js";
 
-const DEFAULT_CLI_COMMANDS = ["codex", "claude", "gemini", "copilot"];
+const DEFAULT_CLI_COMMANDS = ["codex", "claude", "agy", "copilot"];
 
 async function createFakeCliBin(root: string): Promise<string> {
 	const binDir = path.join(root, "bin");

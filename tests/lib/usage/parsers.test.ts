@@ -61,6 +61,36 @@ describe("usage parser utilities", () => {
 		});
 	});
 
+	it("carries remainingText for absolute balances and drops empty values", () => {
+		const now = new Date("2026-05-18T12:00:00.000Z");
+
+		expect(
+			makeUsageLimit({
+				targetId: "agy",
+				scope: "ai_credits",
+				window: "credits",
+				percentUsed: null,
+				percentRemaining: null,
+				remainingText: "1,234",
+				raw: "Remaining AI Credits: 1,234",
+				now,
+			}).remainingText,
+		).toBe("1,234");
+
+		expect(
+			makeUsageLimit({
+				targetId: "agy",
+				scope: "ai_credits",
+				window: "credits",
+				percentUsed: null,
+				percentRemaining: null,
+				remainingText: "",
+				raw: "",
+				now,
+			}).remainingText,
+		).toBeUndefined();
+	});
+
 	it("canonicalizes known windows regardless of casing", () => {
 		expect(normalizeUsageWindow("Weekly")).toBe("weekly");
 		expect(normalizeUsageWindow("CURRENT_WEEK")).toBe("weekly");

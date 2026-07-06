@@ -117,6 +117,7 @@ export async function extractAgyUsage(
 				label: parsed.plan ? `AI Credits (${parsed.plan})` : "AI Credits",
 				percentUsed: null,
 				percentRemaining: null,
+				remainingText: parsed.remaining,
 				resetText: null,
 				raw: parsed.rawLine,
 				now: context.now,

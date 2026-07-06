@@ -584,6 +584,58 @@ module.exports = {
 		});
 	});
 
+	it("renders remainingText in the Left column for absolute balances", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex", "claude", "agy"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					disableTargets: [],
+					extraTargets: `
+		{
+			id: "agy",
+			displayName: "Mock Antigravity",
+			aliases: ["gemini"],
+			usage: {
+				windows: ["credits"],
+				launch: { command: "agy" },
+				extract: async (ctx) => ({
+					targetId: ctx.targetId,
+					displayName: ctx.displayName,
+					command: ctx.command,
+					limits: [
+						{
+							id: ctx.targetId + ".ai_credits.credits",
+							targetId: ctx.targetId,
+							agent: ctx.targetId,
+							scope: "ai_credits",
+							window: "credits",
+							label: "AI Credits",
+							percentUsed: null,
+							percentRemaining: null,
+							remainingText: "1,234",
+							resetAt: null,
+							resetText: null,
+							raw: "Remaining AI Credits: 1,234"
+						}
+					]
+				})
+			}
+		}`,
+				}),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "agy"]);
+			});
+
+			const output = joinOutput(logSpy.mock.calls);
+			const creditsRow = output.split("\n").find((line) => line.includes("AI Credits")) ?? "";
+			expect(creditsRow).toContain("1,234");
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
 	it("selects multiple explicit targets with --only", async () => {
 		await withTempRepo(async (root) => {
 			await createFakeCliBin(root, ["codex", "claude"]);

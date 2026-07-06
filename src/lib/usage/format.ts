@@ -52,6 +52,7 @@ export type MakeUsageLimitOptions = {
 	modelLabel?: string;
 	percentUsed: number | null;
 	percentRemaining: number | null;
+	remainingText?: string | null;
 	resetText?: string | null;
 	raw?: string;
 	now: Date;
@@ -74,6 +75,7 @@ export function makeUsageLimit(options: MakeUsageLimitOptions): NormalizedUsageL
 		modelLabel: options.modelLabel,
 		percentUsed: options.percentUsed,
 		percentRemaining: options.percentRemaining,
+		remainingText: emptyToNull(options.remainingText) ?? undefined,
 		resetAt: parseResetAt(resetText, {
 			now: options.now,
 			sourceTimeZone: options.resetSourceTimeZone ?? "local",
