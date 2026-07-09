@@ -24,6 +24,7 @@ const LIMIT_LABEL_PATTERN = /limit$/i;
 const MODELS_LINE_PATTERN = /^Models within this group:\s*(.+)$/i;
 const REFRESH_PATTERN = /Refreshes\s+in\s+(?:(\d+)h)?\s*(?:(\d+)m)?/i;
 const SIGN_IN_PATTERN = /\b(?:not signed in|Signing in)\b/i;
+const DISABLED_PATTERN = /^Disabled$/i;
 const AGY_SETTINGS_PATH = [".gemini", "antigravity-cli", "settings.json"];
 
 export type ParsedAgyUsageGroup = {
@@ -32,6 +33,7 @@ export type ParsedAgyUsageGroup = {
 	limitLabel: string;
 	percentRemaining: number | null;
 	resetText: string | null;
+	disabled: boolean;
 	raw: string;
 };
 
@@ -47,7 +49,17 @@ function hasUsagePanel(snapshot: PtyWaitSnapshot): boolean {
 	const cleanedOutput = cleanControlOutput(snapshot.raw);
 	return (
 		(MODELS_QUOTA_PATTERN.test(snapshot.screen) || MODELS_QUOTA_PATTERN.test(cleanedOutput)) &&
-		(/% remaining/i.test(snapshot.screen) || /% remaining/i.test(cleanedOutput))
+		(/% remaining|\bDisabled\b/i.test(snapshot.screen) ||
+			/% remaining|\bDisabled\b/i.test(cleanedOutput))
+	);
+}
+
+function hasUsagePanelOrKnownFailure(snapshot: PtyWaitSnapshot): boolean {
+	const cleanedOutput = cleanControlOutput(snapshot.raw);
+	return (
+		hasUsagePanel(snapshot) ||
+		SIGN_IN_PATTERN.test(snapshot.screen) ||
+		SIGN_IN_PATTERN.test(cleanedOutput)
 	);
 }
 
@@ -77,8 +89,9 @@ export async function extractAgyUsage(
 			...typeTextSteps("/usage", 25).map(withTrustSkip),
 			withTrustSkip({ waitMs: 250, write: enterKey() }),
 			withTrustSkip({
-				waitFor: hasUsagePanel,
+				waitFor: hasUsagePanelOrKnownFailure,
 				waitForTimeoutMs: 15_000,
+				optional: true,
 				capture: "usage",
 				captureWaitMs: 500,
 			}),
@@ -117,7 +130,9 @@ export async function extractAgyUsage(
 		command,
 		limits: groups.map((group) => {
 			const percentRemaining =
-				group.percentRemaining == null ? null : clampPercent(group.percentRemaining);
+				group.disabled || group.percentRemaining == null
+					? null
+					: clampPercent(group.percentRemaining);
 			const limit = makeUsageLimit({
 				targetId: context.targetId,
 				scope: usageScope(group.heading),
@@ -125,6 +140,7 @@ export async function extractAgyUsage(
 				label: titleCase(group.heading),
 				percentUsed: percentRemaining == null ? null : 100 - percentRemaining,
 				percentRemaining,
+				remainingText: group.disabled ? "Disabled" : null,
 				resetText: group.resetText,
 				raw: group.raw,
 				now: context.now,
@@ -227,6 +243,7 @@ function parseAgyUsageLines(lines: string[]): ParsedAgyUsageGroup[] {
 		let limitLabel = "";
 		let percentRemaining: number | null = null;
 		let resetText: string | null = null;
+		let disabled = false;
 		index += 1;
 
 		while (index < lines.length && !isUsageGroupHeading(lines[index] ?? "")) {
@@ -247,16 +264,20 @@ function parseAgyUsageLines(lines: string[]): ParsedAgyUsageGroup[] {
 			if (lineResetText != null) {
 				resetText = lineResetText;
 			}
+			if (DISABLED_PATTERN.test(line)) {
+				disabled = true;
+			}
 			index += 1;
 		}
 
-		if (limitLabel && (percentRemaining != null || resetText != null)) {
+		if (limitLabel && (percentRemaining != null || resetText != null || disabled)) {
 			groups.push({
 				heading,
 				models,
 				limitLabel,
 				percentRemaining,
 				resetText,
+				disabled,
 				raw: rawLines.join("\n"),
 			});
 		}

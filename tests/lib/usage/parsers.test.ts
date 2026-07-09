@@ -628,6 +628,39 @@ CLAUDE AND GPT MODELS
 		});
 	});
 
+	it("parses disabled quota buckets from the Models & Quota panel", () => {
+		const screen = `
+└ Models & Quota
+
+GEMINI MODELS
+  Models within this group: Gemini Flash, Gemini Pro
+
+  Weekly Limit
+    72% remaining · Refreshes in 71h 49m
+
+CLAUDE AND GPT MODELS
+  Models within this group: Claude Opus, Claude Sonnet, GPT-OSS
+
+  Weekly Limit
+    Disabled
+`;
+
+		const parsed = parseAgyUsage(screen);
+		expect(parsed).toHaveLength(2);
+		expect(parsed[0]).toMatchObject({
+			heading: "GEMINI MODELS",
+			percentRemaining: 72,
+			disabled: false,
+		});
+		expect(parsed[1]).toMatchObject({
+			heading: "CLAUDE AND GPT MODELS",
+			limitLabel: "Weekly Limit",
+			percentRemaining: null,
+			resetText: null,
+			disabled: true,
+		});
+	});
+
 	it("returns no groups when no quota information is present", () => {
 		expect(parseAgyUsage("just a prompt screen", "")).toEqual([]);
 	});

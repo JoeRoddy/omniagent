@@ -108,6 +108,103 @@ CLAUDE AND GPT MODELS
 		});
 	});
 
+	it("captures known sign-in failures instead of timing out waiting for usage rows", async () => {
+		const { extractAgyUsage } = await import("../../../src/lib/usage/agy.js");
+
+		await extractAgyUsage(
+			buildContext({
+				homeDir: "/Users/tester",
+				repoRoot: "/tmp/untrusted-repo",
+			}),
+		);
+
+		const options = ptyMock.runPtyScenario.mock.calls[0]?.[0];
+		const usageWait = options.steps.find((step: { capture?: string }) => step.capture === "usage");
+
+		expect(usageWait.optional).toBe(true);
+		expect(
+			usageWait.waitFor({
+				raw: "Antigravity is not signed in.",
+				screen: "Antigravity is not signed in.",
+			}),
+		).toBe(true);
+	});
+
+	it("reports the specific sign-in error when Antigravity is not authenticated", async () => {
+		const { extractAgyUsage } = await import("../../../src/lib/usage/agy.js");
+		ptyMock.runPtyScenario.mockResolvedValueOnce({
+			command: "agy",
+			args: [],
+			exitCode: 0,
+			timedOut: false,
+			raw: "Antigravity is not signed in.",
+			screen: "Antigravity is not signed in.",
+			snapshots: {
+				usage: {
+					raw: "Antigravity is not signed in.",
+					screen: "Antigravity is not signed in.",
+				},
+			},
+			debug: [],
+		});
+
+		await expect(
+			extractAgyUsage(
+				buildContext({
+					homeDir: "/Users/tester",
+					repoRoot: "/tmp/untrusted-repo",
+				}),
+			),
+		).rejects.toThrow("Antigravity is not signed in. Run `agy` and complete the login.");
+	});
+
+	it("returns disabled quota buckets as usage rows without percentages", async () => {
+		const { extractAgyUsage } = await import("../../../src/lib/usage/agy.js");
+		ptyMock.runPtyScenario.mockResolvedValueOnce({
+			command: "agy",
+			args: [],
+			exitCode: 0,
+			timedOut: false,
+			raw: "",
+			screen: "",
+			snapshots: {
+				usage: {
+					raw: "",
+					screen: `
+└ Models & Quota
+
+CLAUDE AND GPT MODELS
+  Models within this group: Claude Opus, Claude Sonnet, GPT-OSS
+
+  Weekly Limit
+    Disabled
+`,
+				},
+			},
+			debug: [],
+		});
+
+		const result = await extractAgyUsage(
+			buildContext({
+				homeDir: "/Users/tester",
+				repoRoot: "/tmp/untrusted-repo",
+			}),
+		);
+
+		expect(result.limits).toHaveLength(1);
+		expect(result.limits[0]).toMatchObject({
+			scope: "claude_and_gpt_models",
+			window: "weekly",
+			label: "Claude And GPT Models",
+			percentUsed: null,
+			percentRemaining: null,
+			remainingText: "Disabled",
+			resetAt: null,
+			resetText: null,
+		});
+		expect(result.limits[0]?.raw).toContain("Disabled");
+	});
+
 	it("reports the neutral launch directory if Antigravity still asks for trust", async () => {
 		const { extractAgyUsage } = await import("../../../src/lib/usage/agy.js");
 		ptyMock.runPtyScenario.mockResolvedValueOnce({
