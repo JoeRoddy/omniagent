@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { vi } from "vitest";
@@ -88,19 +88,25 @@ CLAUDE AND GPT MODELS
 		expect(result.limits[0]?.percentUsed).toBeCloseTo(28.31);
 	});
 
-	it("falls back to home when Antigravity has no trusted workspace setting", async () => {
+	it("falls back to an empty omniagent state directory when no trusted workspace exists", async () => {
 		const { extractAgyUsage } = await import("../../../src/lib/usage/agy.js");
+		const homeDir = await createTempDir("omniagent-agy-home-");
+		const repoRoot = path.join(homeDir, "repo");
+		await mkdir(repoRoot, { recursive: true });
+		const fallbackDir = path.join(homeDir, ".omniagent", "state", "usage", "antigravity-cli");
 
 		const result = await extractAgyUsage(
 			buildContext({
-				homeDir: "/Users/tester",
-				repoRoot: "/tmp/untrusted-repo",
+				homeDir,
+				repoRoot,
 			}),
 		);
 
 		const options = ptyMock.runPtyScenario.mock.calls[0]?.[0];
-		expect(options.cwd).toBe("/Users/tester");
-		expect(options.cwd).not.toBe("/tmp/untrusted-repo");
+		expect(options.cwd).toBe(fallbackDir);
+		expect(options.cwd).not.toBe(homeDir);
+		expect(options.cwd).not.toBe(repoRoot);
+		await expect(access(fallbackDir)).resolves.toBeUndefined();
 		expect(result.limits[0]).toMatchObject({
 			scope: "gemini_models",
 			window: "weekly",
@@ -126,6 +132,27 @@ CLAUDE AND GPT MODELS
 			usageWait.waitFor({
 				raw: "Antigravity is not signed in.",
 				screen: "Antigravity is not signed in.",
+			}),
+		).toBe(true);
+	});
+
+	it("captures parser-recognized usage rows without requiring the Models & Quota heading", async () => {
+		const { extractAgyUsage } = await import("../../../src/lib/usage/agy.js");
+
+		await extractAgyUsage(
+			buildContext({
+				homeDir: "/Users/tester",
+				repoRoot: "/tmp/untrusted-repo",
+			}),
+		);
+
+		const options = ptyMock.runPtyScenario.mock.calls[0]?.[0];
+		const usageWait = options.steps.find((step: { capture?: string }) => step.capture === "usage");
+
+		expect(
+			usageWait.waitFor({
+				raw: "GEMINI MODELS\r\nWeekly Limit\r\n72% remaining · Refreshes in 71h 49m\r\n",
+				screen: "",
 			}),
 		).toBe(true);
 	});
@@ -207,6 +234,9 @@ CLAUDE AND GPT MODELS
 
 	it("reports the neutral launch directory if Antigravity still asks for trust", async () => {
 		const { extractAgyUsage } = await import("../../../src/lib/usage/agy.js");
+		const homeDir = await createTempDir("omniagent-agy-home-");
+		const repoRoot = path.join(homeDir, "repo");
+		const fallbackDir = path.join(homeDir, ".omniagent", "state", "usage", "antigravity-cli");
 		ptyMock.runPtyScenario.mockResolvedValueOnce({
 			command: "agy",
 			args: [],
@@ -221,12 +251,12 @@ CLAUDE AND GPT MODELS
 		await expect(
 			extractAgyUsage(
 				buildContext({
-					homeDir: "/Users/tester",
-					repoRoot: "/tmp/untrusted-repo",
+					homeDir,
+					repoRoot,
 				}),
 			),
 		).rejects.toThrow(
-			"Antigravity has not trusted the usage launch directory yet. Run `agy` in /Users/tester once, accept the trust prompt, then re-run usage.",
+			`Antigravity has not trusted the usage launch directory yet. Run \`agy\` in ${fallbackDir} once, accept the trust prompt, then re-run usage.`,
 		);
 	});
 });

@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
 	cleanControlOutput,
@@ -18,7 +18,6 @@ import type { UsageExtractionContext, UsageExtractionResult } from "./types.js";
 
 const TRUST_DIALOG_PATTERN = /Do you trust the contents of this project\?/i;
 const READY_PATTERN = /\?\s+for shortcuts/i;
-const MODELS_QUOTA_PATTERN = /Models & Quota/i;
 const USAGE_GROUP_HEADING_PATTERN = /^[A-Z][A-Z0-9 &/-]+$/;
 const LIMIT_LABEL_PATTERN = /limit$/i;
 const MODELS_LINE_PATTERN = /^Models within this group:\s*(.+)$/i;
@@ -26,6 +25,7 @@ const REFRESH_PATTERN = /Refreshes\s+in\s+(?:(\d+)h)?\s*(?:(\d+)m)?/i;
 const SIGN_IN_PATTERN = /\b(?:not signed in|Signing in)\b/i;
 const DISABLED_PATTERN = /^Disabled$/i;
 const AGY_SETTINGS_PATH = [".gemini", "antigravity-cli", "settings.json"];
+const AGY_USAGE_FALLBACK_PATH = [".omniagent", "state", "usage", "antigravity-cli"];
 
 export type ParsedAgyUsageGroup = {
 	heading: string;
@@ -47,11 +47,7 @@ function isReadyOrTrustDialog(snapshot: PtyWaitSnapshot): boolean {
 
 function hasUsagePanel(snapshot: PtyWaitSnapshot): boolean {
 	const cleanedOutput = cleanControlOutput(snapshot.raw);
-	return (
-		(MODELS_QUOTA_PATTERN.test(snapshot.screen) || MODELS_QUOTA_PATTERN.test(cleanedOutput)) &&
-		(/% remaining|\bDisabled\b/i.test(snapshot.screen) ||
-			/% remaining|\bDisabled\b/i.test(cleanedOutput))
-	);
+	return parseAgyUsage(snapshot.screen, cleanedOutput).length > 0;
 }
 
 function hasUsagePanelOrKnownFailure(snapshot: PtyWaitSnapshot): boolean {
@@ -73,7 +69,7 @@ export async function extractAgyUsage(
 	context: UsageExtractionContext,
 ): Promise<UsageExtractionResult> {
 	const command = context.command ?? context.launch?.command ?? "agy";
-	const launchCwd = await resolveAgyUsageCwd(context.homeDir);
+	const launchCwd = await resolveAgyUsageCwd(context.homeDir, context.repoRoot);
 
 	const ptyResult = await runPtyScenario({
 		command,
@@ -154,7 +150,7 @@ export async function extractAgyUsage(
 	};
 }
 
-async function resolveAgyUsageCwd(homeDir: string): Promise<string> {
+async function resolveAgyUsageCwd(homeDir: string, repoRoot: string): Promise<string> {
 	for (const workspace of await readAgyTrustedWorkspaces(homeDir)) {
 		try {
 			await access(workspace);
@@ -163,7 +159,17 @@ async function resolveAgyUsageCwd(homeDir: string): Promise<string> {
 			// Ignore stale trusted workspace entries.
 		}
 	}
-	return homeDir;
+	return ensureAgyUsageFallbackCwd(homeDir, repoRoot);
+}
+
+async function ensureAgyUsageFallbackCwd(homeDir: string, repoRoot: string): Promise<string> {
+	const fallbackDir = path.join(homeDir, ...AGY_USAGE_FALLBACK_PATH);
+	try {
+		await mkdir(fallbackDir, { recursive: true });
+		return fallbackDir;
+	} catch {
+		return repoRoot;
+	}
 }
 
 async function readAgyTrustedWorkspaces(homeDir: string): Promise<string[]> {
