@@ -58,13 +58,14 @@ CLAUDE AND GPT MODELS
 		tempDirs = [];
 	});
 
-	it("runs the usage probe from an existing Antigravity trusted workspace", async () => {
+	it("uses the neutral omniagent state directory instead of unrelated trusted workspaces", async () => {
 		const { extractAgyUsage } = await import("../../../src/lib/usage/agy.js");
 		const homeDir = await createTempDir("omniagent-agy-home-");
 		const trustedWorkspace = path.join(homeDir, "trusted-workspace");
+		const fallbackDir = path.join(homeDir, ".omniagent", "state", "usage", "antigravity-cli");
 		await mkdir(trustedWorkspace, { recursive: true });
 		await writeAgySettings(homeDir, {
-			trustedWorkspaces: [path.join(homeDir, "stale-workspace"), trustedWorkspace],
+			trustedWorkspaces: [trustedWorkspace],
 		});
 
 		const result = await extractAgyUsage(
@@ -75,8 +76,9 @@ CLAUDE AND GPT MODELS
 		);
 
 		const options = ptyMock.runPtyScenario.mock.calls[0]?.[0];
-		expect(options.cwd).toBe(trustedWorkspace);
+		expect(options.cwd).toBe(fallbackDir);
 		expect(options.cwd).not.toBe(homeDir);
+		expect(options.cwd).not.toBe(trustedWorkspace);
 		expect(options.cwd).not.toBe("/tmp/untrusted-repo");
 		expect(result.limits).toHaveLength(2);
 		expect(result.limits[0]).toMatchObject({
@@ -134,6 +136,12 @@ CLAUDE AND GPT MODELS
 				screen: "Antigravity is not signed in.",
 			}),
 		).toBe(true);
+		expect(
+			usageWait.waitFor({
+				raw: "Signing in...",
+				screen: "Signing in...",
+			}),
+		).toBe(false);
 	});
 
 	it("captures parser-recognized usage rows without requiring the Models & Quota heading", async () => {

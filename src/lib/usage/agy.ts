@@ -1,4 +1,4 @@
-import { access, mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import {
 	cleanControlOutput,
@@ -22,9 +22,8 @@ const USAGE_GROUP_HEADING_PATTERN = /^[A-Z][A-Z0-9 &/-]+$/;
 const LIMIT_LABEL_PATTERN = /limit$/i;
 const MODELS_LINE_PATTERN = /^Models within this group:\s*(.+)$/i;
 const REFRESH_PATTERN = /Refreshes\s+in\s+(?:(\d+)h)?\s*(?:(\d+)m)?/i;
-const SIGN_IN_PATTERN = /\b(?:not signed in|Signing in)\b/i;
+const NOT_SIGNED_IN_PATTERN = /\bnot signed in\b/i;
 const DISABLED_PATTERN = /^Disabled$/i;
-const AGY_SETTINGS_PATH = [".gemini", "antigravity-cli", "settings.json"];
 const AGY_USAGE_FALLBACK_PATH = [".omniagent", "state", "usage", "antigravity-cli"];
 
 export type ParsedAgyUsageGroup = {
@@ -54,8 +53,8 @@ function hasUsagePanelOrKnownFailure(snapshot: PtyWaitSnapshot): boolean {
 	const cleanedOutput = cleanControlOutput(snapshot.raw);
 	return (
 		hasUsagePanel(snapshot) ||
-		SIGN_IN_PATTERN.test(snapshot.screen) ||
-		SIGN_IN_PATTERN.test(cleanedOutput)
+		NOT_SIGNED_IN_PATTERN.test(snapshot.screen) ||
+		NOT_SIGNED_IN_PATTERN.test(cleanedOutput)
 	);
 }
 
@@ -69,7 +68,7 @@ export async function extractAgyUsage(
 	context: UsageExtractionContext,
 ): Promise<UsageExtractionResult> {
 	const command = context.command ?? context.launch?.command ?? "agy";
-	const launchCwd = await resolveAgyUsageCwd(context.homeDir, context.repoRoot);
+	const launchCwd = await ensureAgyUsageCwd(context.homeDir, context.repoRoot);
 
 	const ptyResult = await runPtyScenario({
 		command,
@@ -114,7 +113,7 @@ export async function extractAgyUsage(
 	const groups = parseAgyUsage(snapshot.screen, cleanedOutput);
 
 	if (groups.length === 0) {
-		if (SIGN_IN_PATTERN.test(snapshot.screen) || SIGN_IN_PATTERN.test(cleanedOutput)) {
+		if (NOT_SIGNED_IN_PATTERN.test(snapshot.screen) || NOT_SIGNED_IN_PATTERN.test(cleanedOutput)) {
 			throw buildError(`Antigravity is not signed in. Run \`${command}\` and complete the login.`);
 		}
 		throw buildError("Antigravity /usage output did not include Models & Quota limit groups.");
@@ -150,19 +149,7 @@ export async function extractAgyUsage(
 	};
 }
 
-async function resolveAgyUsageCwd(homeDir: string, repoRoot: string): Promise<string> {
-	for (const workspace of await readAgyTrustedWorkspaces(homeDir)) {
-		try {
-			await access(workspace);
-			return workspace;
-		} catch {
-			// Ignore stale trusted workspace entries.
-		}
-	}
-	return ensureAgyUsageFallbackCwd(homeDir, repoRoot);
-}
-
-async function ensureAgyUsageFallbackCwd(homeDir: string, repoRoot: string): Promise<string> {
+async function ensureAgyUsageCwd(homeDir: string, repoRoot: string): Promise<string> {
 	const fallbackDir = path.join(homeDir, ...AGY_USAGE_FALLBACK_PATH);
 	try {
 		await mkdir(fallbackDir, { recursive: true });
@@ -170,59 +157,6 @@ async function ensureAgyUsageFallbackCwd(homeDir: string, repoRoot: string): Pro
 	} catch {
 		return repoRoot;
 	}
-}
-
-async function readAgyTrustedWorkspaces(homeDir: string): Promise<string[]> {
-	let raw: string;
-	try {
-		raw = await readFile(path.join(homeDir, ...AGY_SETTINGS_PATH), "utf8");
-	} catch {
-		return [];
-	}
-
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(raw);
-	} catch {
-		return [];
-	}
-
-	if (!parsed || typeof parsed !== "object") {
-		return [];
-	}
-	const trustedWorkspaces = (parsed as { trustedWorkspaces?: unknown }).trustedWorkspaces;
-	if (!Array.isArray(trustedWorkspaces)) {
-		return [];
-	}
-
-	const seen = new Set<string>();
-	const result: string[] = [];
-	for (const value of trustedWorkspaces) {
-		if (typeof value !== "string") {
-			continue;
-		}
-		const normalized = normalizeAgyTrustedWorkspace(value, homeDir);
-		if (normalized == null || seen.has(normalized)) {
-			continue;
-		}
-		seen.add(normalized);
-		result.push(normalized);
-	}
-	return result;
-}
-
-function normalizeAgyTrustedWorkspace(value: string, homeDir: string): string | null {
-	const trimmed = value.trim();
-	if (!trimmed) {
-		return null;
-	}
-	if (trimmed === "~") {
-		return homeDir;
-	}
-	if (trimmed.startsWith("~/")) {
-		return path.resolve(homeDir, trimmed.slice(2));
-	}
-	return path.isAbsolute(trimmed) ? path.normalize(trimmed) : path.resolve(homeDir, trimmed);
 }
 
 export function parseAgyUsage(screen: string, cleanedOutput = ""): ParsedAgyUsageGroup[] {
