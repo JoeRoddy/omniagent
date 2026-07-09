@@ -9,6 +9,14 @@ const ptyMock = vi.hoisted(() => ({
 
 let tempDirs: string[] = [];
 
+type MockPtyStep = {
+	capture?: string;
+	write?: string;
+	skipIf?: (snapshot: { raw: string; screen: string }) => boolean;
+	waitFor?: (snapshot: { raw: string; screen: string }) => boolean;
+	optional?: boolean;
+};
+
 vi.mock("../../../src/lib/usage/pty.js", () => ({
 	enterKey: () => "\r",
 	escapeKey: () => "\x1b",
@@ -88,6 +96,76 @@ CLAUDE AND GPT MODELS
 			percentRemaining: 71.69,
 		});
 		expect(result.limits[0]?.percentUsed).toBeCloseTo(28.31);
+	});
+
+	it("auto-accepts trust only for the managed usage directory", async () => {
+		const { extractAgyUsage } = await import("../../../src/lib/usage/agy.js");
+		const homeDir = await createTempDir("omniagent-agy-home-");
+
+		await extractAgyUsage(
+			buildContext({
+				homeDir,
+				repoRoot: "/tmp/untrusted-repo",
+			}),
+		);
+
+		const options = ptyMock.runPtyScenario.mock.calls[0]?.[0];
+		const steps = options.steps as MockPtyStep[];
+		const trustAcceptStep = steps[1];
+		const readyAfterTrustStep = steps[2];
+		const slashStep = steps.find((step) => step.write === "/");
+
+		expect(trustAcceptStep?.write).toBe("\r");
+		expect(
+			trustAcceptStep?.skipIf?.({
+				raw: "",
+				screen: "Do you trust the contents of this project?",
+			}),
+		).toBe(false);
+		expect(
+			trustAcceptStep?.skipIf?.({
+				raw: "",
+				screen: "? for shortcuts",
+			}),
+		).toBe(true);
+		expect(
+			readyAfterTrustStep?.waitFor?.({
+				raw: "Do you trust the contents of this project?",
+				screen: "? for shortcuts",
+			}),
+		).toBe(true);
+		expect(
+			slashStep?.skipIf?.({
+				raw: "Do you trust the contents of this project?",
+				screen: "? for shortcuts",
+			}),
+		).toBe(false);
+		expect(
+			slashStep?.skipIf?.({
+				raw: "",
+				screen: "Do you trust the contents of this project?",
+			}),
+		).toBe(true);
+	});
+
+	it("does not auto-accept trust when falling back outside the managed usage directory", async () => {
+		const { extractAgyUsage } = await import("../../../src/lib/usage/agy.js");
+		const homeDir = await createTempDir("omniagent-agy-home-");
+		const repoRoot = path.join(homeDir, "repo");
+		await mkdir(repoRoot, { recursive: true });
+		await writeFile(path.join(homeDir, ".omniagent"), "not a directory", "utf8");
+
+		await extractAgyUsage(
+			buildContext({
+				homeDir,
+				repoRoot,
+			}),
+		);
+
+		const options = ptyMock.runPtyScenario.mock.calls[0]?.[0];
+		const steps = options.steps as MockPtyStep[];
+		expect(options.cwd).toBe(repoRoot);
+		expect(steps[1]?.write).toBe("/");
 	});
 
 	it("falls back to an empty omniagent state directory when no trusted workspace exists", async () => {
@@ -264,7 +342,7 @@ CLAUDE AND GPT MODELS
 				}),
 			),
 		).rejects.toThrow(
-			`Antigravity has not trusted the usage launch directory yet. Run \`agy\` in ${fallbackDir} once, accept the trust prompt, then re-run usage.`,
+			`Antigravity did not accept the managed usage launch directory trust prompt automatically. Run \`agy\` in ${fallbackDir} once, accept the trust prompt, then re-run usage.`,
 		);
 	});
 });

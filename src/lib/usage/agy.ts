@@ -26,6 +26,11 @@ const NOT_SIGNED_IN_PATTERN = /\bnot signed in\b/i;
 const DISABLED_PATTERN = /^Disabled$/i;
 const AGY_USAGE_FALLBACK_PATH = [".omniagent", "state", "usage", "antigravity-cli"];
 
+type AgyUsageCwd = {
+	path: string;
+	managed: boolean;
+};
+
 export type ParsedAgyUsageGroup = {
 	heading: string;
 	models: string | null;
@@ -38,6 +43,18 @@ export type ParsedAgyUsageGroup = {
 
 function isTrustDialog(snapshot: PtyWaitSnapshot): boolean {
 	return TRUST_DIALOG_PATTERN.test(snapshot.raw) || TRUST_DIALOG_PATTERN.test(snapshot.screen);
+}
+
+function isCurrentTrustDialog(snapshot: PtyWaitSnapshot): boolean {
+	return TRUST_DIALOG_PATTERN.test(snapshot.screen);
+}
+
+function isNotCurrentTrustDialog(snapshot: PtyWaitSnapshot): boolean {
+	return !isCurrentTrustDialog(snapshot);
+}
+
+function isReady(snapshot: PtyWaitSnapshot): boolean {
+	return READY_PATTERN.test(snapshot.screen);
 }
 
 function isReadyOrTrustDialog(snapshot: PtyWaitSnapshot): boolean {
@@ -61,7 +78,7 @@ function hasUsagePanelOrKnownFailure(snapshot: PtyWaitSnapshot): boolean {
 function withTrustSkip(step: PtyStep): PtyStep {
 	// The trust dialog swallows keystrokes; never type into it so the
 	// post-scenario check can surface an actionable error instead.
-	return { ...step, skipIf: isTrustDialog, skipIfSource: "raw" };
+	return { ...step, skipIf: isCurrentTrustDialog, skipIfSource: "screen" };
 }
 
 export async function extractAgyUsage(
@@ -73,7 +90,7 @@ export async function extractAgyUsage(
 	const ptyResult = await runPtyScenario({
 		command,
 		args: context.launch?.args ?? [],
-		cwd: launchCwd,
+		cwd: launchCwd.path,
 		cols: 120,
 		rows: 40,
 		timeoutMs: context.launch?.timeoutMs ?? 70_000,
@@ -81,6 +98,7 @@ export async function extractAgyUsage(
 		debug: context.debug,
 		steps: [
 			{ waitFor: isReadyOrTrustDialog, waitForTimeoutMs: 25_000 },
+			...buildManagedTrustSteps(launchCwd.managed),
 			...typeTextSteps("/usage", 25).map(withTrustSkip),
 			withTrustSkip({ waitMs: 250, write: enterKey() }),
 			withTrustSkip({
@@ -102,9 +120,9 @@ export async function extractAgyUsage(
 		return error;
 	};
 
-	if (isTrustDialog(ptyResult)) {
+	if (isCurrentTrustDialog(ptyResult)) {
 		throw buildError(
-			`Antigravity has not trusted the usage launch directory yet. Run \`${command}\` in ${launchCwd} once, accept the trust prompt, then re-run usage.`,
+			`Antigravity did not accept the managed usage launch directory trust prompt automatically. Run \`${command}\` in ${launchCwd.path} once, accept the trust prompt, then re-run usage.`,
 		);
 	}
 
@@ -149,13 +167,28 @@ export async function extractAgyUsage(
 	};
 }
 
-async function ensureAgyUsageCwd(homeDir: string, repoRoot: string): Promise<string> {
+function buildManagedTrustSteps(shouldAutoAccept: boolean): PtyStep[] {
+	if (!shouldAutoAccept) {
+		return [];
+	}
+	return [
+		{
+			skipIf: isNotCurrentTrustDialog,
+			skipIfSource: "screen",
+			waitMs: 250,
+			write: enterKey(),
+		},
+		{ waitFor: isReady, waitForTimeoutMs: 25_000 },
+	];
+}
+
+async function ensureAgyUsageCwd(homeDir: string, repoRoot: string): Promise<AgyUsageCwd> {
 	const fallbackDir = path.join(homeDir, ...AGY_USAGE_FALLBACK_PATH);
 	try {
 		await mkdir(fallbackDir, { recursive: true });
-		return fallbackDir;
+		return { path: fallbackDir, managed: true };
 	} catch {
-		return repoRoot;
+		return { path: repoRoot, managed: false };
 	}
 }
 
