@@ -345,6 +345,35 @@ CLAUDE AND GPT MODELS
 			`Antigravity did not accept the managed usage launch directory trust prompt automatically. Run \`agy\` in ${fallbackDir} once, accept the trust prompt, then re-run usage.`,
 		);
 	});
+
+	it("reports project trust when the managed usage directory cannot be created", async () => {
+		const { extractAgyUsage } = await import("../../../src/lib/usage/agy.js");
+		const homeDir = await createTempDir("omniagent-agy-home-");
+		const repoRoot = path.join(homeDir, "repo");
+		await mkdir(repoRoot, { recursive: true });
+		await writeFile(path.join(homeDir, ".omniagent"), "not a directory", "utf8");
+		ptyMock.runPtyScenario.mockResolvedValueOnce({
+			command: "agy",
+			args: [],
+			exitCode: 0,
+			timedOut: false,
+			raw: "Do you trust the contents of this project?",
+			screen: "Do you trust the contents of this project?",
+			snapshots: {},
+			debug: [],
+		});
+
+		await expect(
+			extractAgyUsage(
+				buildContext({
+					homeDir,
+					repoRoot,
+				}),
+			),
+		).rejects.toThrow(
+			`Antigravity has not trusted this project yet. Run \`agy\` in ${repoRoot} once, accept the trust prompt, then re-run usage.`,
+		);
+	});
 });
 
 async function createTempDir(prefix: string): Promise<string> {

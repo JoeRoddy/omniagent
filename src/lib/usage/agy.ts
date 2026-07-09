@@ -121,6 +121,11 @@ export async function extractAgyUsage(
 	};
 
 	if (isCurrentTrustDialog(ptyResult)) {
+		if (!launchCwd.managed) {
+			throw buildError(
+				`Antigravity has not trusted this project yet. Run \`${command}\` in ${launchCwd.path} once, accept the trust prompt, then re-run usage.`,
+			);
+		}
 		throw buildError(
 			`Antigravity did not accept the managed usage launch directory trust prompt automatically. Run \`${command}\` in ${launchCwd.path} once, accept the trust prompt, then re-run usage.`,
 		);
