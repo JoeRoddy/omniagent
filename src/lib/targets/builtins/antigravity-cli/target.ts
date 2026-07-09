@@ -57,7 +57,7 @@ export const agyTarget: TargetDefinition = {
 		},
 	},
 	usage: {
-		windows: ["credits"],
+		windows: ["weekly"],
 		launch: {
 			command: "agy",
 			timeoutMs: 70_000,

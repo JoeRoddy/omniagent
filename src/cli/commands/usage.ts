@@ -336,10 +336,14 @@ function filterTargetResult(
 		selectedWindow == null
 			? normalizedLimits
 			: normalizedLimits.filter((limit) => limit.window === selectedWindow);
+	const resultNotes = result.notes ?? [];
 	const notes =
 		selectedWindow != null && filteredLimits.length === 0
-			? [`${target.displayName} reported no usage rows for window "${selectedWindow}".`]
-			: [];
+			? [
+					...resultNotes,
+					`${target.displayName} reported no usage rows for window "${selectedWindow}".`,
+				]
+			: resultNotes;
 
 	return {
 		result: {

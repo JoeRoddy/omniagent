@@ -1,4 +1,11 @@
-import { cleanControlOutput, compactLines, makeUsageLimit } from "./format.js";
+import { access, readFile } from "node:fs/promises";
+import path from "node:path";
+import {
+	cleanControlOutput,
+	compactLines,
+	makeUsageLimit,
+	parsePercentRemaining,
+} from "./format.js";
 import {
 	enterKey,
 	escapeKey,
@@ -11,17 +18,21 @@ import type { UsageExtractionContext, UsageExtractionResult } from "./types.js";
 
 const TRUST_DIALOG_PATTERN = /Do you trust the contents of this project\?/i;
 const READY_PATTERN = /\?\s+for shortcuts/i;
-const REMAINING_CREDITS_PATTERN = /Remaining AI Credits:\s*(.+?)\s*$/i;
-const CREDITS_NOT_ENABLED_PATTERN = /AI Credits not enabled/i;
-const ACCOUNT_PLAN_PATTERN = /^\S+@\S+\.\S+\s+\((.+?)\)\s*$/;
-const STANDALONE_PLAN_PATTERN = /^\((.*(?:quota|plan|tier).*)\)$/i;
+const MODELS_QUOTA_PATTERN = /Models & Quota/i;
+const USAGE_GROUP_HEADING_PATTERN = /^[A-Z][A-Z0-9 &/-]+$/;
+const LIMIT_LABEL_PATTERN = /limit$/i;
+const MODELS_LINE_PATTERN = /^Models within this group:\s*(.+)$/i;
+const REFRESH_PATTERN = /Refreshes\s+in\s+(?:(\d+)h)?\s*(?:(\d+)m)?/i;
 const SIGN_IN_PATTERN = /\b(?:not signed in|Signing in)\b/i;
+const AGY_SETTINGS_PATH = [".gemini", "antigravity-cli", "settings.json"];
 
-export type ParsedAgyCredits = {
-	remaining: string | null;
-	notEnabled: boolean;
-	plan: string | null;
-	rawLine: string;
+export type ParsedAgyUsageGroup = {
+	heading: string;
+	models: string | null;
+	limitLabel: string;
+	percentRemaining: number | null;
+	resetText: string | null;
+	raw: string;
 };
 
 function isTrustDialog(snapshot: PtyWaitSnapshot): boolean {
@@ -32,10 +43,11 @@ function isReadyOrTrustDialog(snapshot: PtyWaitSnapshot): boolean {
 	return READY_PATTERN.test(snapshot.screen) || isTrustDialog(snapshot);
 }
 
-function hasCreditsPanel(snapshot: PtyWaitSnapshot): boolean {
+function hasUsagePanel(snapshot: PtyWaitSnapshot): boolean {
+	const cleanedOutput = cleanControlOutput(snapshot.raw);
 	return (
-		REMAINING_CREDITS_PATTERN.test(snapshot.screen) ||
-		REMAINING_CREDITS_PATTERN.test(cleanControlOutput(snapshot.raw))
+		(MODELS_QUOTA_PATTERN.test(snapshot.screen) || MODELS_QUOTA_PATTERN.test(cleanedOutput)) &&
+		(/% remaining/i.test(snapshot.screen) || /% remaining/i.test(cleanedOutput))
 	);
 }
 
@@ -49,11 +61,12 @@ export async function extractAgyUsage(
 	context: UsageExtractionContext,
 ): Promise<UsageExtractionResult> {
 	const command = context.command ?? context.launch?.command ?? "agy";
+	const launchCwd = await resolveAgyUsageCwd(context.homeDir);
 
 	const ptyResult = await runPtyScenario({
 		command,
 		args: context.launch?.args ?? [],
-		cwd: context.repoRoot,
+		cwd: launchCwd,
 		cols: 120,
 		rows: 40,
 		timeoutMs: context.launch?.timeoutMs ?? 70_000,
@@ -61,13 +74,12 @@ export async function extractAgyUsage(
 		debug: context.debug,
 		steps: [
 			{ waitFor: isReadyOrTrustDialog, waitForTimeoutMs: 25_000 },
-			...typeTextSteps("/credits", 25).map(withTrustSkip),
+			...typeTextSteps("/usage", 25).map(withTrustSkip),
 			withTrustSkip({ waitMs: 250, write: enterKey() }),
 			withTrustSkip({
-				waitFor: hasCreditsPanel,
+				waitFor: hasUsagePanel,
 				waitForTimeoutMs: 15_000,
-				optional: true,
-				capture: "credits",
+				capture: "usage",
 				captureWaitMs: 500,
 			}),
 			{ write: escapeKey(), waitMs: 250 },
@@ -84,90 +96,232 @@ export async function extractAgyUsage(
 
 	if (isTrustDialog(ptyResult)) {
 		throw buildError(
-			`Antigravity has not trusted this project yet. Run \`${command}\` in ${context.repoRoot} once, accept the trust prompt, then re-run usage.`,
+			`Antigravity has not trusted the usage launch directory yet. Run \`${command}\` in ${launchCwd} once, accept the trust prompt, then re-run usage.`,
 		);
 	}
 
-	const snapshot = ptyResult.snapshots.credits ?? ptyResult;
+	const snapshot = ptyResult.snapshots.usage ?? ptyResult;
 	const cleanedOutput = cleanControlOutput(snapshot.raw);
-	const parsed = parseAgyCredits(snapshot.screen, cleanedOutput);
+	const groups = parseAgyUsage(snapshot.screen, cleanedOutput);
 
-	if (parsed.notEnabled) {
-		throw buildError(
-			"Antigravity AI Credits are not enabled for this account. Enable them via /settings in agy.",
-		);
-	}
-	if (parsed.remaining == null) {
+	if (groups.length === 0) {
 		if (SIGN_IN_PATTERN.test(snapshot.screen) || SIGN_IN_PATTERN.test(cleanedOutput)) {
 			throw buildError(`Antigravity is not signed in. Run \`${command}\` and complete the login.`);
 		}
-		throw buildError("Antigravity /credits output did not include a Remaining AI Credits value.");
+		throw buildError("Antigravity /usage output did not include Models & Quota limit groups.");
 	}
 
 	return {
 		targetId: context.targetId,
 		displayName: context.displayName,
 		command,
-		limits: [
-			// Credits are an absolute balance rather than a percentage window.
-			makeUsageLimit({
+		limits: groups.map((group) => {
+			const percentRemaining =
+				group.percentRemaining == null ? null : clampPercent(group.percentRemaining);
+			const limit = makeUsageLimit({
 				targetId: context.targetId,
-				scope: "ai_credits",
-				window: "credits",
-				label: parsed.plan ? `AI Credits (${parsed.plan})` : "AI Credits",
-				percentUsed: null,
-				percentRemaining: null,
-				remainingText: parsed.remaining,
-				resetText: null,
-				raw: parsed.rawLine,
+				scope: usageScope(group.heading),
+				window: "weekly",
+				label: titleCase(group.heading),
+				percentUsed: percentRemaining == null ? null : 100 - percentRemaining,
+				percentRemaining,
+				resetText: group.resetText,
+				raw: group.raw,
 				now: context.now,
-			}),
-		],
+			});
+			return {
+				...limit,
+				resetAt: parseAgyRefreshResetAt(group.resetText, context.now) ?? limit.resetAt,
+			};
+		}),
 		debug: ptyResult.debug.length > 0 ? ptyResult.debug : undefined,
 	};
 }
 
-export function parseAgyCredits(screen: string, cleanedOutput = ""): ParsedAgyCredits {
-	const fromScreen = parseAgyCreditsLines(compactLines(screen));
-	if (fromScreen.remaining != null || fromScreen.notEnabled) {
-		return fromScreen;
+async function resolveAgyUsageCwd(homeDir: string): Promise<string> {
+	for (const workspace of await readAgyTrustedWorkspaces(homeDir)) {
+		try {
+			await access(workspace);
+			return workspace;
+		} catch {
+			// Ignore stale trusted workspace entries.
+		}
 	}
-	const fromRaw = parseAgyCreditsLines(compactLines(cleanedOutput));
-	if (fromRaw.remaining != null || fromRaw.notEnabled) {
-		return fromRaw;
-	}
-	return fromScreen.plan != null ? fromScreen : fromRaw;
+	return homeDir;
 }
 
-function parseAgyCreditsLines(lines: string[]): ParsedAgyCredits {
-	const parsed: ParsedAgyCredits = {
-		remaining: null,
-		notEnabled: false,
-		plan: null,
-		rawLine: "",
-	};
+async function readAgyTrustedWorkspaces(homeDir: string): Promise<string[]> {
+	let raw: string;
+	try {
+		raw = await readFile(path.join(homeDir, ...AGY_SETTINGS_PATH), "utf8");
+	} catch {
+		return [];
+	}
 
-	for (const line of lines) {
-		const remainingMatch = REMAINING_CREDITS_PATTERN.exec(line);
-		if (remainingMatch?.[1]) {
-			const value = remainingMatch[1].trim();
-			if (CREDITS_NOT_ENABLED_PATTERN.test(value)) {
-				parsed.notEnabled = true;
-				parsed.rawLine = line.trim();
-				continue;
-			}
-			parsed.remaining = value;
-			parsed.rawLine = line.trim();
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return [];
+	}
+
+	if (!parsed || typeof parsed !== "object") {
+		return [];
+	}
+	const trustedWorkspaces = (parsed as { trustedWorkspaces?: unknown }).trustedWorkspaces;
+	if (!Array.isArray(trustedWorkspaces)) {
+		return [];
+	}
+
+	const seen = new Set<string>();
+	const result: string[] = [];
+	for (const value of trustedWorkspaces) {
+		if (typeof value !== "string") {
+			continue;
+		}
+		const normalized = normalizeAgyTrustedWorkspace(value, homeDir);
+		if (normalized == null || seen.has(normalized)) {
+			continue;
+		}
+		seen.add(normalized);
+		result.push(normalized);
+	}
+	return result;
+}
+
+function normalizeAgyTrustedWorkspace(value: string, homeDir: string): string | null {
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return null;
+	}
+	if (trimmed === "~") {
+		return homeDir;
+	}
+	if (trimmed.startsWith("~/")) {
+		return path.resolve(homeDir, trimmed.slice(2));
+	}
+	return path.isAbsolute(trimmed) ? path.normalize(trimmed) : path.resolve(homeDir, trimmed);
+}
+
+export function parseAgyUsage(screen: string, cleanedOutput = ""): ParsedAgyUsageGroup[] {
+	const fromScreen = parseAgyUsageLines(compactLines(screen));
+	if (fromScreen.length > 0) {
+		return fromScreen;
+	}
+	return parseAgyUsageLines(compactLines(cleanedOutput));
+}
+
+function parseAgyUsageLines(lines: string[]): ParsedAgyUsageGroup[] {
+	const groups: ParsedAgyUsageGroup[] = [];
+	let index = 0;
+
+	while (index < lines.length) {
+		const heading = lines[index] ?? "";
+		if (!isUsageGroupHeading(heading)) {
+			index += 1;
 			continue;
 		}
 
-		if (parsed.plan == null) {
-			const planMatch = ACCOUNT_PLAN_PATTERN.exec(line) ?? STANDALONE_PLAN_PATTERN.exec(line);
-			if (planMatch?.[1]) {
-				parsed.plan = planMatch[1].trim();
+		const rawLines = [heading];
+		let models: string | null = null;
+		let limitLabel = "";
+		let percentRemaining: number | null = null;
+		let resetText: string | null = null;
+		index += 1;
+
+		while (index < lines.length && !isUsageGroupHeading(lines[index] ?? "")) {
+			const line = lines[index] ?? "";
+			rawLines.push(line);
+			const modelsMatch = MODELS_LINE_PATTERN.exec(line);
+			if (modelsMatch?.[1]) {
+				models = modelsMatch[1].trim();
 			}
+			if (LIMIT_LABEL_PATTERN.test(line)) {
+				limitLabel = line.trim();
+			}
+			const linePercentRemaining = parseAgyRemainingPercent(line);
+			if (linePercentRemaining != null && percentRemaining == null) {
+				percentRemaining = linePercentRemaining;
+			}
+			const lineResetText = parseAgyRefreshText(line);
+			if (lineResetText != null) {
+				resetText = lineResetText;
+			}
+			index += 1;
+		}
+
+		if (limitLabel && (percentRemaining != null || resetText != null)) {
+			groups.push({
+				heading,
+				models,
+				limitLabel,
+				percentRemaining,
+				resetText,
+				raw: rawLines.join("\n"),
+			});
 		}
 	}
 
-	return parsed;
+	return groups;
+}
+
+function isUsageGroupHeading(line: string): boolean {
+	if (!USAGE_GROUP_HEADING_PATTERN.test(line)) {
+		return false;
+	}
+	return !/^(MODELS|WEEKLY|MONTHLY|DAILY|ACCOUNT)$/i.test(line);
+}
+
+function parseAgyRemainingPercent(line: string): number | null {
+	return parsePercentRemaining(line) ?? parseStandalonePercent(line);
+}
+
+function parseStandalonePercent(line: string): number | null {
+	const match = /(?:^|\])\s*(\d+(?:\.\d+)?)\s*%\s*$/i.exec(line);
+	if (!match?.[1]) {
+		return null;
+	}
+	return Number(match[1]);
+}
+
+function parseAgyRefreshText(line: string): string | null {
+	const match = /(Refreshes\s+in\s+(?:(?:\d+)h)?\s*(?:(?:\d+)m)?)/i.exec(line);
+	return match?.[1]?.trim() ?? null;
+}
+
+function parseAgyRefreshResetAt(resetText: string | null, now: Date): string | null {
+	if (resetText == null) {
+		return null;
+	}
+	const match = REFRESH_PATTERN.exec(resetText);
+	if (match == null) {
+		return null;
+	}
+	const hours = Number(match[1] ?? 0);
+	const minutes = Number(match[2] ?? 0);
+	if (!Number.isFinite(hours) || !Number.isFinite(minutes) || hours + minutes <= 0) {
+		return null;
+	}
+	return new Date(now.getTime() + hours * 3_600_000 + minutes * 60_000).toISOString();
+}
+
+function clampPercent(value: number): number {
+	return Math.max(0, Math.min(100, value));
+}
+
+function usageScope(heading: string): string {
+	return heading
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "_")
+		.replace(/^_+|_+$/g, "");
+}
+
+function titleCase(value: string): string {
+	return value
+		.trim()
+		.toLowerCase()
+		.split(/\s+/)
+		.map((word) => (word === "gpt" ? "GPT" : `${word.charAt(0).toUpperCase()}${word.slice(1)}`))
+		.join(" ");
 }

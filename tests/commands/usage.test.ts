@@ -543,7 +543,7 @@ module.exports = {
 			displayName: "Mock Antigravity",
 			aliases: ["gemini"],
 			usage: {
-				windows: ["credits"],
+				windows: ["weekly"],
 				launch: { command: "agy" },
 				extract: async (ctx) => ({
 					targetId: ctx.targetId,
@@ -551,17 +551,17 @@ module.exports = {
 					command: ctx.command,
 					limits: [
 						{
-							id: ctx.targetId + ".ai_credits.credits",
+							id: ctx.targetId + ".gemini_models.weekly",
 							targetId: ctx.targetId,
 							agent: ctx.targetId,
-							scope: "ai_credits",
-							window: "credits",
-							label: "AI Credits",
-							percentUsed: null,
-							percentRemaining: null,
+							scope: "gemini_models",
+							window: "weekly",
+							label: "Gemini Models",
+							percentUsed: 28,
+							percentRemaining: 72,
 							resetAt: null,
-							resetText: null,
-							raw: "Remaining AI Credits: 1,234"
+							resetText: "Refreshes in 71h 49m",
+							raw: "72% remaining · Refreshes in 71h 49m"
 						}
 					]
 				})
@@ -579,26 +579,24 @@ module.exports = {
 			expect(envelope.targets[0].targetId).toBe("agy");
 			expect(envelope.targets[0].displayName).toBe("Mock Antigravity");
 			expect(envelope.targets[0].command).toBe(path.join(binDir, "agy"));
-			expect(envelope.targets[0].limits[0].raw).toBe("Remaining AI Credits: 1,234");
+			expect(envelope.targets[0].limits[0].raw).toBe("72% remaining · Refreshes in 71h 49m");
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});
 
 	it("renders remainingText in the Left column for absolute balances", async () => {
 		await withTempRepo(async (root) => {
-			await createFakeCliBin(root, ["codex", "claude", "agy"]);
 			await writeConfig(
 				root,
-				usageConfig({
-					disableTargets: [],
-					extraTargets: `
+				`
+module.exports = {
+	disableTargets: ["codex", "claude", "gemini"],
+	targets: [
 		{
-			id: "agy",
-			displayName: "Mock Antigravity",
-			aliases: ["gemini"],
+			id: "balance-meter",
+			displayName: "Balance Meter",
 			usage: {
 				windows: ["credits"],
-				launch: { command: "agy" },
 				extract: async (ctx) => ({
 					targetId: ctx.targetId,
 					displayName: ctx.displayName,
@@ -621,17 +619,18 @@ module.exports = {
 					]
 				})
 			}
-		}`,
-				}),
+		}
+	]
+};
+`,
 			);
 
 			await withCwd(root, async () => {
-				await runCli(["node", "omniagent", "usage", "agy"]);
+				await runCli(["node", "omniagent", "usage", "balance-meter"]);
 			});
 
 			const output = joinOutput(logSpy.mock.calls);
-			const creditsRow = output.split("\n").find((line) => line.includes("AI Credits")) ?? "";
-			expect(creditsRow).toContain("1,234");
+			expect(output).toContain("1,234");
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});
@@ -1835,6 +1834,36 @@ module.exports = {
 				message: "some rows could not be parsed",
 			});
 			expect(exitSpy).toHaveBeenCalledWith(1);
+		});
+	});
+
+	it("promotes extractor-returned notes without failing", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					disableTargets: ["claude", "gemini"],
+					extractors: {
+						codex: `async (ctx) => ({
+							targetId: ctx.targetId,
+							displayName: ctx.displayName,
+							command: ctx.command,
+							limits: [],
+							notes: ["Mock Codex usage is not enabled for this account."]
+						})`,
+					},
+				}),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "codex"]);
+			});
+
+			const output = joinOutput(logSpy.mock.calls);
+			expect(output).toContain("Note: Mock Codex usage is not enabled for this account.");
+			expect(output).not.toContain("failed");
+			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});
 });

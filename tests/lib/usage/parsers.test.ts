@@ -1,4 +1,4 @@
-import { parseAgyCredits } from "../../../src/lib/usage/agy.js";
+import { parseAgyUsage } from "../../../src/lib/usage/agy.js";
 import {
 	buildClaudeApiUsageResult,
 	buildClaudeUsageLimits,
@@ -577,64 +577,58 @@ Current week (Sonnet only)
 	});
 });
 
-describe("Antigravity credits parser", () => {
-	it("parses remaining credits and the plan label from the credits panel", () => {
+describe("Antigravity usage parser", () => {
+	it("parses weekly model quota groups from the Models & Quota panel", () => {
 		const screen = `
-Antigravity CLI 1.0.16
-user@example.com (Antigravity Starter Quota)
-Antigravity CLI  credits
-Model AI Credits
-Remaining AI Credits: 1,234
-Actions
-> Get More AI Credits
-See Activity
+└ Models & Quota
+
+  Account: user@example.com
+
+GEMINI MODELS
+  Models within this group: Gemini Flash, Gemini Pro
+
+  Weekly Limit
+    [████████████████████████████████████░░░░░░░░░░░░░░] 71.69%
+    72% remaining · Refreshes in 71h 49m
+
+
+CLAUDE AND GPT MODELS
+  Models within this group: Claude Opus, Claude Sonnet, GPT-OSS
+
+  Weekly Limit
+    [██████████████████████████████████████████████████] 99.94%
+    100% remaining · Refreshes in 71h 46m
 `;
 
-		const parsed = parseAgyCredits(screen);
-		expect(parsed.remaining).toBe("1,234");
-		expect(parsed.notEnabled).toBe(false);
-		expect(parsed.plan).toBe("Antigravity Starter Quota");
-		expect(parsed.rawLine).toBe("Remaining AI Credits: 1,234");
+		const parsed = parseAgyUsage(screen);
+		expect(parsed).toHaveLength(2);
+		expect(parsed[0]).toMatchObject({
+			heading: "GEMINI MODELS",
+			models: "Gemini Flash, Gemini Pro",
+			limitLabel: "Weekly Limit",
+			percentRemaining: 71.69,
+			resetText: "Refreshes in 71h 49m",
+		});
+		expect(parsed[1]).toMatchObject({
+			heading: "CLAUDE AND GPT MODELS",
+			models: "Claude Opus, Claude Sonnet, GPT-OSS",
+			percentRemaining: 99.94,
+			resetText: "Refreshes in 71h 46m",
+		});
 	});
 
-	it("detects the credits-not-enabled variant", () => {
-		const screen = `
-Antigravity CLI  credits
-Model AI Credits
-Remaining AI Credits: AI Credits not enabled (enable in /settings)
-Actions
-`;
-
-		const parsed = parseAgyCredits(screen);
-		expect(parsed.remaining).toBeNull();
-		expect(parsed.notEnabled).toBe(true);
-		expect(parsed.rawLine).toBe(
-			"Remaining AI Credits: AI Credits not enabled (enable in /settings)",
-		);
+	it("falls back to cleaned raw output when the screen has no quota panel", () => {
+		const raw =
+			"\u001b[32mGEMINI MODELS\u001b[0m\r\nWeekly Limit\r\n72% remaining · Refreshes in 71h 49m\r\n";
+		const parsed = parseAgyUsage("", cleanControlOutput(raw));
+		expect(parsed[0]).toMatchObject({
+			heading: "GEMINI MODELS",
+			percentRemaining: 72,
+			resetText: "Refreshes in 71h 49m",
+		});
 	});
 
-	it("parses a standalone plan line rendered apart from the account email", () => {
-		const screen = `
-user@example.com
-(Antigravity Starter Quota)
-Remaining AI Credits: 88
-`;
-
-		const parsed = parseAgyCredits(screen);
-		expect(parsed.remaining).toBe("88");
-		expect(parsed.plan).toBe("Antigravity Starter Quota");
-	});
-
-	it("falls back to cleaned raw output when the screen has no credits panel", () => {
-		const raw = "\u001b[32mRemaining AI Credits: 42\u001b[0m\r\n";
-		const parsed = parseAgyCredits("", cleanControlOutput(raw));
-		expect(parsed.remaining).toBe("42");
-	});
-
-	it("returns empty values when no credits information is present", () => {
-		const parsed = parseAgyCredits("just a prompt screen", "");
-		expect(parsed.remaining).toBeNull();
-		expect(parsed.notEnabled).toBe(false);
-		expect(parsed.plan).toBeNull();
+	it("returns no groups when no quota information is present", () => {
+		expect(parseAgyUsage("just a prompt screen", "")).toEqual([]);
 	});
 });

@@ -77,6 +77,7 @@ export type NormalizedUsageTargetResult = {
 	command?: string;
 	limits: NormalizedUsageLimit[];
 	errors?: NormalizedUsageError[];
+	notes?: string[];
 	debug?: NormalizedUsageDebugArtifact[];
 };
 
