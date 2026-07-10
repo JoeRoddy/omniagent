@@ -7,6 +7,7 @@ import type { UsageConfirmation, UsageExtractionContext } from "../../../src/lib
 const FAKE_AGY_SCRIPT = String.raw`
 const mode = process.argv[1];
 const trustMode = mode === "trust" || mode === "delayed-trust";
+const loginSelectionMode = mode === "login-selection";
 let state = trustMode ? "trust" : "sign-in";
 let input = "";
 
@@ -45,6 +46,14 @@ function renderUsage(includeClaude = false) {
 
 if (state === "trust") {
 	render("Do you trust the contents of this project?");
+} else if (loginSelectionMode) {
+	render([
+		"Welcome to the Antigravity CLI. You are currently not signed in.",
+		"",
+		"Select login method:",
+		"> 1. Google OAuth",
+		"  2. Use a Google Cloud project",
+	].join("\r\n"));
 } else {
 	render("Antigravity is not signed in.");
 	setTimeout(renderReady, mode === "delayed-auth" ? 2500 : 75);
@@ -134,6 +143,12 @@ describe("Antigravity usage PTY integration", () => {
 		});
 	}, 15_000);
 
+	it("reports the definitive login-selection screen without waiting for startup timeout", async () => {
+		await expect(extractAgyUsage(buildContext(tempDir, "login-selection"))).rejects.toThrow(
+			`Antigravity is not signed in. Run \`${process.execPath}\` and complete the login.`,
+		);
+	});
+
 	it("waits for readiness after trust beyond the old five-second deadline", async () => {
 		const confirm = vi.fn<UsageConfirmation>().mockResolvedValue(true);
 		const result = await extractAgyUsage(buildContext(tempDir, "delayed-trust", confirm));
@@ -157,7 +172,13 @@ describe("Antigravity usage PTY integration", () => {
 
 function buildContext(
 	homeDir: string,
-	mode: "trust" | "delayed-trust" | "stale-auth" | "delayed-auth" | "incremental-usage",
+	mode:
+		| "trust"
+		| "delayed-trust"
+		| "stale-auth"
+		| "delayed-auth"
+		| "login-selection"
+		| "incremental-usage",
 	confirm?: UsageConfirmation,
 ): UsageExtractionContext {
 	const repoRoot = path.join(homeDir, "repo");
@@ -174,7 +195,7 @@ function buildContext(
 		launch: {
 			command: process.execPath,
 			args: ["-e", FAKE_AGY_SCRIPT, mode],
-			timeoutMs: 12_000,
+			timeoutMs: mode === "login-selection" ? 3_000 : 12_000,
 		},
 		signal: new AbortController().signal,
 		confirm,

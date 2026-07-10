@@ -22,6 +22,7 @@ import {
 
 const TRUST_DIALOG_PATTERN = /Do you trust the contents of this project\?/i;
 const READY_PATTERN = /\?\s+for shortcuts/i;
+const LOGIN_SELECTION_PATTERN = /Select login method:/i;
 const USAGE_GROUP_HEADING_PATTERN = /^[A-Z][A-Z0-9 &/-]+$/;
 const LIMIT_LABEL_PATTERN = /limit$/i;
 const MODELS_LINE_PATTERN = /^Models within this group:\s*(.+)$/i;
@@ -62,8 +63,12 @@ function isReady(snapshot: PtyWaitSnapshot): boolean {
 	return READY_PATTERN.test(snapshot.screen);
 }
 
-function isReadyOrTrustDialog(snapshot: PtyWaitSnapshot): boolean {
-	return isReady(snapshot) || isCurrentTrustDialog(snapshot);
+function isStartupTerminalState(snapshot: PtyWaitSnapshot): boolean {
+	return (
+		isReady(snapshot) ||
+		isCurrentTrustDialog(snapshot) ||
+		LOGIN_SELECTION_PATTERN.test(snapshot.screen)
+	);
 }
 
 function isCurrentSignInFailure(snapshot: PtyWaitSnapshot): boolean {
@@ -153,7 +158,7 @@ export async function extractAgyUsage(
 		debug: context.debug,
 		steps: [
 			{
-				waitFor: isReadyOrTrustDialog,
+				waitFor: isStartupTerminalState,
 				waitForTimeoutMs: STARTUP_READY_TIMEOUT_MS,
 				optional: true,
 				capture: "startup",
