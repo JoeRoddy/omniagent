@@ -628,6 +628,34 @@ CLAUDE AND GPT MODELS
 		});
 	});
 
+	it("merges complete raw groups with the currently visible screen groups", () => {
+		const raw = `
+GEMINI MODELS
+  Weekly Limit
+    72% remaining · Refreshes in 71h 49m
+
+CLAUDE AND GPT MODELS
+  Weekly Limit
+    50% remaining · Refreshes in 40h 10m
+`;
+		const screen = `
+CLAUDE AND GPT MODELS
+  Weekly Limit
+    55% remaining · Refreshes in 39h 55m
+`;
+
+		const parsed = parseAgyUsage(screen, raw);
+
+		expect(parsed.map((group) => group.heading)).toEqual([
+			"GEMINI MODELS",
+			"CLAUDE AND GPT MODELS",
+		]);
+		expect(parsed[1]).toMatchObject({
+			percentRemaining: 55,
+			resetText: "Refreshes in 39h 55m",
+		});
+	});
+
 	it("parses disabled quota buckets from the Models & Quota panel", () => {
 		const screen = `
 └ Models & Quota

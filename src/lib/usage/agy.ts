@@ -6,7 +6,14 @@ import {
 	makeUsageLimit,
 	parsePercentRemaining,
 } from "./format.js";
-import { enterKey, escapeKey, type PtyStep, type PtyWaitSnapshot, runPtyScenario } from "./pty.js";
+import {
+	enterKey,
+	escapeKey,
+	type PtyStep,
+	type PtyWaitFor,
+	type PtyWaitSnapshot,
+	runPtyScenario,
+} from "./pty.js";
 import {
 	type UsageExtractionContext,
 	UsageExtractionError,
@@ -23,8 +30,8 @@ const NOT_SIGNED_IN_PATTERN = /\bnot signed in\b/i;
 const SIGNING_IN_PATTERN = /\bsigning in\b/i;
 const DISABLED_PATTERN = /^Disabled$/i;
 const AGY_USAGE_FALLBACK_PATH = [".omniagent", "state", "usage", "antigravity-cli"];
-const AUTH_STABILIZATION_MS = 2_000;
-const TRUST_READY_TIMEOUT_MS = 5_000;
+const STARTUP_READY_TIMEOUT_MS = 25_000;
+const USAGE_PANEL_STABLE_MS = 1_000;
 
 type AgyUsageCwd = {
 	path: string;
@@ -75,17 +82,32 @@ function isUsageWriteBlocked(snapshot: PtyWaitSnapshot): boolean {
 	return isInteractionBlocked(snapshot) || isAuthenticationTransition(snapshot);
 }
 
-function isReadyOrKnownGate(snapshot: PtyWaitSnapshot): boolean {
-	return isReadyOrTrustDialog(snapshot) || isCurrentSignInFailure(snapshot);
-}
+function createStableUsagePanelWait(stableMs = USAGE_PANEL_STABLE_MS): PtyWaitFor {
+	let previousSignature = "";
+	let stableSince = 0;
 
-function hasUsagePanel(snapshot: PtyWaitSnapshot): boolean {
-	const cleanedOutput = cleanControlOutput(snapshot.raw);
-	return parseAgyUsage(snapshot.screen, cleanedOutput).length > 0;
-}
+	return (snapshot) => {
+		if (isInteractionBlocked(snapshot)) {
+			return true;
+		}
 
-function hasUsagePanelOrKnownFailure(snapshot: PtyWaitSnapshot): boolean {
-	return hasUsagePanel(snapshot) || isInteractionBlocked(snapshot);
+		const groups = parseAgyUsage(snapshot.screen, cleanControlOutput(snapshot.raw));
+		if (groups.length === 0) {
+			previousSignature = "";
+			stableSince = 0;
+			return false;
+		}
+
+		const signature = usageGroupSignature(groups);
+		const now = Date.now();
+		if (signature !== previousSignature) {
+			previousSignature = signature;
+			stableSince = now;
+			return false;
+		}
+
+		return now - stableSince >= stableMs;
+	};
 }
 
 function guardedUsageWrite(
@@ -130,10 +152,9 @@ export async function extractAgyUsage(
 		signal: context.signal,
 		debug: context.debug,
 		steps: [
-			{ waitFor: isReadyOrKnownGate, waitForTimeoutMs: 25_000 },
 			{
 				waitFor: isReadyOrTrustDialog,
-				waitForTimeoutMs: AUTH_STABILIZATION_MS,
+				waitForTimeoutMs: STARTUP_READY_TIMEOUT_MS,
 				optional: true,
 				capture: "startup",
 				captureWaitMs: 0,
@@ -174,7 +195,7 @@ export async function extractAgyUsage(
 			{
 				skipIf: () => scenarioState.trustOutcome !== "approved",
 				waitFor: isReady,
-				waitForTimeoutMs: TRUST_READY_TIMEOUT_MS,
+				waitForTimeoutMs: STARTUP_READY_TIMEOUT_MS,
 				optional: true,
 			},
 			{
@@ -194,11 +215,11 @@ export async function extractAgyUsage(
 			guardedUsageWrite(enterKey(), scenarioState, 250),
 			{
 				skipIf: () => !scenarioState.canEnterUsage,
-				waitFor: hasUsagePanelOrKnownFailure,
+				waitFor: createStableUsagePanelWait(),
 				waitForTimeoutMs: 15_000,
 				optional: true,
 				capture: "usage",
-				captureWaitMs: 500,
+				captureWaitMs: 0,
 			},
 			guardedUsageWrite(escapeKey(), scenarioState, 250),
 		],
@@ -293,11 +314,32 @@ async function ensureAgyUsageCwd(homeDir: string, repoRoot: string): Promise<Agy
 }
 
 export function parseAgyUsage(screen: string, cleanedOutput = ""): ParsedAgyUsageGroup[] {
+	const fromRaw = parseAgyUsageLines(compactLines(cleanedOutput));
 	const fromScreen = parseAgyUsageLines(compactLines(screen));
-	if (fromScreen.length > 0) {
-		return fromScreen;
+	const merged = new Map<string, ParsedAgyUsageGroup>();
+
+	for (const group of [...fromRaw, ...fromScreen]) {
+		merged.set(usageGroupKey(group), group);
 	}
-	return parseAgyUsageLines(compactLines(cleanedOutput));
+
+	return [...merged.values()];
+}
+
+function usageGroupKey(group: ParsedAgyUsageGroup): string {
+	return `${group.heading.trim().toLowerCase()}\0${group.limitLabel.trim().toLowerCase()}`;
+}
+
+function usageGroupSignature(groups: ParsedAgyUsageGroup[]): string {
+	return JSON.stringify(
+		groups.map((group) => ({
+			heading: group.heading,
+			models: group.models,
+			limitLabel: group.limitLabel,
+			percentRemaining: group.percentRemaining,
+			resetText: group.resetText,
+			disabled: group.disabled,
+		})),
+	);
 }
 
 function parseAgyUsageLines(lines: string[]): ParsedAgyUsageGroup[] {

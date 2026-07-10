@@ -6,7 +6,8 @@ import type { UsageConfirmation, UsageExtractionContext } from "../../../src/lib
 
 const FAKE_AGY_SCRIPT = String.raw`
 const mode = process.argv[1];
-let state = mode === "trust" ? "trust" : "sign-in";
+const trustMode = mode === "trust" || mode === "delayed-trust";
+let state = trustMode ? "trust" : "sign-in";
 let input = "";
 
 function render(content) {
@@ -18,9 +19,9 @@ function renderReady() {
 	render("Antigravity\r\n? for shortcuts");
 }
 
-function renderUsage() {
+function renderUsage(includeClaude = false) {
 	state = "usage";
-	render([
+	const lines = [
 		"└ Models & Quota",
 		"",
 		"GEMINI MODELS",
@@ -28,14 +29,25 @@ function renderUsage() {
 		"",
 		"  Weekly Limit",
 		"    72% remaining · Refreshes in 71h 49m",
-	].join("\r\n"));
+	];
+	if (includeClaude) {
+		lines.push(
+			"",
+			"CLAUDE AND GPT MODELS",
+			"  Models within this group: Claude Opus, Claude Sonnet, GPT-OSS",
+			"",
+			"  Weekly Limit",
+			"    55% remaining · Refreshes in 40h 10m",
+		);
+	}
+	render(lines.join("\r\n"));
 }
 
 if (state === "trust") {
 	render("Do you trust the contents of this project?");
 } else {
 	render("Antigravity is not signed in.");
-	setTimeout(renderReady, 75);
+	setTimeout(renderReady, mode === "delayed-auth" ? 2500 : 75);
 }
 
 process.stdin.setEncoding("utf8");
@@ -52,14 +64,21 @@ process.stdin.on("data", (chunk) => {
 		}
 		if (state === "trust") {
 			input = "";
-			renderReady();
+			state = "loading";
+			render("Loading trusted project...");
+			setTimeout(renderReady, mode === "delayed-trust" ? 5250 : 0);
 			continue;
 		}
 		if (state === "ready" && input === "/usage") {
 			input = "";
 			state = "loading";
 			render("Loading Models & Quota...");
-			setTimeout(renderUsage, 800);
+			setTimeout(() => {
+				renderUsage(false);
+				if (mode === "incremental-usage") {
+					setTimeout(() => renderUsage(true), 700);
+				}
+			}, 800);
 		}
 	}
 });
@@ -105,11 +124,40 @@ describe("Antigravity usage PTY integration", () => {
 			percentRemaining: 72,
 		});
 	}, 10_000);
+
+	it("waits through automatic authentication that exceeds the old stabilization window", async () => {
+		const result = await extractAgyUsage(buildContext(tempDir, "delayed-auth"));
+
+		expect(result.limits[0]).toMatchObject({
+			scope: "gemini_models",
+			percentRemaining: 72,
+		});
+	}, 15_000);
+
+	it("waits for readiness after trust beyond the old five-second deadline", async () => {
+		const confirm = vi.fn<UsageConfirmation>().mockResolvedValue(true);
+		const result = await extractAgyUsage(buildContext(tempDir, "delayed-trust", confirm));
+
+		expect(confirm).toHaveBeenCalledOnce();
+		expect(result.limits[0]).toMatchObject({
+			scope: "gemini_models",
+			percentRemaining: 72,
+		});
+	}, 15_000);
+
+	it("waits for an incrementally rendered quota panel to stabilize", async () => {
+		const result = await extractAgyUsage(buildContext(tempDir, "incremental-usage"));
+
+		expect(result.limits.map((limit) => limit.scope)).toEqual([
+			"gemini_models",
+			"claude_and_gpt_models",
+		]);
+	}, 15_000);
 });
 
 function buildContext(
 	homeDir: string,
-	mode: "trust" | "stale-auth",
+	mode: "trust" | "delayed-trust" | "stale-auth" | "delayed-auth" | "incremental-usage",
 	confirm?: UsageConfirmation,
 ): UsageExtractionContext {
 	const repoRoot = path.join(homeDir, "repo");
@@ -126,7 +174,7 @@ function buildContext(
 		launch: {
 			command: process.execPath,
 			args: ["-e", FAKE_AGY_SCRIPT, mode],
-			timeoutMs: 8_000,
+			timeoutMs: 12_000,
 		},
 		signal: new AbortController().signal,
 		confirm,

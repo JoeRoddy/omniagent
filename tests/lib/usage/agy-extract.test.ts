@@ -98,7 +98,9 @@ describe("Antigravity usage extraction", () => {
 
 		const options = ptyMock.runPtyScenario.mock.calls[0]?.[0];
 		const steps = options.steps as MockPtyStep[];
-		const readyAfterTrustStep = steps.find((step) => step.waitForTimeoutMs === 5_000);
+		const readyAfterTrustStep = steps.find(
+			(step) => step.waitForTimeoutMs === 25_000 && step.capture == null,
+		);
 
 		expect(options.cwd).toBe(fallbackDir);
 		expect(forwardedKey).toBe("\r");
@@ -217,18 +219,11 @@ describe("Antigravity usage extraction", () => {
 
 		const options = ptyMock.runPtyScenario.mock.calls[0]?.[0];
 		const startupWait = options.steps[0];
-		const stabilizationWait = options.steps[1];
 		const usageWait = options.steps.find((step: { capture?: string }) => step.capture === "usage");
 
 		expect(usageWait.optional).toBe(true);
 		expect(
 			startupWait.waitFor({
-				raw: "Antigravity is not signed in.",
-				screen: "Antigravity is not signed in.",
-			}),
-		).toBe(true);
-		expect(
-			stabilizationWait.waitFor({
 				raw: "Antigravity is not signed in.",
 				screen: "Antigravity is not signed in.",
 			}),
@@ -252,7 +247,7 @@ describe("Antigravity usage extraction", () => {
 			}),
 		).toBe(false);
 		expect(
-			stabilizationWait.waitFor({
+			startupWait.waitFor({
 				raw: "Antigravity is not signed in.\nSigning in...",
 				screen: "? for shortcuts",
 			}),
@@ -365,13 +360,19 @@ describe("Antigravity usage extraction", () => {
 
 		const options = ptyMock.runPtyScenario.mock.calls[0]?.[0];
 		const usageWait = options.steps.find((step: { capture?: string }) => step.capture === "usage");
+		const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000);
+		const snapshot = {
+			raw: "GEMINI MODELS\r\nWeekly Limit\r\n72% remaining · Refreshes in 71h 49m\r\n",
+			screen: "",
+		};
 
-		expect(
-			usageWait.waitFor({
-				raw: "GEMINI MODELS\r\nWeekly Limit\r\n72% remaining · Refreshes in 71h 49m\r\n",
-				screen: "",
-			}),
-		).toBe(true);
+		try {
+			expect(usageWait.waitFor(snapshot)).toBe(false);
+			nowSpy.mockReturnValue(2_000);
+			expect(usageWait.waitFor(snapshot)).toBe(true);
+		} finally {
+			nowSpy.mockRestore();
+		}
 	});
 
 	it("reports the specific sign-in error when Antigravity is not authenticated", async () => {
