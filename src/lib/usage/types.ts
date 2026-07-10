@@ -13,6 +13,16 @@ export type UsageDebugRequest = {
 	includeScreenSnapshots?: boolean;
 };
 
+export type UsageConfirmationRequest = {
+	type: "trust-directory";
+	targetId: string;
+	displayName: string;
+	path: string;
+	managed: boolean;
+};
+
+export type UsageConfirmation = (request: UsageConfirmationRequest) => Promise<boolean>;
+
 export type UsageExtractionContext = {
 	targetId: string;
 	displayName: string;
@@ -26,7 +36,18 @@ export type UsageExtractionContext = {
 	launch?: UsageLaunchDefinition;
 	signal: AbortSignal;
 	debug: UsageDebugRequest;
+	confirm?: UsageConfirmation;
 };
+
+export class UsageExtractionError extends Error {
+	constructor(
+		readonly code: string,
+		message: string,
+	) {
+		super(message);
+		this.name = "UsageExtractionError";
+	}
+}
 
 export type NormalizedUsageLimit = {
 	id: string;

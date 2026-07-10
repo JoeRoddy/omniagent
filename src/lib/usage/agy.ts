@@ -6,15 +6,12 @@ import {
 	makeUsageLimit,
 	parsePercentRemaining,
 } from "./format.js";
+import { enterKey, escapeKey, type PtyStep, type PtyWaitSnapshot, runPtyScenario } from "./pty.js";
 import {
-	enterKey,
-	escapeKey,
-	type PtyStep,
-	type PtyWaitSnapshot,
-	runPtyScenario,
-	typeTextSteps,
-} from "./pty.js";
-import type { UsageExtractionContext, UsageExtractionResult } from "./types.js";
+	type UsageExtractionContext,
+	UsageExtractionError,
+	type UsageExtractionResult,
+} from "./types.js";
 
 const TRUST_DIALOG_PATTERN = /Do you trust the contents of this project\?/i;
 const READY_PATTERN = /\?\s+for shortcuts/i;
@@ -23,13 +20,18 @@ const LIMIT_LABEL_PATTERN = /limit$/i;
 const MODELS_LINE_PATTERN = /^Models within this group:\s*(.+)$/i;
 const REFRESH_PATTERN = /Refreshes\s+in\s+(?:(\d+)h)?\s*(?:(\d+)m)?/i;
 const NOT_SIGNED_IN_PATTERN = /\bnot signed in\b/i;
+const SIGNING_IN_PATTERN = /\bsigning in\b/i;
 const DISABLED_PATTERN = /^Disabled$/i;
 const AGY_USAGE_FALLBACK_PATH = [".omniagent", "state", "usage", "antigravity-cli"];
+const AUTH_STABILIZATION_MS = 2_000;
+const TRUST_READY_TIMEOUT_MS = 5_000;
 
 type AgyUsageCwd = {
 	path: string;
 	managed: boolean;
 };
+
+type AgyTrustOutcome = "not-requested" | "approved" | "denied" | "required";
 
 export type ParsedAgyUsageGroup = {
 	heading: string;
@@ -40,10 +42,6 @@ export type ParsedAgyUsageGroup = {
 	disabled: boolean;
 	raw: string;
 };
-
-function isTrustDialog(snapshot: PtyWaitSnapshot): boolean {
-	return TRUST_DIALOG_PATTERN.test(snapshot.raw) || TRUST_DIALOG_PATTERN.test(snapshot.screen);
-}
 
 function isCurrentTrustDialog(snapshot: PtyWaitSnapshot): boolean {
 	return TRUST_DIALOG_PATTERN.test(snapshot.screen);
@@ -58,7 +56,27 @@ function isReady(snapshot: PtyWaitSnapshot): boolean {
 }
 
 function isReadyOrTrustDialog(snapshot: PtyWaitSnapshot): boolean {
-	return READY_PATTERN.test(snapshot.screen) || isTrustDialog(snapshot);
+	return isReady(snapshot) || isCurrentTrustDialog(snapshot);
+}
+
+function isCurrentSignInFailure(snapshot: PtyWaitSnapshot): boolean {
+	return NOT_SIGNED_IN_PATTERN.test(snapshot.screen);
+}
+
+function isInteractionBlocked(snapshot: PtyWaitSnapshot): boolean {
+	return isCurrentTrustDialog(snapshot) || isCurrentSignInFailure(snapshot);
+}
+
+function isAuthenticationTransition(snapshot: PtyWaitSnapshot): boolean {
+	return SIGNING_IN_PATTERN.test(snapshot.screen);
+}
+
+function isUsageWriteBlocked(snapshot: PtyWaitSnapshot): boolean {
+	return isInteractionBlocked(snapshot) || isAuthenticationTransition(snapshot);
+}
+
+function isReadyOrKnownGate(snapshot: PtyWaitSnapshot): boolean {
+	return isReadyOrTrustDialog(snapshot) || isCurrentSignInFailure(snapshot);
 }
 
 function hasUsagePanel(snapshot: PtyWaitSnapshot): boolean {
@@ -67,18 +85,24 @@ function hasUsagePanel(snapshot: PtyWaitSnapshot): boolean {
 }
 
 function hasUsagePanelOrKnownFailure(snapshot: PtyWaitSnapshot): boolean {
-	const cleanedOutput = cleanControlOutput(snapshot.raw);
-	return (
-		hasUsagePanel(snapshot) ||
-		NOT_SIGNED_IN_PATTERN.test(snapshot.screen) ||
-		NOT_SIGNED_IN_PATTERN.test(cleanedOutput)
-	);
+	return hasUsagePanel(snapshot) || isInteractionBlocked(snapshot);
 }
 
-function withTrustSkip(step: PtyStep): PtyStep {
-	// The trust dialog swallows keystrokes; never type into it so the
-	// post-scenario check can surface an actionable error instead.
-	return { ...step, skipIf: isCurrentTrustDialog, skipIfSource: "screen" };
+function guardedUsageWrite(
+	value: string,
+	scenarioState: { canEnterUsage: boolean },
+	waitMs?: number,
+): PtyStep {
+	return {
+		waitMs,
+		write: (snapshot) => {
+			if (isUsageWriteBlocked(snapshot)) {
+				scenarioState.canEnterUsage = false;
+				return undefined;
+			}
+			return scenarioState.canEnterUsage ? value : undefined;
+		},
+	};
 }
 
 export async function extractAgyUsage(
@@ -86,6 +110,15 @@ export async function extractAgyUsage(
 ): Promise<UsageExtractionResult> {
 	const command = context.command ?? context.launch?.command ?? "agy";
 	const launchCwd = await ensureAgyUsageCwd(context.homeDir, context.repoRoot);
+	const scenarioState: {
+		trustOutcome: AgyTrustOutcome;
+		canEnterUsage: boolean;
+		reachedReadyAfterTrust: boolean;
+	} = {
+		trustOutcome: "not-requested",
+		canEnterUsage: false,
+		reachedReadyAfterTrust: false,
+	};
 
 	const ptyResult = await runPtyScenario({
 		command,
@@ -97,48 +130,125 @@ export async function extractAgyUsage(
 		signal: context.signal,
 		debug: context.debug,
 		steps: [
-			{ waitFor: isReadyOrTrustDialog, waitForTimeoutMs: 25_000 },
-			...buildManagedTrustSteps(launchCwd.managed),
-			...typeTextSteps("/usage", 25).map(withTrustSkip),
-			withTrustSkip({ waitMs: 250, write: enterKey() }),
-			withTrustSkip({
+			{ waitFor: isReadyOrKnownGate, waitForTimeoutMs: 25_000 },
+			{
+				waitFor: isReadyOrTrustDialog,
+				waitForTimeoutMs: AUTH_STABILIZATION_MS,
+				optional: true,
+				capture: "startup",
+				captureWaitMs: 0,
+			},
+			{
+				skipIf: isNotCurrentTrustDialog,
+				skipIfSource: "screen",
+				write: async () => {
+					if (context.confirm == null) {
+						scenarioState.trustOutcome = "required";
+						return undefined;
+					}
+					const approved = await context.confirm({
+						type: "trust-directory",
+						targetId: context.targetId,
+						displayName: context.displayName,
+						path: launchCwd.path,
+						managed: launchCwd.managed,
+					});
+					scenarioState.trustOutcome = approved ? "approved" : "denied";
+					return undefined;
+				},
+			},
+			{
+				write: (snapshot) => {
+					if (!isCurrentTrustDialog(snapshot)) {
+						return undefined;
+					}
+					if (scenarioState.trustOutcome === "approved") {
+						return enterKey();
+					}
+					if (scenarioState.trustOutcome === "denied") {
+						return escapeKey();
+					}
+					return undefined;
+				},
+			},
+			{
+				skipIf: () => scenarioState.trustOutcome !== "approved",
+				waitFor: isReady,
+				waitForTimeoutMs: TRUST_READY_TIMEOUT_MS,
+				optional: true,
+			},
+			{
+				write: (snapshot) => {
+					const readyForUsage = isReady(snapshot) && !isInteractionBlocked(snapshot);
+					if (scenarioState.trustOutcome === "approved" && readyForUsage) {
+						scenarioState.reachedReadyAfterTrust = true;
+					}
+					scenarioState.canEnterUsage =
+						scenarioState.trustOutcome !== "denied" &&
+						scenarioState.trustOutcome !== "required" &&
+						readyForUsage;
+					return undefined;
+				},
+			},
+			...[..."/usage"].map((character) => guardedUsageWrite(character, scenarioState, 25)),
+			guardedUsageWrite(enterKey(), scenarioState, 250),
+			{
+				skipIf: () => !scenarioState.canEnterUsage,
 				waitFor: hasUsagePanelOrKnownFailure,
 				waitForTimeoutMs: 15_000,
 				optional: true,
 				capture: "usage",
 				captureWaitMs: 500,
-			}),
-			{ write: escapeKey(), waitMs: 250 },
+			},
+			guardedUsageWrite(escapeKey(), scenarioState, 250),
 		],
 	});
 
-	const buildError = (message: string): Error => {
-		const error = new Error(message);
+	const buildError = (message: string, code?: string): Error => {
+		const error = code == null ? new Error(message) : new UsageExtractionError(code, message);
 		if (ptyResult.debug.length > 0) {
 			Object.assign(error, { debug: ptyResult.debug });
 		}
 		return error;
 	};
 
-	if (isCurrentTrustDialog(ptyResult)) {
-		if (!launchCwd.managed) {
-			throw buildError(
-				`Antigravity has not trusted this project yet. Run \`${command}\` in ${launchCwd.path} once, accept the trust prompt, then re-run usage.`,
-			);
-		}
+	const trustSubject = launchCwd.managed ? "managed usage directory" : "project directory";
+	if (scenarioState.trustOutcome === "required") {
 		throw buildError(
-			`Antigravity did not accept the managed usage launch directory trust prompt automatically. Run \`${command}\` in ${launchCwd.path} once, accept the trust prompt, then re-run usage.`,
+			`Antigravity needs permission to trust the ${trustSubject} at ${launchCwd.path}. Re-run usage in an interactive terminal to review this request.`,
+			"trust_required",
+		);
+	}
+	if (scenarioState.trustOutcome === "denied") {
+		throw buildError(
+			`Antigravity trust was declined for the ${trustSubject} at ${launchCwd.path}.`,
+			"trust_denied",
+		);
+	}
+	if (isCurrentSignInFailure(ptyResult)) {
+		throw buildError(`Antigravity is not signed in. Run \`${command}\` and complete the login.`);
+	}
+	if (scenarioState.trustOutcome === "approved" && !scenarioState.reachedReadyAfterTrust) {
+		throw buildError(
+			`Antigravity did not accept trust for the ${trustSubject} at ${launchCwd.path}. Run \`${command}\` there once, accept the trust prompt, then re-run usage.`,
+			"trust_acceptance_failed",
+		);
+	}
+	if (isCurrentTrustDialog(ptyResult)) {
+		throw buildError(
+			`Antigravity still requires trust for the ${trustSubject} at ${launchCwd.path}.`,
+			"trust_required",
 		);
 	}
 
 	const snapshot = ptyResult.snapshots.usage ?? ptyResult;
 	const cleanedOutput = cleanControlOutput(snapshot.raw);
+	if (isCurrentSignInFailure(snapshot)) {
+		throw buildError(`Antigravity is not signed in. Run \`${command}\` and complete the login.`);
+	}
 	const groups = parseAgyUsage(snapshot.screen, cleanedOutput);
 
 	if (groups.length === 0) {
-		if (NOT_SIGNED_IN_PATTERN.test(snapshot.screen) || NOT_SIGNED_IN_PATTERN.test(cleanedOutput)) {
-			throw buildError(`Antigravity is not signed in. Run \`${command}\` and complete the login.`);
-		}
 		throw buildError("Antigravity /usage output did not include Models & Quota limit groups.");
 	}
 
@@ -170,21 +280,6 @@ export async function extractAgyUsage(
 		}),
 		debug: ptyResult.debug.length > 0 ? ptyResult.debug : undefined,
 	};
-}
-
-function buildManagedTrustSteps(shouldAutoAccept: boolean): PtyStep[] {
-	if (!shouldAutoAccept) {
-		return [];
-	}
-	return [
-		{
-			skipIf: isNotCurrentTrustDialog,
-			skipIfSource: "screen",
-			waitMs: 250,
-			write: enterKey(),
-		},
-		{ waitFor: isReady, waitForTimeoutMs: 25_000 },
-	];
 }
 
 async function ensureAgyUsageCwd(homeDir: string, repoRoot: string): Promise<AgyUsageCwd> {

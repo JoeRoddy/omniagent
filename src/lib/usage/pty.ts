@@ -15,7 +15,7 @@ export type PtyStep = {
 	skipIf?: PtyWaitFor;
 	skipIfSource?: "raw" | "screen";
 	waitMs?: number;
-	write?: string;
+	write?: PtyWrite;
 	waitFor?: PtyWaitFor;
 	waitForSource?: "raw" | "screen";
 	waitForTimeoutMs?: number;
@@ -30,6 +30,10 @@ export type PtyWaitSnapshot = {
 };
 
 export type PtyWaitFor = string | RegExp | ((snapshot: PtyWaitSnapshot) => boolean);
+
+export type PtyWrite =
+	| string
+	| ((snapshot: Readonly<PtyWaitSnapshot>) => string | undefined | Promise<string | undefined>);
 
 export type PtyScenarioOptions = {
 	command: string;
@@ -166,16 +170,17 @@ export async function runPtyScenario(options: PtyScenarioOptions): Promise<PtySc
 		});
 	const cancellationPromise = new Promise<never>((_, reject) => {
 		cancelScenario = (message: string) => {
-			if (!exited) {
-				timedOut = true;
-				if (child) {
-					safeKillPty(child);
-				}
+			timedOut = true;
+			if (!exited && child) {
+				safeKillPty(child);
 			}
 			reject(buildScenarioError(message));
 		};
 	});
 	cancellationPromise.catch(() => {});
+	timeout = setTimeout(() => {
+		cancelScenario?.(`PTY scenario timed out after ${formatDuration(timeoutMs)}.`);
+	}, timeoutMs);
 	if (options.signal) {
 		const abortHandler = () => {
 			cancelScenario?.(formatAbortReason(options.signal, timeoutMs));
@@ -186,10 +191,6 @@ export async function runPtyScenario(options: PtyScenarioOptions): Promise<PtySc
 			options.signal.addEventListener("abort", abortHandler, { once: true });
 			removeAbortListener = () => options.signal?.removeEventListener("abort", abortHandler);
 		}
-	} else {
-		timeout = setTimeout(() => {
-			cancelScenario?.(`PTY scenario timed out after ${formatDuration(timeoutMs)}.`);
-		}, timeoutMs);
 	}
 	const withScenarioTimeout = async <T>(promise: Promise<T>): Promise<T> =>
 		Promise.race([promise, cancellationPromise]);
@@ -258,7 +259,16 @@ export async function runPtyScenario(options: PtyScenarioOptions): Promise<PtySc
 			}
 			if (step.write != null) {
 				throwIfTimedOut();
-				child.write(step.write);
+				const write =
+					typeof step.write === "function"
+						? await withScenarioTimeout(
+								Promise.resolve(step.write({ raw, screen: readScreen(terminal) })),
+							)
+						: step.write;
+				throwIfTimedOut();
+				if (write != null && !exited) {
+					child.write(write);
+				}
 			}
 			if (step.waitFor != null) {
 				const matched = await withScenarioTimeout(
