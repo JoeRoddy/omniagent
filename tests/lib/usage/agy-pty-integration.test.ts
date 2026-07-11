@@ -6,7 +6,8 @@ import type { UsageConfirmation, UsageExtractionContext } from "../../../src/lib
 
 const FAKE_AGY_SCRIPT = String.raw`
 const mode = process.argv[1];
-const trustMode = mode === "trust" || mode === "delayed-trust";
+const trustMode =
+	mode === "trust" || mode === "delayed-trust" || mode === "trust-login-selection";
 const loginSelectionMode = mode === "login-selection";
 let state = trustMode ? "trust" : "sign-in";
 let input = "";
@@ -18,6 +19,17 @@ function render(content) {
 function renderReady() {
 	state = "ready";
 	render("Antigravity\r\n? for shortcuts");
+}
+
+function renderLoginSelection() {
+	state = "login-selection";
+	render([
+		"Welcome to the Antigravity CLI. You are currently not signed in.",
+		"",
+		"Select login method:",
+		"> 1. Google OAuth",
+		"  2. Use a Google Cloud project",
+	].join("\r\n"));
 }
 
 function renderUsage(includeClaude = false) {
@@ -47,13 +59,7 @@ function renderUsage(includeClaude = false) {
 if (state === "trust") {
 	render("Do you trust the contents of this project?");
 } else if (loginSelectionMode) {
-	render([
-		"Welcome to the Antigravity CLI. You are currently not signed in.",
-		"",
-		"Select login method:",
-		"> 1. Google OAuth",
-		"  2. Use a Google Cloud project",
-	].join("\r\n"));
+	renderLoginSelection();
 } else {
 	render("Antigravity is not signed in.");
 	setTimeout(renderReady, mode === "delayed-auth" ? 2500 : 75);
@@ -73,6 +79,10 @@ process.stdin.on("data", (chunk) => {
 		}
 		if (state === "trust") {
 			input = "";
+			if (mode === "trust-login-selection") {
+				renderLoginSelection();
+				continue;
+			}
 			state = "loading";
 			render("Loading trusted project...");
 			setTimeout(renderReady, mode === "delayed-trust" ? 5250 : 0);
@@ -85,7 +95,7 @@ process.stdin.on("data", (chunk) => {
 			setTimeout(() => {
 				renderUsage(false);
 				if (mode === "incremental-usage") {
-					setTimeout(() => renderUsage(true), 700);
+					setTimeout(() => renderUsage(true), 1300);
 				}
 			}, 800);
 		}
@@ -149,6 +159,17 @@ describe("Antigravity usage PTY integration", () => {
 		);
 	});
 
+	it("reports login selection immediately after trust approval", async () => {
+		const confirm = vi.fn<UsageConfirmation>().mockResolvedValue(true);
+
+		await expect(
+			extractAgyUsage(buildContext(tempDir, "trust-login-selection", confirm)),
+		).rejects.toThrow(
+			`Antigravity is not signed in. Run \`${process.execPath}\` and complete the login.`,
+		);
+		expect(confirm).toHaveBeenCalledOnce();
+	}, 10_000);
+
 	it("waits for readiness after trust beyond the old five-second deadline", async () => {
 		const confirm = vi.fn<UsageConfirmation>().mockResolvedValue(true);
 		const result = await extractAgyUsage(buildContext(tempDir, "delayed-trust", confirm));
@@ -175,6 +196,7 @@ function buildContext(
 	mode:
 		| "trust"
 		| "delayed-trust"
+		| "trust-login-selection"
 		| "stale-auth"
 		| "delayed-auth"
 		| "login-selection"
@@ -195,7 +217,7 @@ function buildContext(
 		launch: {
 			command: process.execPath,
 			args: ["-e", FAKE_AGY_SCRIPT, mode],
-			timeoutMs: mode === "login-selection" ? 3_000 : 12_000,
+			timeoutMs: mode === "login-selection" || mode === "trust-login-selection" ? 3_000 : 12_000,
 		},
 		signal: new AbortController().signal,
 		confirm,

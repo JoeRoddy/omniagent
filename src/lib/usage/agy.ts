@@ -33,6 +33,7 @@ const DISABLED_PATTERN = /^Disabled$/i;
 const AGY_USAGE_FALLBACK_PATH = [".omniagent", "state", "usage", "antigravity-cli"];
 const STARTUP_READY_TIMEOUT_MS = 25_000;
 const USAGE_PANEL_STABLE_MS = 1_000;
+const USAGE_PANEL_MIN_OBSERVE_MS = 2_000;
 
 type AgyUsageCwd = {
 	path: string;
@@ -63,16 +64,20 @@ function isReady(snapshot: PtyWaitSnapshot): boolean {
 	return READY_PATTERN.test(snapshot.screen);
 }
 
+function isLoginSelection(snapshot: PtyWaitSnapshot): boolean {
+	return LOGIN_SELECTION_PATTERN.test(snapshot.screen);
+}
+
 function isStartupTerminalState(snapshot: PtyWaitSnapshot): boolean {
-	return (
-		isReady(snapshot) ||
-		isCurrentTrustDialog(snapshot) ||
-		LOGIN_SELECTION_PATTERN.test(snapshot.screen)
-	);
+	return isReady(snapshot) || isCurrentTrustDialog(snapshot) || isLoginSelection(snapshot);
+}
+
+function isPostTrustTerminalState(snapshot: PtyWaitSnapshot): boolean {
+	return isReady(snapshot) || isLoginSelection(snapshot);
 }
 
 function isCurrentSignInFailure(snapshot: PtyWaitSnapshot): boolean {
-	return NOT_SIGNED_IN_PATTERN.test(snapshot.screen);
+	return NOT_SIGNED_IN_PATTERN.test(snapshot.screen) || isLoginSelection(snapshot);
 }
 
 function isInteractionBlocked(snapshot: PtyWaitSnapshot): boolean {
@@ -87,8 +92,12 @@ function isUsageWriteBlocked(snapshot: PtyWaitSnapshot): boolean {
 	return isInteractionBlocked(snapshot) || isAuthenticationTransition(snapshot);
 }
 
-function createStableUsagePanelWait(stableMs = USAGE_PANEL_STABLE_MS): PtyWaitFor {
+function createStableUsagePanelWait(
+	stableMs = USAGE_PANEL_STABLE_MS,
+	minObserveMs = USAGE_PANEL_MIN_OBSERVE_MS,
+): PtyWaitFor {
 	let previousSignature = "";
+	let firstSeenAt: number | null = null;
 	let stableSince = 0;
 
 	return (snapshot) => {
@@ -99,19 +108,23 @@ function createStableUsagePanelWait(stableMs = USAGE_PANEL_STABLE_MS): PtyWaitFo
 		const groups = parseAgyUsage(snapshot.screen, cleanControlOutput(snapshot.raw));
 		if (groups.length === 0) {
 			previousSignature = "";
+			firstSeenAt = null;
 			stableSince = 0;
 			return false;
 		}
 
 		const signature = usageGroupSignature(groups);
 		const now = Date.now();
+		if (firstSeenAt == null) {
+			firstSeenAt = now;
+		}
 		if (signature !== previousSignature) {
 			previousSignature = signature;
 			stableSince = now;
 			return false;
 		}
 
-		return now - stableSince >= stableMs;
+		return now - firstSeenAt >= minObserveMs && now - stableSince >= stableMs;
 	};
 }
 
@@ -199,7 +212,7 @@ export async function extractAgyUsage(
 			},
 			{
 				skipIf: () => scenarioState.trustOutcome !== "approved",
-				waitFor: isReady,
+				waitFor: isPostTrustTerminalState,
 				waitForTimeoutMs: STARTUP_READY_TIMEOUT_MS,
 				optional: true,
 			},

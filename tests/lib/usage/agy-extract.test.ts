@@ -369,6 +369,8 @@ describe("Antigravity usage extraction", () => {
 		try {
 			expect(usageWait.waitFor(snapshot)).toBe(false);
 			nowSpy.mockReturnValue(2_000);
+			expect(usageWait.waitFor(snapshot)).toBe(false);
+			nowSpy.mockReturnValue(3_000);
 			expect(usageWait.waitFor(snapshot)).toBe(true);
 		} finally {
 			nowSpy.mockRestore();
