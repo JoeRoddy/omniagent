@@ -3,6 +3,17 @@ import os from "node:os";
 import path from "node:path";
 import { runCli } from "../../src/cli/index.js";
 
+const readlineMock = vi.hoisted(() => ({
+	question: vi.fn(),
+	close: vi.fn(),
+	once: vi.fn(),
+	removeListener: vi.fn(),
+}));
+
+vi.mock("node:readline/promises", () => ({
+	createInterface: () => readlineMock,
+}));
+
 const joinOutput = (calls: Array<[unknown]>) => calls.map(([arg]) => String(arg)).join("\n");
 
 async function withTempRepo(fn: (root: string) => Promise<void>): Promise<void> {
@@ -44,6 +55,31 @@ async function withCwd(dir: string, fn: () => Promise<void>): Promise<void> {
 		await fn();
 	} finally {
 		cwdSpy.mockRestore();
+	}
+}
+
+async function withUsageTty<T>(
+	stdinIsTTY: boolean,
+	stderrIsTTY: boolean,
+	fn: () => Promise<T>,
+): Promise<T> {
+	const stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+	const stderrDescriptor = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
+	Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: stdinIsTTY });
+	Object.defineProperty(process.stderr, "isTTY", { configurable: true, value: stderrIsTTY });
+	try {
+		return await fn();
+	} finally {
+		if (stdinDescriptor == null) {
+			Reflect.deleteProperty(process.stdin, "isTTY");
+		} else {
+			Object.defineProperty(process.stdin, "isTTY", stdinDescriptor);
+		}
+		if (stderrDescriptor == null) {
+			Reflect.deleteProperty(process.stderr, "isTTY");
+		} else {
+			Object.defineProperty(process.stderr, "isTTY", stderrDescriptor);
+		}
 	}
 }
 
@@ -182,12 +218,75 @@ module.exports = {
 `;
 }
 
+function confirmationUsageConfig(): string {
+	return `
+module.exports = {
+	disableTargets: ["codex", "claude"],
+	targets: [
+		{
+			id: "AGY",
+			displayName: "Mock Antigravity",
+			usage: {
+				windows: ["weekly"],
+				launch: { command: "agy" },
+				extract: async (ctx) => {
+					if (!ctx.confirm) {
+						const error = new Error("Directory trust confirmation is required.");
+						error.code = "trust_required";
+						throw error;
+					}
+					const approved = await ctx.confirm({
+						type: "trust-directory",
+						targetId: ctx.targetId,
+						displayName: ctx.displayName,
+						path: ctx.homeDir + "/managed-usage",
+						managed: true
+					});
+					if (!approved) {
+						const error = new Error("Directory trust was declined.");
+						error.code = "trust_denied";
+						throw error;
+					}
+					return {
+						targetId: ctx.targetId,
+						displayName: ctx.displayName,
+						command: ctx.command,
+						limits: [],
+						notes: ["Directory trust approved."]
+					};
+				}
+			}
+		}
+	]
+};
+`;
+}
+
+function inheritedAgyUsageConfig(): string {
+	return `
+module.exports = {
+	disableTargets: ["codex", "claude", "agy"],
+	targets: [
+		{
+			id: "company-agy",
+			displayName: "Company Antigravity",
+			inherits: "agy"
+		}
+	]
+};
+`;
+}
+
 describe.sequential("usage command", () => {
 	let logSpy: ReturnType<typeof vi.spyOn>;
 	let errorSpy: ReturnType<typeof vi.spyOn>;
 	let exitSpy: ReturnType<typeof vi.spyOn>;
 
 	beforeEach(() => {
+		readlineMock.question.mockReset();
+		readlineMock.close.mockReset();
+		readlineMock.once.mockReset();
+		readlineMock.removeListener.mockReset();
 		logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 		errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
@@ -543,7 +642,7 @@ module.exports = {
 			displayName: "Mock Antigravity",
 			aliases: ["gemini"],
 			usage: {
-				windows: ["credits"],
+				windows: ["weekly"],
 				launch: { command: "agy" },
 				extract: async (ctx) => ({
 					targetId: ctx.targetId,
@@ -551,17 +650,17 @@ module.exports = {
 					command: ctx.command,
 					limits: [
 						{
-							id: ctx.targetId + ".ai_credits.credits",
+							id: ctx.targetId + ".gemini_models.weekly",
 							targetId: ctx.targetId,
 							agent: ctx.targetId,
-							scope: "ai_credits",
-							window: "credits",
-							label: "AI Credits",
-							percentUsed: null,
-							percentRemaining: null,
+							scope: "gemini_models",
+							window: "weekly",
+							label: "Gemini Models",
+							percentUsed: 28,
+							percentRemaining: 72,
 							resetAt: null,
-							resetText: null,
-							raw: "Remaining AI Credits: 1,234"
+							resetText: "Refreshes in 71h 49m",
+							raw: "72% remaining · Refreshes in 71h 49m"
 						}
 					]
 				})
@@ -579,26 +678,24 @@ module.exports = {
 			expect(envelope.targets[0].targetId).toBe("agy");
 			expect(envelope.targets[0].displayName).toBe("Mock Antigravity");
 			expect(envelope.targets[0].command).toBe(path.join(binDir, "agy"));
-			expect(envelope.targets[0].limits[0].raw).toBe("Remaining AI Credits: 1,234");
+			expect(envelope.targets[0].limits[0].raw).toBe("72% remaining · Refreshes in 71h 49m");
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});
 
 	it("renders remainingText in the Left column for absolute balances", async () => {
 		await withTempRepo(async (root) => {
-			await createFakeCliBin(root, ["codex", "claude", "agy"]);
 			await writeConfig(
 				root,
-				usageConfig({
-					disableTargets: [],
-					extraTargets: `
+				`
+module.exports = {
+	disableTargets: ["codex", "claude", "gemini"],
+	targets: [
 		{
-			id: "agy",
-			displayName: "Mock Antigravity",
-			aliases: ["gemini"],
+			id: "balance-meter",
+			displayName: "Balance Meter",
 			usage: {
 				windows: ["credits"],
-				launch: { command: "agy" },
 				extract: async (ctx) => ({
 					targetId: ctx.targetId,
 					displayName: ctx.displayName,
@@ -621,17 +718,18 @@ module.exports = {
 					]
 				})
 			}
-		}`,
-				}),
+		}
+	]
+};
+`,
 			);
 
 			await withCwd(root, async () => {
-				await runCli(["node", "omniagent", "usage", "agy"]);
+				await runCli(["node", "omniagent", "usage", "balance-meter"]);
 			});
 
 			const output = joinOutput(logSpy.mock.calls);
-			const creditsRow = output.split("\n").find((line) => line.includes("AI Credits")) ?? "";
-			expect(creditsRow).toContain("1,234");
+			expect(output).toContain("1,234");
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});
@@ -1835,6 +1933,232 @@ module.exports = {
 				message: "some rows could not be parsed",
 			});
 			expect(exitSpy).toHaveBeenCalledWith(1);
+		});
+	});
+
+	it("prompts on an interactive terminal and forwards trust approval", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["agy"]);
+			await writeConfig(root, confirmationUsageConfig());
+			readlineMock.question.mockResolvedValueOnce("y");
+
+			await withUsageTty(true, true, () =>
+				withCwd(root, () => runCli(["node", "omniagent", "usage", "agy"])),
+			);
+
+			const prompt = String(readlineMock.question.mock.calls[0]?.[0]);
+			expect(prompt).toContain("Mock Antigravity needs to trust this managed usage directory");
+			expect(prompt).toContain(path.join(root, "home", "managed-usage"));
+			expect(prompt).toContain("Allow this? [y/N]");
+			expect(joinOutput(logSpy.mock.calls)).toContain("Note: Directory trust approved.");
+			expect(readlineMock.close).toHaveBeenCalledOnce();
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	it("defaults an interactive trust confirmation to denied", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["agy"]);
+			await writeConfig(root, confirmationUsageConfig());
+			readlineMock.question.mockResolvedValueOnce("");
+
+			await withUsageTty(true, true, () =>
+				withCwd(root, () => runCli(["node", "omniagent", "usage", "agy"])),
+			);
+
+			expect(joinOutput(logSpy.mock.calls)).toContain("Directory trust was declined.");
+			expect(exitSpy).toHaveBeenCalledWith(1);
+		});
+	});
+
+	it("provides confirmation to targets that inherit Antigravity usage", async () => {
+		await withTempRepo(async (root) => {
+			const binDir = await createFakeCliBin(root, ["agy"]);
+			await writeFile(
+				path.join(binDir, "agy"),
+				"#!/bin/sh\nprintf '\\033[2J\\033[HDo you trust the contents of this project?'\nIFS= read -r answer\n",
+				"utf8",
+			);
+			await writeConfig(root, inheritedAgyUsageConfig());
+			readlineMock.question.mockResolvedValueOnce("");
+
+			await withUsageTty(true, true, () =>
+				withCwd(root, () => runCli(["node", "omniagent", "usage", "company-agy"])),
+			);
+
+			expect(readlineMock.question).toHaveBeenCalledOnce();
+			expect(joinOutput(logSpy.mock.calls)).toContain("Antigravity trust was declined");
+			expect(exitSpy).toHaveBeenCalledWith(1);
+		});
+	});
+
+	it("does not prompt when stdin is non-interactive", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["agy"]);
+			await writeConfig(root, confirmationUsageConfig());
+
+			await withUsageTty(false, true, () =>
+				withCwd(root, () => runCli(["node", "omniagent", "usage", "agy"])),
+			);
+
+			expect(readlineMock.question).not.toHaveBeenCalled();
+			expect(joinOutput(logSpy.mock.calls)).toContain("Directory trust confirmation is required.");
+			expect(exitSpy).toHaveBeenCalledWith(1);
+		});
+	});
+
+	it("does not show an invisible prompt when stderr is redirected", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["agy"]);
+			await writeConfig(root, confirmationUsageConfig());
+
+			await withUsageTty(true, false, () =>
+				withCwd(root, () => runCli(["node", "omniagent", "usage", "agy"])),
+			);
+
+			expect(readlineMock.question).not.toHaveBeenCalled();
+			expect(joinOutput(logSpy.mock.calls)).toContain("Directory trust confirmation is required.");
+			expect(exitSpy).toHaveBeenCalledWith(1);
+		});
+	});
+
+	it.each([
+		"--json",
+		"--debug",
+	])("does not prompt for machine-readable output: %s", async (flag) => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["agy"]);
+			await writeConfig(root, confirmationUsageConfig());
+
+			await withUsageTty(true, true, () =>
+				withCwd(root, () => runCli(["node", "omniagent", "usage", "agy", flag])),
+			);
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(readlineMock.question).not.toHaveBeenCalled();
+			expect(envelope.errors[0]).toMatchObject({
+				targetId: "AGY",
+				code: "trust_required",
+			});
+			expect(exitSpy).toHaveBeenCalledWith(1);
+		});
+	});
+
+	it("cancels usage when Ctrl-C is pressed at the trust prompt", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["agy"]);
+			await writeConfig(root, confirmationUsageConfig());
+			let interrupt: (() => void) | undefined;
+			readlineMock.once.mockImplementation((event, listener) => {
+				if (event === "SIGINT") {
+					interrupt = listener as () => void;
+				}
+				return readlineMock;
+			});
+			readlineMock.question.mockImplementation((_question, options) => {
+				const signal = (options as { signal: AbortSignal }).signal;
+				return new Promise<string>((_resolve, reject) => {
+					signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+				});
+			});
+
+			const command = withUsageTty(true, true, () =>
+				withCwd(root, () => runCli(["node", "omniagent", "usage", "agy"])),
+			);
+			await vi.waitFor(() => expect(interrupt).toBeTypeOf("function"));
+			interrupt?.();
+			await command;
+
+			expect(errorSpy).toHaveBeenCalledWith("Usage cancelled.");
+			expect(exitSpy).toHaveBeenCalledWith(130);
+			expect(readlineMock.close).toHaveBeenCalledOnce();
+			expect(logSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	it("times out and closes a pending trust prompt", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["agy"]);
+			await writeConfig(root, confirmationUsageConfig());
+			let promptSignal: AbortSignal | undefined;
+			readlineMock.question.mockImplementation((_question, options) => {
+				promptSignal = (options as { signal: AbortSignal }).signal;
+				return new Promise<string>((_resolve, reject) => {
+					promptSignal?.addEventListener("abort", () => reject(promptSignal?.reason), {
+						once: true,
+					});
+				});
+			});
+
+			await withUsageTty(true, true, () =>
+				withCwd(root, () => runCli(["node", "omniagent", "usage", "agy", "--timeout=20ms"])),
+			);
+
+			expect(promptSignal?.aborted).toBe(true);
+			expect(readlineMock.close).toHaveBeenCalledOnce();
+			expect(joinOutput(logSpy.mock.calls)).toContain("Usage extraction timed out after 20ms.");
+			expect(exitSpy).toHaveBeenCalledWith(1);
+		});
+	});
+
+	it("promotes extractor-returned notes without failing", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					disableTargets: ["claude", "gemini"],
+					extractors: {
+						codex: `async (ctx) => ({
+							targetId: ctx.targetId,
+							displayName: ctx.displayName,
+							command: ctx.command,
+							limits: [],
+							notes: ["Mock Codex usage is not enabled for this account."]
+						})`,
+					},
+				}),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "codex"]);
+			});
+
+			const output = joinOutput(logSpy.mock.calls);
+			expect(output).toContain("Note: Mock Codex usage is not enabled for this account.");
+			expect(output).not.toContain("failed");
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	it("promotes extractor-returned notes to the JSON envelope", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					disableTargets: ["claude", "gemini"],
+					extractors: {
+						codex: `async (ctx) => ({
+							targetId: ctx.targetId,
+							displayName: ctx.displayName,
+							command: ctx.command,
+							limits: [],
+							notes: ["Mock Codex usage is not enabled for this account."]
+						})`,
+					},
+				}),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage", "codex", "--json"]);
+			});
+
+			const envelope = JSON.parse(joinOutput(logSpy.mock.calls));
+			expect(envelope.notes).toEqual(["Mock Codex usage is not enabled for this account."]);
+			expect(envelope.errors).toEqual([]);
+			expect(envelope.targets[0].notes).toBeUndefined();
+			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});
 });

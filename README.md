@@ -94,9 +94,11 @@ is not supported for usage extraction yet. Usage extraction may launch agent TUI
 cost if an agent reads repo context or instructions on startup; omniagent uses cheap/minimal
 launch settings where possible. Usage extraction times out after 30 seconds unless the target
 config defines a target-specific timeout; built-in TUI probes may use longer defaults. Some CLIs
-gate usage inspection behind onboarding state — Antigravity requires the project to be trusted
-(run `agy` once and accept the trust prompt); omniagent does not complete auth or onboarding
-prompts for you. Pass `--timeout=<seconds>` to override the per-agent timeout for the current
+gate usage inspection behind auth or onboarding state. When Antigravity requests directory trust,
+interactive usage shows the exact directory and forwards approval only after you confirm;
+omniagent never accepts trust automatically or completes authentication prompts. If Antigravity
+requests directory trust, JSON, debug, and non-interactive runs return a `trust_required` error
+instead of prompting. Pass `--timeout=<seconds>` to override the per-agent timeout for the current
 run.
 
 ## Local Overrides (`.local`)

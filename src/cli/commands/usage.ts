@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
+import { createInterface } from "node:readline/promises";
 import type { CommandModule } from "yargs";
 import { DEFAULT_AGENTS_DIR, resolveAgentsDir, validateAgentsDir } from "../../lib/agents-dir.js";
 import { findRepoRoot } from "../../lib/repo-root.js";
@@ -14,13 +15,15 @@ import {
 	validateTargetConfig,
 } from "../../lib/targets/index.js";
 import { normalizeUsageWindow } from "../../lib/usage/format.js";
-import type {
-	NormalizedUsageDebugArtifact,
-	NormalizedUsageEnvelope,
-	NormalizedUsageError,
-	NormalizedUsageLimit,
-	NormalizedUsageTargetResult,
-	UsageExtractionContext,
+import {
+	type NormalizedUsageDebugArtifact,
+	type NormalizedUsageEnvelope,
+	type NormalizedUsageError,
+	type NormalizedUsageLimit,
+	type NormalizedUsageTargetResult,
+	type UsageConfirmationRequest,
+	type UsageExtractionContext,
+	UsageExtractionError,
 } from "../../lib/usage/types.js";
 
 type UsageArgs = {
@@ -103,6 +106,11 @@ type UsageTableWidths = {
 
 type UsageSortKey = "reset" | "left";
 
+type UsageConfirmationPrompt = (
+	request: UsageConfirmationRequest,
+	signal: AbortSignal,
+) => Promise<boolean>;
+
 const DEFAULT_USAGE_TIMEOUT_MS = 30_000;
 const MS_PER_MINUTE = 60_000;
 const MS_PER_HOUR = 3_600_000;
@@ -124,6 +132,13 @@ const RESET_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
 class UsageExtractionTimeoutError extends Error {
 	constructor(readonly timeoutMs: number) {
 		super(`Usage extraction timed out after ${formatDuration(timeoutMs)}.`);
+	}
+}
+
+class UsageCommandInterruptedError extends Error {
+	constructor() {
+		super("Usage cancelled.");
+		this.name = "UsageCommandInterruptedError";
 	}
 }
 
@@ -209,6 +224,72 @@ function uniqueNormalizedWindows(values: string[]): string[] {
 	return result;
 }
 
+class UsageConfirmationPrompter {
+	private rl: ReturnType<typeof createInterface> | null = null;
+	private queue: Promise<void> = Promise.resolve();
+	private closed = false;
+	private readonly interrupt: () => void;
+
+	constructor(interrupt: () => void) {
+		this.interrupt = interrupt;
+	}
+
+	readonly confirm: UsageConfirmationPrompt = (request, signal) => {
+		const confirmation = this.queue.then(() => this.ask(request, signal));
+		this.queue = confirmation.then(
+			() => undefined,
+			() => undefined,
+		);
+		return confirmation;
+	};
+
+	close(): void {
+		this.closed = true;
+		this.rl?.close();
+		this.rl = null;
+	}
+
+	private async ask(request: UsageConfirmationRequest, signal: AbortSignal): Promise<boolean> {
+		if (this.closed) {
+			throw new Error("Usage confirmation is no longer available.");
+		}
+		if (signal.aborted) {
+			throw signal.reason instanceof Error
+				? signal.reason
+				: new Error("Usage confirmation was cancelled.");
+		}
+		const scope = request.managed ? "managed usage directory" : "project directory";
+		const question = `${request.displayName} needs to trust this ${scope}:\n${request.path}\n\nAllow this? [y/N] `;
+		const rl = createInterface({ input: process.stdin, output: process.stderr });
+		this.rl = rl;
+		const handleInterrupt = () => this.interrupt();
+		rl.once("SIGINT", handleInterrupt);
+		try {
+			while (true) {
+				const answer = (await rl.question(question, { signal })).trim().toLowerCase();
+				if (!answer || answer === "n" || answer === "no") {
+					return false;
+				}
+				if (answer === "y" || answer === "yes") {
+					return true;
+				}
+				console.error("Please enter yes or no.");
+			}
+		} catch (error) {
+			if (signal.aborted && signal.reason instanceof Error) {
+				throw signal.reason;
+			}
+			throw error;
+		} finally {
+			rl.removeListener("SIGINT", handleInterrupt);
+			rl.close();
+			if (this.rl === rl) {
+				this.rl = null;
+			}
+		}
+	}
+}
+
 function formatUsageTargetLabel(targets: ResolvedTarget[]): string {
 	return buildSupportedTargetLabel(targets);
 }
@@ -222,6 +303,15 @@ function formatSupportedUsageTargetsMessage(targets: ResolvedTarget[]): string {
 
 function getUsageCommand(target: ResolvedTarget): string | undefined {
 	return target.usage?.launch?.command;
+}
+
+function supportsUsageConfirmation(target: ResolvedTarget): boolean {
+	if (target.id.trim().toLowerCase() === "agy") {
+		return true;
+	}
+	const builtInAgyExtractor = BUILTIN_TARGETS.find((candidate) => candidate.id === "agy")?.usage
+		?.extract;
+	return builtInAgyExtractor != null && target.usage?.extract === builtInAgyExtractor;
 }
 
 async function checkUsageCommandAvailability(
@@ -297,8 +387,10 @@ function buildContext(options: {
 	now: Date;
 	command?: string;
 	signal: AbortSignal;
+	confirm?: UsageConfirmationPrompt;
 }): UsageExtractionContext {
 	const windows = uniqueNormalizedWindows(options.target.usage?.windows ?? []);
+	const confirm = options.confirm;
 	const launch = {
 		...(options.target.usage?.launch ?? {}),
 		timeoutMs: options.timeoutMs,
@@ -315,6 +407,7 @@ function buildContext(options: {
 		homeDir: options.homeDir,
 		launch,
 		signal: options.signal,
+		confirm: confirm == null ? undefined : (request) => confirm(request, options.signal),
 		debug: {
 			enabled: options.debug,
 			includeRawOutput: options.debug,
@@ -336,10 +429,14 @@ function filterTargetResult(
 		selectedWindow == null
 			? normalizedLimits
 			: normalizedLimits.filter((limit) => limit.window === selectedWindow);
+	const resultNotes = result.notes ?? [];
 	const notes =
 		selectedWindow != null && filteredLimits.length === 0
-			? [`${target.displayName} reported no usage rows for window "${selectedWindow}".`]
-			: [];
+			? [
+					...resultNotes,
+					`${target.displayName} reported no usage rows for window "${selectedWindow}".`,
+				]
+			: resultNotes;
 
 	return {
 		result: {
@@ -372,6 +469,8 @@ async function extractUsageForTarget(options: {
 	debug: boolean;
 	now: Date;
 	command?: string;
+	confirm?: UsageConfirmationPrompt;
+	commandSignal?: AbortSignal;
 }): Promise<TargetExtractionOutcome> {
 	try {
 		const extractor = options.target.usage?.extract;
@@ -387,10 +486,14 @@ async function extractUsageForTarget(options: {
 				debug: [],
 			};
 		}
-		const result = await withUsageTimeout((signal) => {
-			const context = buildContext({ ...options, signal });
-			return extractor(context);
-		}, options.timeoutMs);
+		const result = await withUsageTimeout(
+			(signal) => {
+				const context = buildContext({ ...options, signal });
+				return extractor(context);
+			},
+			options.timeoutMs,
+			options.commandSignal,
+		);
 		const filtered = filterTargetResult(options.target, result, options.selectedWindow);
 		return {
 			status: "success",
@@ -404,7 +507,7 @@ async function extractUsageForTarget(options: {
 		const message = error instanceof Error ? error.message : String(error);
 		const code = isUsageTimeoutError(error)
 			? "usage_extraction_timeout"
-			: "usage_extraction_failed";
+			: getUsageExtractionErrorCode(error);
 		return {
 			status: "error",
 			target: options.target,
@@ -412,6 +515,22 @@ async function extractUsageForTarget(options: {
 			debug: options.debug ? getErrorDebugArtifacts(error) : [],
 		};
 	}
+}
+
+function getUsageExtractionErrorCode(error: unknown): string {
+	if (error instanceof UsageExtractionError) {
+		return error.code;
+	}
+	if (error && typeof error === "object") {
+		const code = (error as { code?: unknown }).code;
+		if (typeof code === "string") {
+			const normalized = code.trim();
+			if (/^[a-z][a-z0-9_]*$/.test(normalized)) {
+				return normalized;
+			}
+		}
+	}
+	return "usage_extraction_failed";
 }
 
 function isUsageTimeoutError(error: unknown): boolean {
@@ -446,18 +565,26 @@ function isDebugArtifact(value: unknown): value is NormalizedUsageDebugArtifact 
 function withUsageTimeout<T>(
 	run: (signal: AbortSignal) => Promise<T>,
 	timeoutMs: number,
+	commandSignal?: AbortSignal,
 ): Promise<T> {
 	return new Promise((resolve, reject) => {
 		const controller = new AbortController();
 		let settled = false;
 		let timeoutFired = false;
-		let timeout: NodeJS.Timeout;
+		let timeout: NodeJS.Timeout | null = null;
+		let removeCommandAbortListener: (() => void) | null = null;
+		const cleanup = () => {
+			if (timeout != null) {
+				clearTimeout(timeout);
+			}
+			removeCommandAbortListener?.();
+		};
 		const settleResolve = (value: T) => {
 			if (settled) {
 				return;
 			}
 			settled = true;
-			clearTimeout(timeout);
+			cleanup();
 			resolve(value);
 		};
 		const settleReject = (error: unknown) => {
@@ -465,7 +592,7 @@ function withUsageTimeout<T>(
 				return;
 			}
 			settled = true;
-			clearTimeout(timeout);
+			cleanup();
 			reject(error);
 		};
 		timeout = setTimeout(() => {
@@ -476,6 +603,23 @@ function withUsageTimeout<T>(
 				settleReject(error);
 			});
 		}, timeoutMs);
+		if (commandSignal) {
+			const abortFromCommand = () => {
+				const reason =
+					commandSignal.reason instanceof Error
+						? commandSignal.reason
+						: new UsageCommandInterruptedError();
+				controller.abort(reason);
+				settleReject(reason);
+			};
+			if (commandSignal.aborted) {
+				abortFromCommand();
+				return;
+			}
+			commandSignal.addEventListener("abort", abortFromCommand, { once: true });
+			removeCommandAbortListener = () =>
+				commandSignal.removeEventListener("abort", abortFromCommand);
+		}
 
 		let promise: Promise<T>;
 		try {
@@ -1174,21 +1318,52 @@ async function runUsageCommand(argv: UsageArgs): Promise<UsageRunResult | null> 
 	}
 
 	const now = new Date();
-	const outcomes = await Promise.all(
-		selectedTargets.map((target) =>
-			extractUsageForTarget({
-				target,
-				repoRoot,
-				agentsDir,
-				homeDir,
-				selectedWindow,
-				timeoutMs: resolveTargetTimeoutMs(target, cliTimeoutMs),
-				debug: debugOutput,
-				now,
-				command: resolvedUsageCommands.get(target.id),
-			}),
-		),
-	);
+	const commandController = new AbortController();
+	const confirmationPrompter =
+		!jsonOutput && Boolean(process.stdin.isTTY) && Boolean(process.stderr.isTTY)
+			? new UsageConfirmationPrompter(() => {
+					if (!commandController.signal.aborted) {
+						commandController.abort(new UsageCommandInterruptedError());
+					}
+				})
+			: null;
+	let outcomes: TargetExtractionOutcome[];
+	try {
+		let confirmationTargetChain: Promise<void> = Promise.resolve();
+		const outcomePromises = selectedTargets.map((target) => {
+			const extract = () =>
+				extractUsageForTarget({
+					target,
+					repoRoot,
+					agentsDir,
+					homeDir,
+					selectedWindow,
+					timeoutMs: resolveTargetTimeoutMs(target, cliTimeoutMs),
+					debug: debugOutput,
+					now,
+					command: resolvedUsageCommands.get(target.id),
+					confirm: supportsUsageConfirmation(target) ? confirmationPrompter?.confirm : undefined,
+					commandSignal: commandController.signal,
+				});
+			if (confirmationPrompter == null || !supportsUsageConfirmation(target)) {
+				return extract();
+			}
+			const outcome = confirmationTargetChain.then(extract);
+			confirmationTargetChain = outcome.then(
+				() => undefined,
+				() => undefined,
+			);
+			return outcome;
+		});
+		outcomes = await Promise.all(outcomePromises);
+	} finally {
+		confirmationPrompter?.close();
+	}
+	if (commandController.signal.reason instanceof UsageCommandInterruptedError) {
+		console.error(commandController.signal.reason.message);
+		process.exit(130);
+		return null;
+	}
 	const targets: NormalizedUsageTargetResult[] = [];
 	const errors: NormalizedUsageError[] = [];
 	const notes: string[] = [];
@@ -1289,7 +1464,8 @@ export const usageCommand: CommandModule<unknown, UsageArgs> = {
 			})
 			.epilog(
 				"Usage extraction may launch agent TUIs and may incur cost if an agent reads repo " +
-					"context on startup. omniagent uses cheap/minimal launch settings where possible.",
+					"context on startup. Interactive runs may ask before forwarding directory trust; " +
+					"JSON, debug, and non-interactive runs never prompt.",
 			),
 	handler: async (argv) => {
 		await runUsageCommand(argv);

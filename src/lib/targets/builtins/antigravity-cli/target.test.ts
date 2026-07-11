@@ -133,8 +133,8 @@ describe("agy builtin target", () => {
 		expect(filename).toBe("AGENTS.md");
 	});
 
-	it("declares credits-based usage extraction", () => {
-		expect(agyTarget.usage?.windows).toEqual(["credits"]);
+	it("declares weekly quota usage extraction", () => {
+		expect(agyTarget.usage?.windows).toEqual(["weekly"]);
 		expect(agyTarget.usage?.launch).toEqual({ command: "agy", timeoutMs: 70_000 });
 		expect(typeof agyTarget.usage?.extract).toBe("function");
 	});

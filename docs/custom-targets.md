@@ -94,9 +94,22 @@ const config = {
 export default config;
 ```
 
-Limits that report an absolute balance instead of percentages (like Antigravity's AI Credits)
-can set `percentUsed`/`percentRemaining` to `null` and provide `remainingText` (for example
-`"1,234"`), which the human table renders in the Left column.
+Limits that report an absolute balance instead of percentages can set
+`percentUsed`/`percentRemaining` to `null` and provide `remainingText` (for example `"1,234"`),
+which the human table renders in the Left column.
+
+Extractors can return `notes: string[]` for informational, nonfatal conditions. Notes appear as
+`Note:` lines in human output and are promoted to the top-level JSON envelope. Notes do not change
+the exit code; use `errors` when the condition should make `omniagent usage` exit with code 1.
+
+```ts
+extract: async (context) => ({
+	targetId: context.targetId,
+	displayName: context.displayName,
+	limits: [],
+	notes: ["Usage reporting is not enabled for this account."],
+});
+```
 
 ## Structured output (`cli.flags.structuredOutput`)
 
