@@ -149,12 +149,22 @@ Weekly limit: 41% left
 		]);
 
 		const steps = options.steps;
-		expect(
-			steps[0].waitFor({ raw: "", screen: "Do you trust the contents of this directory?" }),
-		).toBe(true);
-		expect(steps[1]).toMatchObject({ write: "\r" });
-		expect(steps[1].skipIf({ raw: "", screen: "gpt-5.5 Context 0% used > " })).toBe(true);
-		expect(steps[2].waitFor({ raw: "", screen: "gpt-5.5 Context 0% used > " })).toBe(true);
+		const trustPrompt = { raw: "", screen: "Do you trust the contents of this directory?" };
+		const migrationPrompt = {
+			raw: "",
+			screen: "GPT-5.4 Mini will be deprecated soon\n› 1. Try new model\n  2. Use existing model",
+		};
+		const readyPrompt = { raw: "", screen: "gpt-5.5 Context 0% used > " };
+		expect(steps[0].waitFor(trustPrompt)).toBe(true);
+		expect(steps[0].waitFor(migrationPrompt)).toBe(true);
+		expect(steps[1].write(migrationPrompt)).toBe("2\r");
+		expect(steps[1].write(trustPrompt)).toBeUndefined();
+		expect(steps[1].skipIf(readyPrompt)).toBe(true);
+		expect(steps[2].waitFor(trustPrompt)).toBe(true);
+		expect(steps[2].optional).toBe(true);
+		expect(steps[3]).toMatchObject({ write: "\r" });
+		expect(steps[3].skipIf(readyPrompt)).toBe(true);
+		expect(steps[4].waitFor(readyPrompt)).toBe(true);
 	});
 
 	async function createCodexHome(): Promise<string> {
