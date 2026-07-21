@@ -154,6 +154,7 @@ Weekly limit: 41% left
 			raw: "",
 			screen: "GPT-5.4 Mini will be deprecated soon\n› 1. Try new model\n  2. Use existing model",
 		};
+		const dismissedMigrationPrompt = { raw: migrationPrompt.screen, screen: "" };
 		const readyPrompt = { raw: "", screen: "gpt-5.5 Context 0% used > " };
 		expect(steps[0].waitFor(trustPrompt)).toBe(true);
 		expect(steps[0].waitFor(migrationPrompt)).toBe(true);
@@ -164,7 +165,15 @@ Weekly limit: 41% left
 		expect(steps[2].optional).toBe(true);
 		expect(steps[3]).toMatchObject({ write: "\r" });
 		expect(steps[3].skipIf(readyPrompt)).toBe(true);
+		expect(steps[4].waitFor(migrationPrompt)).toBe(true);
 		expect(steps[4].waitFor(readyPrompt)).toBe(true);
+		expect(steps[4].optional).toBe(true);
+		expect(steps[5].write(migrationPrompt)).toBe("2\r");
+		// A dialog that only lingers in raw output was already dismissed; typing again would
+		// submit the selection to the composer.
+		expect(steps[5].write(dismissedMigrationPrompt)).toBeUndefined();
+		expect(steps[5].skipIf(readyPrompt)).toBe(true);
+		expect(steps[6].waitFor(readyPrompt)).toBe(true);
 	});
 
 	async function createCodexHome(): Promise<string> {

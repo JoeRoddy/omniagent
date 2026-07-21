@@ -77,6 +77,9 @@ async function extractCodexUsageFromTui(
 			{ write: dismissCodexModelMigrationPrompt, skipIf: isCodexPromptReady },
 			{ waitFor: isCodexPromptReadyOrTrustPrompt, waitForTimeoutMs: 10_000, optional: true },
 			{ write: enterKey(), skipIf: isCodexPromptReady },
+			// Trust onboarding can also precede the model-deprecation dialog.
+			{ waitFor: isCodexPromptReadyOrMigrationPrompt, waitForTimeoutMs: 10_000, optional: true },
+			{ write: dismissCodexModelMigrationPrompt, skipIf: isCodexPromptReady },
 			{ waitFor: isCodexPromptReady, waitForTimeoutMs: 10_000 },
 			...typeTextSteps("/status", 20),
 			{ write: enterKey() },
@@ -487,9 +490,15 @@ function isCodexModelMigrationPrompt(snapshot: { raw: string; screen: string }):
 	return codexKeepModelSelection(snapshot) != null;
 }
 
-function codexKeepModelSelection(snapshot: { raw: string; screen: string }): string | null {
-	const cleanedOutput = cleanControlOutput(`${snapshot.screen}\n${snapshot.raw}`);
-	const match = /(\d+)\.\s*Use existing model/i.exec(cleanedOutput);
+function isCodexPromptReadyOrMigrationPrompt(snapshot: { raw: string; screen: string }): boolean {
+	return isCodexPromptReady(snapshot) || isCodexModelMigrationPrompt(snapshot);
+}
+
+// The migration dialog must be detected on the live screen only: raw output still contains the
+// dialog after it is dismissed, and re-sending the selection would type into the composer.
+function codexKeepModelSelection(snapshot: { screen: string }): string | null {
+	const cleanedScreen = cleanControlOutput(snapshot.screen);
+	const match = /(\d+)\.\s*Use existing model/i.exec(cleanedScreen);
 	return match?.[1] ?? null;
 }
 
