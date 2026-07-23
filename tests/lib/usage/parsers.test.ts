@@ -219,6 +219,26 @@ describe("Codex usage parser", () => {
 		).toThrow("Codex usage API response did not include any main rate-limit windows.");
 	});
 
+	it("rejects Codex API windows with unknown durations", () => {
+		expect(() =>
+			buildCodexApiUsageResult(
+				{
+					rate_limit: {
+						primary_window: {
+							used_percent: 5,
+						},
+						secondary_window: null,
+					},
+				},
+				{
+					targetId: "codex",
+					displayName: "OpenAI Codex",
+					now: new Date("2026-05-18T12:00:00.000Z"),
+				},
+			),
+		).toThrow("Codex usage API response did not include any main rate-limit windows.");
+	});
+
 	it("extracts Codex ChatGPT backend auth from auth.json", () => {
 		expect(
 			extractCodexBackendAuth(
@@ -433,6 +453,32 @@ gpt-5.5 xhigh · Context 0% used
 			"spark:weekly",
 		]);
 		expect(limits.map((limit) => limit.percentRemaining)).toEqual([85, 60]);
+	});
+
+	it("omits incomplete rows when another main limit is parseable", () => {
+		const result = buildCodexUsageResult(
+			{
+				model: "",
+				directory: "",
+				permissions: "",
+				agentsMd: "",
+				account: "",
+				collaborationMode: "",
+				session: "",
+				main5hLimit: "[██",
+				mainWeeklyLimit: "60% left",
+				spark5hLimit: "",
+				sparkWeeklyLimit: "[███",
+			},
+			{
+				targetId: "codex",
+				displayName: "OpenAI Codex",
+				now: new Date("2026-05-18T12:00:00.000Z"),
+			},
+		);
+
+		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual(["main:weekly"]);
+		expect(result.limits.map((limit) => limit.percentRemaining)).toEqual([60]);
 	});
 
 	it("returns 5h-only Codex limits without errors when the weekly row is missing", () => {

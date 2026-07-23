@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import {
 	cleanControlOutput,
@@ -62,47 +63,60 @@ async function extractCodexUsageFromTui(
 	context: UsageExtractionContext,
 ): Promise<UsageExtractionResult> {
 	const command = context.command ?? context.launch?.command ?? "codex";
-	const ptyResult = await runPtyScenario({
-		command,
-		args: context.launch?.args ?? ["--no-alt-screen"],
-		cwd: context.homeDir,
-		cols: 100,
-		rows: 40,
-		timeoutMs: context.launch?.timeoutMs ?? 60_000,
-		signal: context.signal,
-		debug: context.debug,
-		steps: [
-			{ waitFor: isCodexPromptReadyOrStartupPrompt, waitForTimeoutMs: 10_000 },
-			// Keep the configured model when Codex opens with a model-deprecation dialog.
-			{ write: dismissCodexModelMigrationPrompt, skipIf: isCodexPromptReady },
-			{ waitFor: isCodexPromptReadyOrTrustPrompt, waitForTimeoutMs: 10_000, optional: true },
-			{ write: enterKey(), skipIf: isCodexPromptReady },
-			// Trust onboarding can also precede the model-deprecation dialog.
-			{ waitFor: isCodexPromptReadyOrMigrationPrompt, waitForTimeoutMs: 10_000, optional: true },
-			{ write: dismissCodexModelMigrationPrompt, skipIf: isCodexPromptReady },
-			{ waitFor: isCodexPromptReady, waitForTimeoutMs: 10_000 },
-			...typeTextSteps("/status", 20),
-			{ write: enterKey() },
-			{
-				waitFor: hasCodexStatusResponse,
-				waitForTimeoutMs: 15_000,
-				capture: "status",
-				captureWaitMs: 500,
+	const probeCodexHome = await createIsolatedCodexProbeHome(context.homeDir);
+	let ptyResult: PtyScenarioResult;
+	try {
+		ptyResult = await runPtyScenario({
+			command,
+			args: context.launch?.args ?? ["--no-alt-screen"],
+			cwd: context.homeDir,
+			env: {
+				CODEX_HOME: probeCodexHome,
 			},
-			{ waitMs: 5_000, skipIf: hasCodexStatusLimits },
-			{ write: `${CLEAR_LINE}/status${enterKey()}`, skipIf: hasCodexStatusLimits },
-			{
-				waitFor: hasCodexStatusLimits,
-				waitForTimeoutMs: 15_000,
-				skipIf: hasCodexStatusLimits,
-				optional: true,
-				capture: "statusRetry",
-				captureWaitMs: 500,
-			},
-			{ write: `${CLEAR_LINE}/exit${enterKey()}` },
-			{ waitMs: 500 },
-		],
-	});
+			cols: 100,
+			rows: 40,
+			timeoutMs: context.launch?.timeoutMs ?? 60_000,
+			signal: context.signal,
+			debug: context.debug,
+			steps: [
+				{ waitFor: isCodexPromptReadyOrStartupPrompt, waitForTimeoutMs: 10_000 },
+				// Keep the configured model when Codex opens with a model-deprecation dialog.
+				{ write: dismissCodexModelMigrationPrompt, skipIf: isCodexPromptReady },
+				{ waitFor: isCodexPromptReadyOrTrustPrompt, waitForTimeoutMs: 10_000, optional: true },
+				{ write: enterKey(), skipIf: isCodexPromptReady },
+				// Trust onboarding can also precede the model-deprecation dialog.
+				{
+					waitFor: isCodexPromptReadyOrMigrationPrompt,
+					waitForTimeoutMs: 10_000,
+					optional: true,
+				},
+				{ write: dismissCodexModelMigrationPrompt, skipIf: isCodexPromptReady },
+				{ waitFor: isCodexPromptReady, waitForTimeoutMs: 10_000 },
+				...typeTextSteps("/status", 20),
+				{ write: enterKey() },
+				{
+					waitFor: hasCodexStatusResponse,
+					waitForTimeoutMs: 15_000,
+					capture: "status",
+					captureWaitMs: 500,
+				},
+				{ waitMs: 5_000, skipIf: hasCodexStatusLimits },
+				{ write: `${CLEAR_LINE}/status${enterKey()}`, skipIf: hasCodexStatusLimits },
+				{
+					waitFor: hasCodexStatusLimits,
+					waitForTimeoutMs: 15_000,
+					skipIf: hasCodexStatusLimits,
+					optional: true,
+					capture: "statusRetry",
+					captureWaitMs: 500,
+				},
+				{ write: `${CLEAR_LINE}/exit${enterKey()}` },
+				{ waitMs: 500 },
+			],
+		});
+	} finally {
+		await rm(probeCodexHome, { recursive: true, force: true });
+	}
 
 	const parsed = selectCodexStatus(ptyResult);
 	const result = buildCodexUsageResult(parsed, {
@@ -116,6 +130,38 @@ async function extractCodexUsageFromTui(
 		...result,
 		debug: ptyResult.debug.length > 0 ? ptyResult.debug : undefined,
 	};
+}
+
+async function createIsolatedCodexProbeHome(homeDir: string): Promise<string> {
+	const probeCodexHome = await mkdtemp(path.join(os.tmpdir(), "omniagent-codex-probe-"));
+	try {
+		await Promise.all([
+			copyCodexProbeFile(path.join(homeDir, ...CODEX_AUTH_PATH), probeCodexHome, "auth.json"),
+			copyCodexProbeFile(
+				path.join(homeDir, ...CODEX_INSTALLATION_ID_PATH),
+				probeCodexHome,
+				"installation_id",
+			),
+		]);
+		return probeCodexHome;
+	} catch (error) {
+		await rm(probeCodexHome, { recursive: true, force: true });
+		throw error;
+	}
+}
+
+async function copyCodexProbeFile(
+	sourcePath: string,
+	probeCodexHome: string,
+	filename: string,
+): Promise<void> {
+	let contents: Buffer;
+	try {
+		contents = await readFile(sourcePath);
+	} catch {
+		return;
+	}
+	await writeFile(path.join(probeCodexHome, filename), contents, { mode: 0o600 });
 }
 
 async function extractCodexUsageFromApi(
@@ -324,15 +370,11 @@ function buildCodexApiRateLimitUsageLimits(options: {
 		return [];
 	}
 
-	const windows = [
-		["primary", options.rateLimit.primary_window],
-		["secondary", options.rateLimit.secondary_window],
-	] as const;
-	return windows.flatMap(([kind, window]) => {
+	const windows = [options.rateLimit.primary_window, options.rateLimit.secondary_window];
+	return windows.flatMap((window) => {
 		const limit = makeCodexApiUsageLimit({
 			targetId: options.targetId,
 			scope: options.scope,
-			windowKind: kind,
 			window,
 			now: options.now,
 			labelPrefix: options.labelPrefix,
@@ -344,7 +386,6 @@ function buildCodexApiRateLimitUsageLimits(options: {
 function makeCodexApiUsageLimit(options: {
 	targetId: string;
 	scope: string;
-	windowKind: "primary" | "secondary";
 	window: CodexApiRateLimitWindow | undefined;
 	now: Date;
 	labelPrefix?: string;
@@ -358,8 +399,11 @@ function makeCodexApiUsageLimit(options: {
 		return null;
 	}
 
+	const window = codexApiWindowName(options.window);
+	if (window == null) {
+		return null;
+	}
 	const resetAt = parseApiEpochSeconds(options.window.reset_at);
-	const window = codexApiWindowName(options.window, options.windowKind);
 	const percentUsedClamped = clampPercent(percentUsed);
 	const percentRemaining = 100 - percentUsedClamped;
 	const resetText = resetAt == null ? null : `resets ${resetAt}`;
@@ -396,10 +440,7 @@ function codexAdditionalLimitScope(limitName: string, meteredFeature: string): s
 	return normalized || "additional";
 }
 
-function codexApiWindowName(
-	window: CodexApiRateLimitWindow,
-	kind: "primary" | "secondary",
-): "5h" | "weekly" | string {
+function codexApiWindowName(window: CodexApiRateLimitWindow): "5h" | "weekly" | null {
 	const seconds = parseApiNumber(window.limit_window_seconds);
 	if (seconds === 18_000) {
 		return "5h";
@@ -407,7 +448,7 @@ function codexApiWindowName(
 	if (seconds === 604_800) {
 		return "weekly";
 	}
-	return kind === "primary" ? "5h" : "weekly";
+	return null;
 }
 
 function formatWindowLabel(window: string): string {
@@ -513,8 +554,9 @@ function dismissCodexModelMigrationPrompt(snapshot: {
 function hasCodexStatusLimits(snapshot: { raw: string; screen: string }): boolean {
 	const cleanedOutput = cleanControlOutput(`${snapshot.screen}\n${snapshot.raw}`);
 	const parsed = parseCodexStatus(cleanedOutput);
-	// Codex currently reports only a weekly main limit; one parseable main row is complete.
-	return hasParseableCodexMainLimit(parsed);
+	// Codex currently reports only a weekly main limit; absent rows are fine, but any row that has
+	// started rendering must include a parseable percentage before the probe exits.
+	return hasOnlyParseableCodexMainLimits(parsed);
 }
 
 function hasCodexStatusResponse(snapshot: { raw: string; screen: string }): boolean {
@@ -552,12 +594,15 @@ export function buildCodexUsageLimits(
 		}
 
 		const percentRemaining = parsePercentRemaining(raw);
+		if (percentRemaining == null) {
+			return [];
+		}
 		return [
 			makeUsageLimit({
 				targetId: context.targetId,
 				scope,
 				window,
-				percentUsed: percentRemaining == null ? null : 100 - percentRemaining,
+				percentUsed: 100 - percentRemaining,
 				percentRemaining,
 				resetText: parseResetText(raw),
 				raw,
@@ -662,6 +707,13 @@ function hasParseableCodexMainLimit(parsed: ParsedCodexStatus): boolean {
 		parsePercentRemaining(parsed.main5hLimit) != null ||
 		parsePercentRemaining(parsed.mainWeeklyLimit) != null
 	);
+}
+
+function hasOnlyParseableCodexMainLimits(parsed: ParsedCodexStatus): boolean {
+	const mainLimits = [parsed.main5hLimit, parsed.mainWeeklyLimit]
+		.map((limit) => limit.trim())
+		.filter(Boolean);
+	return mainLimits.length > 0 && mainLimits.every((limit) => parsePercentRemaining(limit) != null);
 }
 
 function isCodexSparkLimitLabel(label: string): boolean {

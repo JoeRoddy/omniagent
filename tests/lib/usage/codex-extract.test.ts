@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { vi } from "vitest";
@@ -19,25 +19,7 @@ describe("Codex usage extraction", () => {
 
 	beforeEach(() => {
 		ptyMock.runPtyScenario.mockReset();
-		ptyMock.runPtyScenario.mockResolvedValue({
-			command: "codex",
-			args: ["--no-alt-screen"],
-			exitCode: 0,
-			timedOut: false,
-			raw: "",
-			screen: "",
-			snapshots: {
-				status: {
-					raw: "",
-					screen: `
-Model: gpt-5.1-codex
-5h limit: 85% left
-Weekly limit: 41% left
-`,
-				},
-			},
-			debug: [],
-		});
+		ptyMock.runPtyScenario.mockResolvedValue(buildPtyResult());
 	});
 
 	afterEach(async () => {
@@ -130,6 +112,42 @@ Weekly limit: 41% left
 		]);
 	});
 
+	it("isolates fallback TUI state from the user's Codex configuration", async () => {
+		const { extractCodexUsage } = await import("../../../src/lib/usage/codex.js");
+		const homeDir = await createCodexHome();
+		const configPath = path.join(homeDir, ".codex", "config.toml");
+		const configContents = 'model = "gpt-5.4-mini"\n';
+		await writeFile(configPath, configContents);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue({
+				status: 200,
+				json: async () => ({}),
+			}),
+		);
+
+		let probeCodexHome = "";
+		ptyMock.runPtyScenario.mockImplementationOnce(async (options) => {
+			probeCodexHome = options.env?.CODEX_HOME ?? "";
+			expect(probeCodexHome).not.toBe(path.join(homeDir, ".codex"));
+			expect(await readFile(path.join(probeCodexHome, "auth.json"), "utf8")).toContain(
+				"test-access-token",
+			);
+			expect(await readFile(path.join(probeCodexHome, "installation_id"), "utf8")).toBe(
+				"test-installation-id",
+			);
+			await expect(
+				readFile(path.join(probeCodexHome, "config.toml"), "utf8"),
+			).rejects.toMatchObject({ code: "ENOENT" });
+			return buildPtyResult();
+		});
+
+		await extractCodexUsage(buildContext({ homeDir, now: new Date("2026-05-18T12:00:00.000Z") }));
+
+		expect(await readFile(configPath, "utf8")).toBe(configContents);
+		await expect(access(probeCodexHome)).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
 	it("runs the built-in probe from home and continues past the Codex trust gate", async () => {
 		const { extractCodexUsage } = await import("../../../src/lib/usage/codex.js");
 
@@ -174,6 +192,18 @@ Weekly limit: 41% left
 		expect(steps[5].write(dismissedMigrationPrompt)).toBeUndefined();
 		expect(steps[5].skipIf(readyPrompt)).toBe(true);
 		expect(steps[6].waitFor(readyPrompt)).toBe(true);
+
+		const statusSettleStep = steps.find((step: { waitMs?: number }) => step.waitMs === 5_000);
+		const weeklyOnlyStatus = {
+			raw: "",
+			screen: "Model: gpt-5.4-mini\nWeekly limit: 60% left",
+		};
+		const mixedIncrementalStatus = {
+			raw: "",
+			screen: "Model: gpt-5.4-mini\n5h limit: [██\nWeekly limit: 60% left",
+		};
+		expect(statusSettleStep.skipIf(weeklyOnlyStatus)).toBe(true);
+		expect(statusSettleStep.skipIf(mixedIncrementalStatus)).toBe(false);
 	});
 
 	async function createCodexHome(): Promise<string> {
@@ -216,3 +246,25 @@ Weekly limit: 41% left
 		};
 	}
 });
+
+function buildPtyResult() {
+	return {
+		command: "codex",
+		args: ["--no-alt-screen"],
+		exitCode: 0,
+		timedOut: false,
+		raw: "",
+		screen: "",
+		snapshots: {
+			status: {
+				raw: "",
+				screen: `
+Model: gpt-5.1-codex
+5h limit: 85% left
+Weekly limit: 41% left
+`,
+			},
+		},
+		debug: [],
+	};
+}
