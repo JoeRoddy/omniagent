@@ -158,15 +158,56 @@ describe("Codex usage parser", () => {
 		expect(result.limits[1]?.resetAt).toBe("2026-05-25T12:00:00.000Z");
 	});
 
-	it("requires complete main Codex API rate-limit windows", () => {
+	it("builds weekly-only Codex usage limits when the API omits the 5h window", () => {
+		const now = new Date("2026-05-18T12:00:00.000Z");
+		const result = buildCodexApiUsageResult(
+			{
+				rate_limit: {
+					primary_window: {
+						used_percent: 5,
+						limit_window_seconds: 604_800,
+						reset_at: now.getTime() / 1000 + 7 * 24 * 60 * 60,
+					},
+					secondary_window: null,
+				},
+				additional_rate_limits: [
+					{
+						limit_name: "GPT-5.3-Codex-Spark",
+						metered_feature: "codex_bengalfox",
+						rate_limit: {
+							primary_window: {
+								used_percent: 0,
+								limit_window_seconds: 604_800,
+								reset_at: now.getTime() / 1000 + 6 * 24 * 60 * 60,
+							},
+							secondary_window: null,
+						},
+					},
+				],
+			},
+			{
+				targetId: "codex",
+				displayName: "OpenAI Codex",
+				command: "codex",
+				now,
+			},
+		);
+
+		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual([
+			"main:weekly",
+			"spark:weekly",
+		]);
+		expect(result.limits.map((limit) => limit.percentRemaining)).toEqual([95, 100]);
+		expect(result.limits[0]?.resetAt).toBe("2026-05-25T12:00:00.000Z");
+	});
+
+	it("requires at least one main Codex API rate-limit window", () => {
 		expect(() =>
 			buildCodexApiUsageResult(
 				{
 					rate_limit: {
-						primary_window: {
-							used_percent: 6,
-							limit_window_seconds: 18_000,
-						},
+						primary_window: null,
+						secondary_window: null,
 					},
 				},
 				{
@@ -175,7 +216,27 @@ describe("Codex usage parser", () => {
 					now: new Date("2026-05-18T12:00:00.000Z"),
 				},
 			),
-		).toThrow("Codex usage API response did not include complete main rate-limit windows.");
+		).toThrow("Codex usage API response did not include any main rate-limit windows.");
+	});
+
+	it("rejects Codex API windows with unknown durations", () => {
+		expect(() =>
+			buildCodexApiUsageResult(
+				{
+					rate_limit: {
+						primary_window: {
+							used_percent: 5,
+						},
+						secondary_window: null,
+					},
+				},
+				{
+					targetId: "codex",
+					displayName: "OpenAI Codex",
+					now: new Date("2026-05-18T12:00:00.000Z"),
+				},
+			),
+		).toThrow("Codex usage API response did not include any main rate-limit windows.");
 	});
 
 	it("extracts Codex ChatGPT backend auth from auth.json", () => {
@@ -218,6 +279,65 @@ describe("Codex usage parser", () => {
 			mainWeeklyLimit: "41% left (resets May 25 at 9am)",
 			spark5hLimit: "90% left",
 			sparkWeeklyLimit: "60% left (resets May 25)",
+		});
+	});
+
+	it("parses weekly-only status output with inline Spark limit rows", () => {
+		const parsed = parseCodexStatus(`
+╭────────────────────────────────────────────────────────────────────────────────────────────────╮
+│  >_ OpenAI Codex (v0.144.6)                                                                    │
+│                                                                                                │
+│ Visit https://chatgpt.com/codex/settings/usage for up-to-date                                  │
+│ information on rate limits and credits                                                         │
+│                                                                                                │
+│  Model:                              gpt-5.4-mini (reasoning low, summaries auto)              │
+│  Directory:                          ~                                                         │
+│  Permissions:                        Workspace (untrusted)                                     │
+│  Agents.md:                          <none>                                                    │
+│  Account:                            user@example.com (Pro)                                    │
+│  Collaboration mode:                 Default                                                   │
+│                                                                                                │
+│  Weekly limit:                       [███████████████████░] 95% left (resets 13:03 on 28 Jul)  │
+│  GPT-5.3-Codex-Spark Weekly limit:   [████████████████████] 100% left (resets 16:38 on 28 Jul) │
+╰────────────────────────────────────────────────────────────────────────────────────────────────╯
+`);
+
+		expect(parsed).toMatchObject({
+			model: "gpt-5.4-mini (reasoning low, summaries auto)",
+			account: "user@example.com (Pro)",
+			main5hLimit: "",
+			mainWeeklyLimit: "[███████████████████░] 95% left (resets 13:03 on 28 Jul)",
+			spark5hLimit: "",
+			sparkWeeklyLimit: "[████████████████████] 100% left (resets 16:38 on 28 Jul)",
+		});
+
+		const result = buildCodexUsageResult(parsed, {
+			targetId: "codex",
+			displayName: "OpenAI Codex",
+			now: new Date("2026-07-21T12:00:00.000Z"),
+		});
+		expect(result.errors).toBeUndefined();
+		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual([
+			"main:weekly",
+			"spark:weekly",
+		]);
+		expect(result.limits.map((limit) => limit.percentRemaining)).toEqual([95, 100]);
+	});
+
+	it("does not treat inline Spark rows as section headings", () => {
+		const parsed = parseCodexStatus(`
+╭──────────────────────────╮
+│ Model: gpt-5.4-mini      │
+│ GPT-5.3-Codex-Spark Weekly limit: 100% left
+│ 5h limit: 85% left
+│ Weekly limit: 42% left
+╰──────────────────────────╯
+`);
+
+		expect(parsed).toMatchObject({
+			main5hLimit: "85% left",
+			mainWeeklyLimit: "42% left",
+			sparkWeeklyLimit: "100% left",
 		});
 	});
 
@@ -335,7 +455,33 @@ gpt-5.5 xhigh · Context 0% used
 		expect(limits.map((limit) => limit.percentRemaining)).toEqual([85, 60]);
 	});
 
-	it("returns partial Codex limits with an error when one required main row is missing", () => {
+	it("omits incomplete rows when another main limit is parseable", () => {
+		const result = buildCodexUsageResult(
+			{
+				model: "",
+				directory: "",
+				permissions: "",
+				agentsMd: "",
+				account: "",
+				collaborationMode: "",
+				session: "",
+				main5hLimit: "[██",
+				mainWeeklyLimit: "60% left",
+				spark5hLimit: "",
+				sparkWeeklyLimit: "[███",
+			},
+			{
+				targetId: "codex",
+				displayName: "OpenAI Codex",
+				now: new Date("2026-05-18T12:00:00.000Z"),
+			},
+		);
+
+		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual(["main:weekly"]);
+		expect(result.limits.map((limit) => limit.percentRemaining)).toEqual([60]);
+	});
+
+	it("returns 5h-only Codex limits without errors when the weekly row is missing", () => {
 		const result = buildCodexUsageResult(
 			{
 				model: "",
@@ -358,17 +504,10 @@ gpt-5.5 xhigh · Context 0% used
 		);
 
 		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual(["main:hourly"]);
-		expect(result.errors).toEqual([
-			{
-				targetId: "codex",
-				displayName: "OpenAI Codex",
-				code: "partial_parse",
-				message: "Codex usage output did not include the weekly limit row.",
-			},
-		]);
+		expect(result.errors).toBeUndefined();
 	});
 
-	it("returns partial Codex weekly limits when the 5h row is missing", () => {
+	it("returns weekly-only Codex limits without errors when the 5h row is missing", () => {
 		const result = buildCodexUsageResult(
 			{
 				model: "",
@@ -391,12 +530,10 @@ gpt-5.5 xhigh · Context 0% used
 		);
 
 		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual(["main:weekly"]);
-		expect(result.errors?.[0]?.message).toBe(
-			"Codex usage output did not include the 5h limit row.",
-		);
+		expect(result.errors).toBeUndefined();
 	});
 
-	it("throws when Codex output has no required main limit rows", () => {
+	it("throws when Codex output has no parseable main limit rows", () => {
 		expect(() =>
 			buildCodexUsageResult(
 				{
@@ -418,7 +555,32 @@ gpt-5.5 xhigh · Context 0% used
 					now: new Date("2026-05-18T12:00:00.000Z"),
 				},
 			),
-		).toThrow("Codex usage output did not include the required 5h and weekly limit rows.");
+		).toThrow("Codex usage output did not include any parseable main rate-limit rows.");
+	});
+
+	it("rejects an incrementally rendered main limit without a percentage", () => {
+		expect(() =>
+			buildCodexUsageResult(
+				{
+					model: "",
+					directory: "",
+					permissions: "",
+					agentsMd: "",
+					account: "",
+					collaborationMode: "",
+					session: "",
+					main5hLimit: "",
+					mainWeeklyLimit: "[██",
+					spark5hLimit: "",
+					sparkWeeklyLimit: "",
+				},
+				{
+					targetId: "codex",
+					displayName: "OpenAI Codex",
+					now: new Date("2026-05-18T12:00:00.000Z"),
+				},
+			),
+		).toThrow("Codex usage output did not include any parseable main rate-limit rows.");
 	});
 
 	it("treats Codex time-only resets as local CLI times", () => {
