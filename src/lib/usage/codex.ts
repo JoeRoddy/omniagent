@@ -513,8 +513,8 @@ function dismissCodexModelMigrationPrompt(snapshot: {
 function hasCodexStatusLimits(snapshot: { raw: string; screen: string }): boolean {
 	const cleanedOutput = cleanControlOutput(`${snapshot.screen}\n${snapshot.raw}`);
 	const parsed = parseCodexStatus(cleanedOutput);
-	// Codex currently reports only a weekly main limit; any main row means the status is complete.
-	return Boolean(parsed.main5hLimit || parsed.mainWeeklyLimit);
+	// Codex currently reports only a weekly main limit; one parseable main row is complete.
+	return hasParseableCodexMainLimit(parsed);
 }
 
 function hasCodexStatusResponse(snapshot: { raw: string; screen: string }): boolean {
@@ -651,10 +651,17 @@ export function parseCodexStatus(cleanedOutput: string): ParsedCodexStatus {
 }
 
 function assertAnyRequiredCodexLimit(parsed: ParsedCodexStatus): void {
-	if (parsed.main5hLimit || parsed.mainWeeklyLimit) {
+	if (hasParseableCodexMainLimit(parsed)) {
 		return;
 	}
-	throw new Error("Codex usage output did not include any main rate-limit rows.");
+	throw new Error("Codex usage output did not include any parseable main rate-limit rows.");
+}
+
+function hasParseableCodexMainLimit(parsed: ParsedCodexStatus): boolean {
+	return (
+		parsePercentRemaining(parsed.main5hLimit) != null ||
+		parsePercentRemaining(parsed.mainWeeklyLimit) != null
+	);
 }
 
 function isCodexSparkLimitLabel(label: string): boolean {

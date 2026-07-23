@@ -16,6 +16,7 @@ const states = {
 	"migration-trust": ["migration", "trust"],
 	migration: ["migration"],
 	trust: ["trust"],
+	incremental: [],
 }[mode];
 let state = states.shift() ?? "ready";
 let input = "";
@@ -90,6 +91,15 @@ process.stdin.on("data", (chunk) => {
 			continue;
 		}
 		if (state === "ready" && entered === "/status") {
+			if (mode === "incremental") {
+				render("Model: gpt-5.4-mini\r\nWeekly limit: [██");
+				setTimeout(() => {
+					render(
+						"Model: gpt-5.4-mini\r\nWeekly limit: [███░] 93% left (resets 13:03 on 28 Jul)",
+					);
+				}, 1_000);
+				continue;
+			}
 			render(
 				[
 					"╭────────────────────╮",
@@ -156,11 +166,17 @@ describe("Codex usage PTY integration", () => {
 			"spark:weekly",
 		]);
 	}, 15_000);
+
+	it("waits for an incrementally rendered main limit to include its percentage", async () => {
+		const result = await extractCodexUsage(buildContext(tempDir, "incremental"));
+
+		expect(result.limits.map((limit) => limit.percentRemaining)).toEqual([93]);
+	}, 15_000);
 });
 
 function buildContext(
 	homeDir: string,
-	mode: "trust-migration" | "migration-trust" | "migration" | "trust",
+	mode: "trust-migration" | "migration-trust" | "migration" | "trust" | "incremental",
 ): UsageExtractionContext {
 	// homeDir has no .codex/auth.json, so extraction falls back to the TUI probe.
 	return {

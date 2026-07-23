@@ -487,7 +487,7 @@ gpt-5.5 xhigh · Context 0% used
 		expect(result.errors).toBeUndefined();
 	});
 
-	it("throws when Codex output has no required main limit rows", () => {
+	it("throws when Codex output has no parseable main limit rows", () => {
 		expect(() =>
 			buildCodexUsageResult(
 				{
@@ -509,7 +509,32 @@ gpt-5.5 xhigh · Context 0% used
 					now: new Date("2026-05-18T12:00:00.000Z"),
 				},
 			),
-		).toThrow("Codex usage output did not include any main rate-limit rows.");
+		).toThrow("Codex usage output did not include any parseable main rate-limit rows.");
+	});
+
+	it("rejects an incrementally rendered main limit without a percentage", () => {
+		expect(() =>
+			buildCodexUsageResult(
+				{
+					model: "",
+					directory: "",
+					permissions: "",
+					agentsMd: "",
+					account: "",
+					collaborationMode: "",
+					session: "",
+					main5hLimit: "",
+					mainWeeklyLimit: "[██",
+					spark5hLimit: "",
+					sparkWeeklyLimit: "",
+				},
+				{
+					targetId: "codex",
+					displayName: "OpenAI Codex",
+					now: new Date("2026-05-18T12:00:00.000Z"),
+				},
+			),
+		).toThrow("Codex usage output did not include any parseable main rate-limit rows.");
 	});
 
 	it("treats Codex time-only resets as local CLI times", () => {
