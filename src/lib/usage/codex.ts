@@ -14,7 +14,6 @@ import {
 	typeTextSteps,
 } from "./pty.js";
 import type {
-	NormalizedUsageError,
 	NormalizedUsageLimit,
 	UsageExtractionContext,
 	UsageExtractionResult,
@@ -73,8 +72,18 @@ async function extractCodexUsageFromTui(
 		signal: context.signal,
 		debug: context.debug,
 		steps: [
-			{ waitFor: isCodexPromptReadyOrTrustPrompt, waitForTimeoutMs: 10_000 },
+			{ waitFor: isCodexPromptReadyOrStartupPrompt, waitForTimeoutMs: 10_000 },
+			// Numeric migration choices submit immediately, so do not append Enter.
+			{ write: dismissCodexModelMigrationPrompt, skipIf: isCodexPromptReady },
+			{ waitFor: isCodexPromptReadyOrTrustPrompt, waitForTimeoutMs: 10_000, optional: true },
 			{ write: enterKey(), skipIf: isCodexPromptReady },
+			// Trust onboarding can precede the model-migration dialog.
+			{
+				waitFor: isCodexPromptReadyOrMigrationPrompt,
+				waitForTimeoutMs: 10_000,
+				optional: true,
+			},
+			{ write: dismissCodexModelMigrationPrompt, skipIf: isCodexPromptReady },
 			{ waitFor: isCodexPromptReady, waitForTimeoutMs: 10_000 },
 			...typeTextSteps("/status", 20),
 			{ write: enterKey() },
@@ -181,15 +190,14 @@ export function buildCodexApiUsageResult(
 			scope: "main",
 			rateLimit: usage.rate_limit,
 			now: context.now,
-			requireBothWindows: true,
 		}),
 		...buildCodexApiAdditionalUsageLimits(usage.additional_rate_limits, context),
 	];
 
-	const hasMainHourly = limits.some((limit) => limit.scope === "main" && limit.window === "hourly");
-	const hasMainWeekly = limits.some((limit) => limit.scope === "main" && limit.window === "weekly");
-	if (!hasMainHourly || !hasMainWeekly) {
-		throw new Error("Codex usage API response did not include complete main rate-limit windows.");
+	if (!limits.some((limit) => limit.scope === "main")) {
+		throw new Error(
+			"Codex usage API response did not include any recognized main rate-limit windows.",
+		);
 	}
 
 	return {
@@ -305,7 +313,6 @@ function buildCodexApiAdditionalUsageLimits(
 			rateLimit: entry.rate_limit,
 			now: context.now,
 			labelPrefix: scope === "spark" ? undefined : limitName || meteredFeature || scope,
-			requireBothWindows: false,
 		});
 	});
 }
@@ -316,38 +323,27 @@ function buildCodexApiRateLimitUsageLimits(options: {
 	rateLimit: CodexApiRateLimit | undefined;
 	now: Date;
 	labelPrefix?: string;
-	requireBothWindows: boolean;
 }): NormalizedUsageLimit[] {
 	if (!isRecord(options.rateLimit)) {
 		return [];
 	}
 
-	const windows = [
-		["primary", options.rateLimit.primary_window],
-		["secondary", options.rateLimit.secondary_window],
-	] as const;
-	const limits = windows.flatMap(([kind, window]) => {
+	const windows = [options.rateLimit.primary_window, options.rateLimit.secondary_window];
+	return windows.flatMap((window) => {
 		const limit = makeCodexApiUsageLimit({
 			targetId: options.targetId,
 			scope: options.scope,
-			windowKind: kind,
 			window,
 			now: options.now,
 			labelPrefix: options.labelPrefix,
 		});
 		return limit == null ? [] : [limit];
 	});
-
-	if (options.requireBothWindows && limits.length !== 2) {
-		return [];
-	}
-	return limits;
 }
 
 function makeCodexApiUsageLimit(options: {
 	targetId: string;
 	scope: string;
-	windowKind: "primary" | "secondary";
 	window: CodexApiRateLimitWindow | undefined;
 	now: Date;
 	labelPrefix?: string;
@@ -361,8 +357,11 @@ function makeCodexApiUsageLimit(options: {
 		return null;
 	}
 
+	const window = codexApiWindowName(options.window);
+	if (window == null) {
+		return null;
+	}
 	const resetAt = parseApiEpochSeconds(options.window.reset_at);
-	const window = codexApiWindowName(options.window, options.windowKind);
 	const percentUsedClamped = clampPercent(percentUsed);
 	const percentRemaining = 100 - percentUsedClamped;
 	const resetText = resetAt == null ? null : `resets ${resetAt}`;
@@ -399,10 +398,7 @@ function codexAdditionalLimitScope(limitName: string, meteredFeature: string): s
 	return normalized || "additional";
 }
 
-function codexApiWindowName(
-	window: CodexApiRateLimitWindow,
-	kind: "primary" | "secondary",
-): "5h" | "weekly" | string {
+function codexApiWindowName(window: CodexApiRateLimitWindow): "5h" | "weekly" | null {
 	const seconds = parseApiNumber(window.limit_window_seconds);
 	if (seconds === 18_000) {
 		return "5h";
@@ -410,7 +406,7 @@ function codexApiWindowName(
 	if (seconds === 604_800) {
 		return "weekly";
 	}
-	return kind === "primary" ? "5h" : "weekly";
+	return null;
 }
 
 function formatWindowLabel(window: string): string {
@@ -459,9 +455,9 @@ function selectCodexStatus(result: PtyScenarioResult): ParsedCodexStatus {
 		if (snapshot == null) {
 			continue;
 		}
-		for (const content of [`${snapshot.screen}\n${snapshot.raw}`, snapshot.screen, snapshot.raw]) {
+		for (const content of [snapshot.screen, `${snapshot.screen}\n${snapshot.raw}`, snapshot.raw]) {
 			const parsed = parseCodexStatus(cleanControlOutput(content));
-			if (parsed.main5hLimit || parsed.mainWeeklyLimit) {
+			if (isCompleteCodexStatus(parsed)) {
 				return parsed;
 			}
 		}
@@ -480,15 +476,37 @@ function isCodexPromptReadyOrTrustPrompt(snapshot: { raw: string; screen: string
 	return isCodexPromptReady(snapshot) || isCodexTrustPrompt(snapshot);
 }
 
+function isCodexPromptReadyOrStartupPrompt(snapshot: { raw: string; screen: string }): boolean {
+	return isCodexPromptReadyOrTrustPrompt(snapshot) || isCodexModelMigrationPrompt(snapshot);
+}
+
 function isCodexTrustPrompt(snapshot: { raw: string; screen: string }): boolean {
 	const cleanedOutput = cleanControlOutput(`${snapshot.screen}\n${snapshot.raw}`);
 	return /do you trust the contents of this directory/i.test(cleanedOutput);
 }
 
+function isCodexModelMigrationPrompt(snapshot: { screen: string }): boolean {
+	return codexKeepModelSelection(snapshot) != null;
+}
+
+function isCodexPromptReadyOrMigrationPrompt(snapshot: { raw: string; screen: string }): boolean {
+	return isCodexPromptReady(snapshot) || isCodexModelMigrationPrompt(snapshot);
+}
+
+// Raw output retains dismissed dialogs, so migration detection must use the live screen only.
+function codexKeepModelSelection(snapshot: { screen: string }): string | null {
+	const cleanedScreen = cleanControlOutput(snapshot.screen);
+	const match = /(\d+)\.\s*Use existing model/i.exec(cleanedScreen);
+	return match?.[1] ?? null;
+}
+
+function dismissCodexModelMigrationPrompt(snapshot: { screen: string }): string | undefined {
+	return codexKeepModelSelection(snapshot) ?? undefined;
+}
+
 function hasCodexStatusLimits(snapshot: { raw: string; screen: string }): boolean {
 	const cleanedOutput = cleanControlOutput(`${snapshot.screen}\n${snapshot.raw}`);
-	const parsed = parseCodexStatus(cleanedOutput);
-	return Boolean(parsed.main5hLimit && parsed.mainWeeklyLimit);
+	return isCompleteCodexStatus(parseCodexStatus(cleanedOutput));
 }
 
 function hasCodexStatusResponse(snapshot: { raw: string; screen: string }): boolean {
@@ -506,14 +524,12 @@ export function buildCodexUsageResult(
 		command?: string;
 	},
 ): UsageExtractionResult {
-	assertAnyRequiredCodexLimit(parsed);
-	const errors = buildCodexUsageErrors(parsed, context);
+	assertCompleteCodexStatus(parsed);
 	return {
 		targetId: context.targetId,
 		displayName: context.displayName,
 		command: context.command,
 		limits: buildCodexUsageLimits(parsed, context),
-		errors: errors.length > 0 ? errors : undefined,
 	};
 }
 
@@ -528,12 +544,15 @@ export function buildCodexUsageLimits(
 		}
 
 		const percentRemaining = parsePercentRemaining(raw);
+		if (percentRemaining == null) {
+			return [];
+		}
 		return [
 			makeUsageLimit({
 				targetId: context.targetId,
 				scope,
 				window,
-				percentUsed: percentRemaining == null ? null : 100 - percentRemaining,
+				percentUsed: 100 - percentRemaining,
 				percentRemaining,
 				resetText: parseResetText(raw),
 				raw,
@@ -584,8 +603,16 @@ export function parseCodexStatus(cleanedOutput: string): ParsedCodexStatus {
 			const inlineValue = labelMatch[2].trim();
 
 			if (isCodexSparkLimitLabel(label)) {
-				section = "spark";
-				key = "";
+				const sparkKey = sparkLimitKey(label);
+				if (sparkKey) {
+					key = sparkKey;
+					if (inlineValue) {
+						setValue(values, key, inlineValue);
+					}
+				} else {
+					section = "spark";
+					key = "";
+				}
 				continue;
 			}
 
@@ -616,39 +643,44 @@ export function parseCodexStatus(cleanedOutput: string): ParsedCodexStatus {
 	};
 }
 
-function assertAnyRequiredCodexLimit(parsed: ParsedCodexStatus): void {
-	if (parsed.main5hLimit || parsed.mainWeeklyLimit) {
-		return;
+function assertCompleteCodexStatus(parsed: ParsedCodexStatus): void {
+	if (!hasParseableCodexMainLimit(parsed)) {
+		throw new Error("Codex usage output did not include any parseable main rate-limit rows.");
 	}
-	throw new Error("Codex usage output did not include the required 5h and weekly limit rows.");
+
+	if (!hasOnlyParseableCodexLimits(parsed)) {
+		throw new Error("Codex usage output included an incomplete rate-limit row.");
+	}
 }
 
-function buildCodexUsageErrors(
-	parsed: ParsedCodexStatus,
-	context: Pick<UsageExtractionContext, "targetId" | "displayName">,
-): NormalizedUsageError[] {
-	const missing: string[] = [];
-	if (!parsed.main5hLimit) {
-		missing.push("5h");
-	}
-	if (!parsed.mainWeeklyLimit) {
-		missing.push("weekly");
-	}
-	if (missing.length === 0) {
-		return [];
-	}
-	return [
-		{
-			targetId: context.targetId,
-			displayName: context.displayName,
-			code: "partial_parse",
-			message: `Codex usage output did not include the ${missing.join(" and ")} limit row.`,
-		},
-	];
+function isCompleteCodexStatus(parsed: ParsedCodexStatus): boolean {
+	return hasParseableCodexMainLimit(parsed) && hasOnlyParseableCodexLimits(parsed);
+}
+
+function hasParseableCodexMainLimit(parsed: ParsedCodexStatus): boolean {
+	return (
+		parsePercentRemaining(parsed.main5hLimit) != null ||
+		parsePercentRemaining(parsed.mainWeeklyLimit) != null
+	);
+}
+
+function hasOnlyParseableCodexLimits(parsed: ParsedCodexStatus): boolean {
+	const limits = CODEX_WINDOWS.map(([, , key]) => parsed[key].trim()).filter(Boolean);
+	return limits.every((limit) => parsePercentRemaining(limit) != null);
 }
 
 function isCodexSparkLimitLabel(label: string): boolean {
 	return /\bspark\b/i.test(label) && /\blimit\b/i.test(label);
+}
+
+function sparkLimitKey(label: string): keyof ParsedCodexStatus | "" {
+	if (/\b5h limit$/i.test(label)) {
+		return "spark5hLimit";
+	}
+	if (/\bweekly limit$/i.test(label)) {
+		return "sparkWeeklyLimit";
+	}
+	return "";
 }
 
 function labelToCodexKey(label: string, section: "main" | "spark"): keyof ParsedCodexStatus | "" {
