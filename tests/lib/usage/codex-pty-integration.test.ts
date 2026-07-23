@@ -6,8 +6,9 @@ import type { UsageExtractionContext } from "../../../src/lib/usage/types.js";
 
 // Simulates the Codex TUI startup flow: an optional trust prompt and an optional
 // model-deprecation dialog in either order, followed by the composer prompt and a
-// weekly-only /status response. Selecting anything but "Use existing model" on the
-// deprecation dialog dead-ends so tests fail if the probe switches the model.
+// weekly-only /status response. The deprecation dialog handles numeric options immediately,
+// matching Codex; selecting anything but "Use existing model" or sending trailing input in the
+// same write dead-ends so tests fail if the probe switches the model or leaks an extra key.
 const FAKE_CODEX_SCRIPT = String.raw`
 const mode = process.argv[1];
 const states = {
@@ -53,7 +54,24 @@ process.stdin.setEncoding("utf8");
 process.stdin.setRawMode?.(true);
 process.stdin.resume();
 process.stdin.on("data", (chunk) => {
+	let migrationSelectionHandled = false;
 	for (const character of chunk) {
+		if (migrationSelectionHandled) {
+			render("Unexpected trailing input after model selection.");
+			state = "switched";
+			continue;
+		}
+		if (state === "migration") {
+			if (character === "2") {
+				input = "";
+				advance();
+				migrationSelectionHandled = true;
+			} else {
+				render("Switching to GPT-5.6 Luna...");
+				state = "switched";
+			}
+			continue;
+		}
 		if (character === "\x15") {
 			input = "";
 			continue;
@@ -69,15 +87,6 @@ process.stdin.on("data", (chunk) => {
 		}
 		if (state === "trust") {
 			advance();
-			continue;
-		}
-		if (state === "migration") {
-			if (entered === "2") {
-				advance();
-			} else if (entered !== "") {
-				render("Switching to GPT-5.6 Luna...");
-				state = "switched";
-			}
 			continue;
 		}
 		if (state === "ready" && entered === "/status") {

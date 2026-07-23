@@ -158,7 +158,7 @@ Weekly limit: 41% left
 		const readyPrompt = { raw: "", screen: "gpt-5.5 Context 0% used > " };
 		expect(steps[0].waitFor(trustPrompt)).toBe(true);
 		expect(steps[0].waitFor(migrationPrompt)).toBe(true);
-		expect(steps[1].write(migrationPrompt)).toBe("2\r");
+		expect(steps[1].write(migrationPrompt)).toBe("2");
 		expect(steps[1].write(trustPrompt)).toBeUndefined();
 		expect(steps[1].skipIf(readyPrompt)).toBe(true);
 		expect(steps[2].waitFor(trustPrompt)).toBe(true);
@@ -168,7 +168,7 @@ Weekly limit: 41% left
 		expect(steps[4].waitFor(migrationPrompt)).toBe(true);
 		expect(steps[4].waitFor(readyPrompt)).toBe(true);
 		expect(steps[4].optional).toBe(true);
-		expect(steps[5].write(migrationPrompt)).toBe("2\r");
+		expect(steps[5].write(migrationPrompt)).toBe("2");
 		// A dialog that only lingers in raw output was already dismissed; typing again would
 		// submit the selection to the composer.
 		expect(steps[5].write(dismissedMigrationPrompt)).toBeUndefined();

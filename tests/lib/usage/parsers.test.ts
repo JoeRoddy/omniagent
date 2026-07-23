@@ -304,6 +304,23 @@ describe("Codex usage parser", () => {
 		expect(result.limits.map((limit) => limit.percentRemaining)).toEqual([95, 100]);
 	});
 
+	it("does not treat inline Spark rows as section headings", () => {
+		const parsed = parseCodexStatus(`
+╭──────────────────────────╮
+│ Model: gpt-5.4-mini      │
+│ GPT-5.3-Codex-Spark Weekly limit: 100% left
+│ 5h limit: 85% left
+│ Weekly limit: 42% left
+╰──────────────────────────╯
+`);
+
+		expect(parsed).toMatchObject({
+			main5hLimit: "85% left",
+			mainWeeklyLimit: "42% left",
+			sparkWeeklyLimit: "100% left",
+		});
+	});
+
 	it("parses Spark limit headings without pinning the Codex model version", () => {
 		const parsed = parseCodexStatus(`
 ╭──────────────────────────╮
@@ -492,7 +509,7 @@ gpt-5.5 xhigh · Context 0% used
 					now: new Date("2026-05-18T12:00:00.000Z"),
 				},
 			),
-		).toThrow("Codex usage output did not include the required 5h and weekly limit rows.");
+		).toThrow("Codex usage output did not include any main rate-limit rows.");
 	});
 
 	it("treats Codex time-only resets as local CLI times", () => {

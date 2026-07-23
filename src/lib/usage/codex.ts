@@ -507,7 +507,7 @@ function dismissCodexModelMigrationPrompt(snapshot: {
 	screen: string;
 }): string | undefined {
 	const selection = codexKeepModelSelection(snapshot);
-	return selection == null ? undefined : `${selection}${enterKey()}`;
+	return selection ?? undefined;
 }
 
 function hasCodexStatusLimits(snapshot: { raw: string; screen: string }): boolean {
@@ -610,10 +610,15 @@ export function parseCodexStatus(cleanedOutput: string): ParsedCodexStatus {
 			if (isCodexSparkLimitLabel(label)) {
 				// Inline rows like "GPT-5.3-Codex-Spark Weekly limit: 100% left" carry their own
 				// value; bare labels like "GPT-5.3-Codex-Spark limit:" open a Spark section instead.
-				section = "spark";
-				key = sparkLimitKey(label);
-				if (key && inlineValue) {
-					setValue(values, key, inlineValue);
+				const sparkKey = sparkLimitKey(label);
+				if (sparkKey) {
+					key = sparkKey;
+					if (inlineValue) {
+						setValue(values, key, inlineValue);
+					}
+				} else {
+					section = "spark";
+					key = "";
 				}
 				continue;
 			}
@@ -649,7 +654,7 @@ function assertAnyRequiredCodexLimit(parsed: ParsedCodexStatus): void {
 	if (parsed.main5hLimit || parsed.mainWeeklyLimit) {
 		return;
 	}
-	throw new Error("Codex usage output did not include the required 5h and weekly limit rows.");
+	throw new Error("Codex usage output did not include any main rate-limit rows.");
 }
 
 function isCodexSparkLimitLabel(label: string): boolean {
