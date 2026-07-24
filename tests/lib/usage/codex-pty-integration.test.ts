@@ -156,7 +156,7 @@ process.stdin.on("data", (chunk) => {
 		if (mode === "incremental-spark") {
 			render(
 				"Model: gpt-5.4-mini\r\nWeekly limit: 93% left\r\n" +
-					"GPT-5.3-Codex-Spark Weekly limit: [██",
+					"GPT-5.3-Codex-Spark Weekly limit:",
 			);
 			setTimeout(() => renderCompleteStatus(true), 1_000);
 			continue;

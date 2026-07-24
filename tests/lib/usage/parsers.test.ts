@@ -552,6 +552,23 @@ gpt-5.5 xhigh · Context 0% used
 		).toThrow("Codex usage output included an incomplete rate-limit row.");
 	});
 
+	it("preserves a displayed Codex limit label while its value is still empty", () => {
+		const parsed = parseCodexStatus(`
+Model: gpt-5.4-mini
+Weekly limit: 93% left
+GPT-5.3-Codex-Spark Weekly limit:
+`);
+
+		expect(parsed.sparkWeeklyLimit).toBe("GPT-5.3-Codex-Spark Weekly limit:");
+		expect(() =>
+			buildCodexUsageResult(parsed, {
+				targetId: "codex",
+				displayName: "OpenAI Codex",
+				now: new Date("2026-05-18T12:00:00.000Z"),
+			}),
+		).toThrow("Codex usage output included an incomplete rate-limit row.");
+	});
+
 	it("treats Codex time-only resets as local CLI times", () => {
 		const originalTimeZone = process.env.TZ;
 		process.env.TZ = "America/New_York";

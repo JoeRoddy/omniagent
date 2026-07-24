@@ -606,9 +606,7 @@ export function parseCodexStatus(cleanedOutput: string): ParsedCodexStatus {
 				const sparkKey = sparkLimitKey(label);
 				if (sparkKey) {
 					key = sparkKey;
-					if (inlineValue) {
-						setValue(values, key, inlineValue);
-					}
+					setCodexLabeledValue(values, key, label, inlineValue);
 				} else {
 					section = "spark";
 					key = "";
@@ -617,8 +615,8 @@ export function parseCodexStatus(cleanedOutput: string): ParsedCodexStatus {
 			}
 
 			key = labelToCodexKey(label, section);
-			if (key && inlineValue) {
-				setValue(values, key, inlineValue);
+			if (key) {
+				setCodexLabeledValue(values, key, label, inlineValue);
 			}
 			continue;
 		}
@@ -696,6 +694,19 @@ function labelToCodexKey(label: string, section: "main" | "spark"): keyof Parsed
 		return section === "spark" ? "sparkWeeklyLimit" : "mainWeeklyLimit";
 	}
 	return "";
+}
+
+function setCodexLabeledValue(
+	values: Partial<ParsedCodexStatus>,
+	key: keyof ParsedCodexStatus,
+	label: string,
+	inlineValue: string,
+): void {
+	if (inlineValue) {
+		setValue(values, key, inlineValue);
+	} else if (CODEX_WINDOWS.some(([, , limitKey]) => limitKey === key)) {
+		setValue(values, key, `${label}:`);
+	}
 }
 
 function setValue(
