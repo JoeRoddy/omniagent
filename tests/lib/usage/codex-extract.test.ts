@@ -56,14 +56,10 @@ Weekly limit: 41% left
 				rate_limit: {
 					primary_window: {
 						used_percent: 6,
-						limit_window_seconds: 18_000,
-						reset_at: now.getTime() / 1000 + 30 * 60,
-					},
-					secondary_window: {
-						used_percent: 25,
 						limit_window_seconds: 604_800,
 						reset_at: now.getTime() / 1000 + 7 * 24 * 60 * 60,
 					},
+					secondary_window: null,
 				},
 				additional_rate_limits: [
 					{
@@ -72,12 +68,9 @@ Weekly limit: 41% left
 						rate_limit: {
 							primary_window: {
 								used_percent: 0,
-								limit_window_seconds: 18_000,
-							},
-							secondary_window: {
-								used_percent: 1,
 								limit_window_seconds: 604_800,
 							},
+							secondary_window: null,
 						},
 					},
 				],
@@ -100,12 +93,10 @@ Weekly limit: 41% left
 			}),
 		);
 		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual([
-			"main:hourly",
 			"main:weekly",
-			"spark:hourly",
 			"spark:weekly",
 		]);
-		expect(result.limits.map((limit) => limit.percentUsed)).toEqual([6, 25, 0, 1]);
+		expect(result.limits.map((limit) => limit.percentUsed)).toEqual([6, 0]);
 	});
 
 	it("falls back to the TUI probe when the Codex API usage shape is unavailable", async () => {
@@ -143,6 +134,7 @@ Weekly limit: 41% left
 
 		const options = ptyMock.runPtyScenario.mock.calls[0]?.[0];
 		expect(options.cwd).toBe("/Users/tester");
+		expect(options.env).toBeUndefined();
 		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual([
 			"main:hourly",
 			"main:weekly",
@@ -152,9 +144,15 @@ Weekly limit: 41% left
 		expect(
 			steps[0].waitFor({ raw: "", screen: "Do you trust the contents of this directory?" }),
 		).toBe(true);
-		expect(steps[1]).toMatchObject({ write: "\r" });
-		expect(steps[1].skipIf({ raw: "", screen: "gpt-5.5 Context 0% used > " })).toBe(true);
-		expect(steps[2].waitFor({ raw: "", screen: "gpt-5.5 Context 0% used > " })).toBe(true);
+		expect(
+			steps[1].write({
+				raw: "",
+				screen: "GPT-5.4 Mini will be deprecated soon\n  2. Use existing model",
+			}),
+		).toBe("2");
+		expect(steps[3]).toMatchObject({ write: "\r" });
+		expect(steps[3].skipIf({ raw: "", screen: "gpt-5.5 Context 0% used > " })).toBe(true);
+		expect(steps[6].waitFor({ raw: "", screen: "gpt-5.5 Context 0% used > " })).toBe(true);
 	});
 
 	async function createCodexHome(): Promise<string> {
