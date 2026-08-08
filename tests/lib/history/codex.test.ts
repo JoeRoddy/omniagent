@@ -62,6 +62,38 @@ const agentEvent = (message: string) =>
 		payload: { type: "agent_message", message, phase: "commentary" },
 	});
 
+/**
+ * Current shape (Codex from 2026-08-07): messages arrive as completed thread items rather than
+ * bespoke user_message / agent_message events.
+ */
+const itemCompletedUser = (text: string, timestamp = "2026-08-07T10:05:00.000Z") =>
+	JSON.stringify({
+		timestamp,
+		type: "event_msg",
+		payload: {
+			type: "item_completed",
+			item: { type: "UserMessage", id: "i1", content: [{ type: "text", text, text_elements: [] }] },
+		},
+	});
+
+/** Agent messages use a capitalised block type; the reader keys off the text field, not the label. */
+const itemCompletedAgent = (text: string) =>
+	JSON.stringify({
+		timestamp: "2026-08-07T10:06:00.000Z",
+		type: "event_msg",
+		payload: {
+			type: "item_completed",
+			item: { type: "AgentMessage", id: "i2", content: [{ type: "Text", text }] },
+		},
+	});
+
+const itemCompletedOther = (itemType: string) =>
+	JSON.stringify({
+		timestamp: "2026-08-07T10:07:00.000Z",
+		type: "event_msg",
+		payload: { type: "item_completed", item: { type: itemType, id: "i3", content: [] } },
+	});
+
 /** The polluted duplicate: same text, wrapped with injected harness context. */
 const responseItemUser = (text: string) =>
 	JSON.stringify({
@@ -132,6 +164,94 @@ describe("normalizeCodexLine", () => {
 
 	it("drops empty messages", () => {
 		expect(normalizeCodexLine(userEvent("   "), file(), 0, context())).toBeNull();
+	});
+});
+
+// Codex changed its transcript format on 2026-08-07: user_message / agent_message events were
+// replaced by item_completed thread items. Reading only the legacy shape silently returns
+// nothing for every recent session, which no snapshot of older transcripts can catch.
+describe("current item_completed format", () => {
+	it("extracts a user prompt from a completed UserMessage item", () => {
+		const record = normalizeCodexLine(itemCompletedUser("asdfadsf"), file(), 4, context());
+
+		expect(record?.role).toBe("user");
+		expect(record?.text).toBe("asdfadsf");
+		expect(record?.recordIndex).toBe(4);
+	});
+
+	it("extracts assistant text from a completed AgentMessage item", () => {
+		const record = normalizeCodexLine(itemCompletedAgent("here you go"), file(), 0, context());
+
+		expect(record?.role).toBe("assistant");
+		expect(record?.text).toBe("here you go");
+	});
+
+	it("ignores completed items that are not messages", () => {
+		for (const itemType of ["Reasoning", "CommandExecution", "FileChange", "Plan"]) {
+			expect(normalizeCodexLine(itemCompletedOther(itemType), file(), 0, context())).toBeNull();
+		}
+	});
+
+	it("still yields exactly one record when the turn is also stored as a response_item", () => {
+		const text = "asdfadsf";
+		const records = [responseItemUser(text), itemCompletedUser(text)]
+			.map((line, index) => normalizeCodexLine(line, file(), index, context()))
+			.filter((record) => record !== null);
+
+		expect(records).toHaveLength(1);
+		expect(records[0]?.text).toBe(text);
+	});
+
+	it("honours role filtering", () => {
+		expect(
+			normalizeCodexLine(
+				itemCompletedAgent("hi"),
+				file(),
+				0,
+				context({ roles: new Set<HistoryRole>(["user"]) }),
+			),
+		).toBeNull();
+	});
+
+	it("joins multiple content blocks", () => {
+		const line = JSON.stringify({
+			timestamp: "2026-08-07T10:05:00.000Z",
+			type: "event_msg",
+			payload: {
+				type: "item_completed",
+				item: {
+					type: "UserMessage",
+					content: [
+						{ type: "text", text: "first " },
+						{ type: "text", text: "second" },
+					],
+				},
+			},
+		});
+
+		expect(normalizeCodexLine(line, file(), 0, context())?.text).toBe("first second");
+	});
+
+	it("drops an item with no text content", () => {
+		const line = JSON.stringify({
+			timestamp: "2026-08-07T10:05:00.000Z",
+			type: "event_msg",
+			payload: { type: "item_completed", item: { type: "UserMessage", content: [] } },
+		});
+
+		expect(normalizeCodexLine(line, file(), 0, context())).toBeNull();
+	});
+});
+
+// Both encodings must keep working: transcripts written before the change are still on disk.
+describe("legacy event format", () => {
+	it("still extracts user_message and agent_message events", () => {
+		expect(normalizeCodexLine(userEvent("legacy prompt"), file(), 0, context())?.text).toBe(
+			"legacy prompt",
+		);
+		expect(normalizeCodexLine(agentEvent("legacy reply"), file(), 0, context())?.role).toBe(
+			"assistant",
+		);
 	});
 });
 

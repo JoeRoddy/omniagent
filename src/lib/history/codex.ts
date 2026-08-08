@@ -184,6 +184,31 @@ export async function* listCodexFiles(
 	}
 }
 
+/**
+ * Pulls text out of a thread item's content blocks. Block `type` casing differs between item
+ * kinds (`text` on user messages, `Text` on agent messages), so the presence of a string `text`
+ * field is what counts rather than the label.
+ */
+function extractItemText(item: Record<string, unknown>): string {
+	const content = item.content;
+	if (typeof content === "string") {
+		return content;
+	}
+	if (!Array.isArray(content)) {
+		return "";
+	}
+	const parts: string[] = [];
+	for (const block of content) {
+		if (block && typeof block === "object") {
+			const text = (block as { text?: unknown }).text;
+			if (typeof text === "string") {
+				parts.push(text);
+			}
+		}
+	}
+	return parts.join("");
+}
+
 export function normalizeCodexLine(
 	line: string,
 	file: HistoryFile,
@@ -196,9 +221,9 @@ export function normalizeCodexLine(
 	} catch {
 		return null;
 	}
-	// This single check is what excludes the `response_item` duplicates. Those carry the same
-	// user text but with injected <environment_context> blocks, so widening this predicate
-	// silently doubles every result and pollutes it with harness noise.
+	// Excludes the `response_item` copies of every turn. In older transcripts those carry the
+	// user's text wrapped in injected <environment_context> blocks; in newer ones they simply
+	// duplicate the item event below. Either way, accepting them doubles and pollutes results.
 	if (record?.type !== "event_msg") {
 		return null;
 	}
@@ -207,19 +232,30 @@ export function normalizeCodexLine(
 		return null;
 	}
 
-	let role: HistoryRole;
-	if (payload.type === "user_message") {
-		role = "user";
-	} else if (payload.type === "agent_message") {
-		role = "assistant";
-	} else {
-		return null;
-	}
-	if (!context.roles.has(role)) {
-		return null;
+	let role: HistoryRole | null = null;
+	let text = "";
+
+	if (payload.type === "user_message" || payload.type === "agent_message") {
+		// Legacy shape, written by Codex through 2026-08-06.
+		role = payload.type === "user_message" ? "user" : "assistant";
+		text = typeof payload.message === "string" ? payload.message.trim() : "";
+	} else if (payload.type === "item_completed") {
+		// Current shape: messages arrive as completed thread items instead of bespoke events.
+		const item = payload.item as Record<string, unknown> | undefined;
+		const itemType = item?.type;
+		if (itemType === "UserMessage") {
+			role = "user";
+		} else if (itemType === "AgentMessage") {
+			role = "assistant";
+		}
+		if (role && item) {
+			text = extractItemText(item).trim();
+		}
 	}
 
-	const text = typeof payload.message === "string" ? payload.message.trim() : "";
+	if (role === null || !context.roles.has(role)) {
+		return null;
+	}
 	if (text.length === 0) {
 		return null;
 	}
