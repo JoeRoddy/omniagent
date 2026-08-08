@@ -1,3 +1,4 @@
+import { HISTORY_ROLES } from "../history/types.js";
 import type {
 	CommandOutputDefinition,
 	FallbackRule,
@@ -7,6 +8,7 @@ import type {
 	OutputTemplateValue,
 	TargetCliDefinition,
 	TargetDefinition,
+	TargetHistoryDefinition,
 	TargetOutputs,
 	TargetUsageDefinition,
 } from "./config-types.js";
@@ -364,6 +366,62 @@ function validateUsageDefinition(
 	}
 }
 
+function validateHistoryDefinition(
+	history: TargetHistoryDefinition | undefined,
+	label: string,
+	errors: string[],
+): void {
+	if (history === undefined) {
+		return;
+	}
+	if (!isPlainObject(history)) {
+		errors.push(`${label} must be an object.`);
+		return;
+	}
+
+	if (!Array.isArray(history.roles) || history.roles.length === 0) {
+		errors.push(`${label}.roles must be a non-empty array.`);
+	} else {
+		for (const role of history.roles) {
+			if (!(HISTORY_ROLES as readonly string[]).includes(role)) {
+				errors.push(`${label}.roles contains an unknown role (${String(role)}).`);
+			}
+		}
+	}
+
+	if (typeof history.listFiles !== "function") {
+		errors.push(`${label}.listFiles must be a function.`);
+	}
+
+	const scan = history.scan;
+	let customRead = false;
+	if (scan !== undefined) {
+		if (!isPlainObject(scan)) {
+			errors.push(`${label}.scan must be an object.`);
+		} else if (scan.kind === "custom") {
+			customRead = typeof scan.read === "function";
+			if (!customRead) {
+				errors.push(`${label}.scan.read must be a function when scan.kind is "custom".`);
+			}
+		} else if (scan.kind !== "jsonl") {
+			errors.push(`${label}.scan.kind must be "jsonl" or "custom".`);
+		}
+	}
+
+	// Exactly one reader: the JSONL fast path needs `normalize`, a bespoke store needs
+	// `scan.read`. Supplying both is ambiguous; supplying neither yields no records at all.
+	const hasNormalize = typeof history.normalize === "function";
+	if (hasNormalize && customRead) {
+		errors.push(`${label} must define either normalize or scan.read, not both.`);
+	} else if (!hasNormalize && !customRead) {
+		errors.push(`${label} must define normalize (for JSONL) or scan.read (for a custom store).`);
+	}
+
+	if (history.resume !== undefined && typeof history.resume !== "function") {
+		errors.push(`${label}.resume must be a function when provided.`);
+	}
+}
+
 function validateTemplate(
 	value: OutputTemplateValue,
 	label: string,
@@ -662,6 +720,7 @@ export function validateTargetConfig(options: {
 				validateOutputs(entry.outputs, `${label}.outputs`, errors);
 				validateCliDefinition(entry.cli, `${label}.cli`, errors);
 				validateUsageDefinition(entry.usage, `${label}.usage`, errors);
+				validateHistoryDefinition(entry.history, `${label}.history`, errors);
 			}
 		}
 	}

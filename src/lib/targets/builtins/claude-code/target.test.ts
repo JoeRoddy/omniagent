@@ -111,4 +111,12 @@ describe("claude builtin target", () => {
 		});
 		expect(filename).toBe("CLAUDE.md");
 	});
+
+	it("declares searchable history for all three roles", () => {
+		// Claude persists subagent transcripts on disk, so it can answer --role agent.
+		expect(claudeTarget.history?.roles).toEqual(["user", "assistant", "agent"]);
+		expect(typeof claudeTarget.history?.listFiles).toBe("function");
+		expect(typeof claudeTarget.history?.normalize).toBe("function");
+		expect(typeof claudeTarget.history?.resume).toBe("function");
+	});
 });

@@ -84,6 +84,20 @@ omniagent usage --agentsDir ./my-custom-agents
 omniagent usage codex --json
 omniagent usage codex --debug
 
+# Search your past agent conversations and reuse a prompt
+# (opens a picker: arrows to move, type to filter, enter to copy)
+omniagent search merge conflict
+omniagent search "merge conflict"
+omniagent search --project . migration
+omniagent search --role agent exploration
+omniagent search --only codex --since 7d deploy
+
+# Non-interactive, for scripts and agents
+omniagent search merge conflict --copy      # copy the newest match
+omniagent search merge conflict --print 2   # write one result's text to stdout
+omniagent search merge conflict --full --no-interactive
+omniagent search --limit 50 --json refactor
+
 # Shim mode (no subcommand)
 omniagent --agent codex
 omniagent -p "Summarize this repo" --agent codex --output json

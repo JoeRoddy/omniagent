@@ -92,4 +92,14 @@ describe("codex builtin target", () => {
 		});
 		expect(filename).toBe("AGENTS.md");
 	});
+
+	it("declares searchable history for user and assistant roles only", () => {
+		// Codex stores nothing equivalent to a subagent transcript, so declaring the agent role
+		// would promise rows it can never produce.
+		expect(codexTarget.history?.roles).toEqual(["user", "assistant"]);
+		expect(codexTarget.history?.roles).not.toContain("agent");
+		expect(typeof codexTarget.history?.listFiles).toBe("function");
+		expect(typeof codexTarget.history?.normalize).toBe("function");
+		expect(typeof codexTarget.history?.resume).toBe("function");
+	});
 });

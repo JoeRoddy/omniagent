@@ -111,6 +111,109 @@ extract: async (context) => ({
 });
 ```
 
+## Searchable history (`history`)
+
+A target that declares a `history` block becomes searchable by `omniagent search`. Everything
+agent-specific lives here — where transcripts are, what a message looks like, how to get back into
+a session — so adding a new agent never requires changing the search engine.
+
+```ts
+export default {
+  targets: [
+    {
+      id: "demo",
+      displayName: "Demo Agent",
+      history: {
+        // Roles this agent can actually produce. Declared rather than inferred, so asking for a
+        // role it does not record prints a note instead of silently returning nothing.
+        roles: ["user", "assistant"],
+
+        // Enumerate candidate transcripts. Owns all discovery and pruning. Keep it cheap:
+        // readdir/stat, plus at most a small header probe.
+        listFiles: async function* (scope, context) {
+          yield {
+            path: "/absolute/path/to/session.jsonl",
+            projectPath: "/repo/the-session-ran-in",
+            sessionId: "session-id",
+            modifiedAt: new Date().toISOString(),
+            sizeBytes: null,
+          };
+        },
+
+        // One raw line in, one record out, or null to discard. Runs in the hot loop, so it must
+        // be synchronous. This is where every format quirk belongs.
+        normalize: (line, file, index, context) => {
+          const record = JSON.parse(line);
+          if (record.kind !== "prompt") return null;
+          return {
+            agentId: context.targetId,
+            role: "user",
+            timestamp: record.at,
+            text: record.text,
+            sessionId: file.sessionId,
+            cwd: file.projectPath,
+            sourcePath: file.path,
+            recordIndex: index,
+          };
+        },
+
+        // Set `cwd` when the resume verb is directory-scoped; the renderer then emits a `cd`
+        // prefix automatically. Return null for a session that cannot be resumed.
+        resume: (record) => ({
+          command: "demo-cli",
+          args: ["--session", record.sessionId],
+          cwd: null,
+        }),
+      },
+    },
+  ],
+};
+```
+
+### Agents whose history is not line-oriented
+
+`normalize` exists because the engine owns the file loop, which lets it skip the vast majority of
+lines without parsing them. If an agent stores history as a single JSON document, a database, or
+one file per message, declare a custom scan instead and yield records directly. This forgoes the
+fast path but requires no engine change:
+
+```ts
+history: {
+  roles: ["user"],
+  listFiles: async function* () { /* ... */ },
+  scan: {
+    kind: "custom",
+    read: async function* (file, context) {
+      for (const row of JSON.parse(await readFile(file.path, "utf8"))) {
+        yield {
+          agentId: context.targetId,
+          role: "user",
+          timestamp: row.at,
+          text: row.text,
+          sessionId: file.sessionId,
+          cwd: file.projectPath,
+          sourcePath: file.path,
+          recordIndex: row.index,
+        };
+      }
+    },
+  },
+}
+```
+
+### Rules
+
+- `roles` must be a non-empty subset of `user`, `assistant`, `agent`.
+- `listFiles` is required.
+- Define exactly one reader: `normalize` for the line-oriented fast path, or `scan.read` for a
+  custom store. Defining both is rejected; defining neither yields no records.
+- `resume` is optional.
+- `text` must be cleaned and non-empty. Returning `null` from `normalize` is how you discard
+  everything that is not a real message — tool output, harness wrappers, duplicate encodings.
+- `scope` passed to `listFiles` is only a hint. The engine re-applies every project and date
+  filter to each surviving record, so pruning too little is slow but never wrong; pruning too much
+  silently loses results.
+
 ## Structured output (`cli.flags.structuredOutput`)
 
 Custom targets whose CLI supports schema-constrained responses can declare a
