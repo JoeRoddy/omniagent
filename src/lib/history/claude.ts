@@ -1,6 +1,7 @@
 import type { Dirent, Stats } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { type HistoryQuery, prefilterJsonLine } from "./query.js";
 import type {
 	HistoryContext,
 	HistoryFile,
@@ -209,6 +210,11 @@ export function cleanClaudeText(raw: string): string {
 		return "";
 	}
 	return stripped;
+}
+
+export function prefilterClaudeLine(line: string, query: HistoryQuery): boolean {
+	// Removing a reminder can join text that was not contiguous in the raw JSON line.
+	return line.includes("<system-reminder>") || prefilterJsonLine(query, line);
 }
 
 export function normalizeClaudeLine(

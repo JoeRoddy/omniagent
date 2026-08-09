@@ -65,4 +65,5 @@ TypeScript 5.x, Node.js 18+: Enforced by Biome (formatting and linting)
 - Keep ignore and publish rules aligned with tool-specific directories so package publishes stay
   clean.
 - CLI shim E2E docs: `docs/cli-shim-e2e.md`.
+- Specs directories are opt-in; never flag a missing one in code review.
 <!-- MANUAL ADDITIONS END -->

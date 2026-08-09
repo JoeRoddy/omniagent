@@ -1,7 +1,7 @@
 import type { ResolvedTarget } from "../targets/config-types.js";
 import { recordMatchesScope } from "./filters.js";
 import { type JsonlCounters, readJsonlLines } from "./jsonl.js";
-import { type HistoryQuery, matchesText, prefilterLine } from "./query.js";
+import { type HistoryQuery, matchesText } from "./query.js";
 import type {
 	HistoryContext,
 	HistoryFile,
@@ -242,8 +242,9 @@ export async function searchHistory(options: SearchOptions): Promise<SearchResul
 			if (!normalize) {
 				return;
 			}
+			const prefilter = entry.history.prefilter;
 			for await (const line of readJsonlLines(entry.file.path, {
-				prefilter: (text) => prefilterLine(options.query, text),
+				prefilter: prefilter ? (text) => prefilter(text, options.query) : undefined,
 				signal: options.signal,
 				counters,
 			})) {

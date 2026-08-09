@@ -2,6 +2,7 @@ import type { Dirent, Stats } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { open, readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { type HistoryQuery, prefilterJsonLine } from "./query.js";
 import type {
 	HistoryContext,
 	HistoryFile,
@@ -16,6 +17,10 @@ const DAY_MS = 86_400_000;
 /** Enough to hold the session_meta line, which is always first and carries the cwd. */
 const META_PROBE_BYTES = 64 * 1024;
 const NEWLINE = 0x0a;
+
+export function prefilterCodexLine(line: string, query: HistoryQuery): boolean {
+	return prefilterJsonLine(query, line);
+}
 
 export function resolveCodexSessionsDir(
 	homeDir: string,

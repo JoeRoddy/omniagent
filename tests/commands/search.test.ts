@@ -635,6 +635,29 @@ describe.sequential("search command", () => {
 				);
 			});
 		});
+
+		it("sanitizes terminal controls in human output", async () => {
+			await withSearchHome(async (fixture) => {
+				const sessionFile = path.join(
+					fixture.homeDir,
+					".claude",
+					"projects",
+					slug(fixture.repoAlpha),
+					"unsafe.jsonl",
+				);
+				await writeFile(
+					sessionFile,
+					`${claudeUser("zebras before\x1b]52;c;YXR0YWNr\x07after", "2026-08-09T10:00:00.000Z", fixture.repoAlpha, "sess-unsafe")}\n`,
+				);
+				useFixture(fixture);
+				await search(["zebras", "--full"]);
+
+				expect(stdout()).not.toContain("\x1b");
+				expect(stdout()).not.toContain("\x07");
+				expect(stdout()).toContain("before");
+				expect(stdout()).toContain("after");
+			});
+		});
 	});
 
 	describe("clipboard and raw output", () => {
@@ -671,6 +694,27 @@ describe.sequential("search command", () => {
 				await search(["zebras", "--copy"]);
 
 				expect(clipboard.copied).toEqual(["line one\nline two about zebras"]);
+			});
+		});
+
+		it("does not truncate a copied message above 64 KiB", async () => {
+			await withSearchHome(async (fixture) => {
+				const sessionFile = path.join(
+					fixture.homeDir,
+					".claude",
+					"projects",
+					slug(fixture.repoAlpha),
+					"huge.jsonl",
+				);
+				const huge = `${"a".repeat(65_535)}🎉 zebras tail`;
+				await writeFile(
+					sessionFile,
+					`${claudeUser(huge, "2026-08-09T10:00:00.000Z", fixture.repoAlpha, "sess-huge")}\n`,
+				);
+				useFixture(fixture);
+				await search(["zebras tail", "--copy"]);
+
+				expect(clipboard.copied).toEqual([huge]);
 			});
 		});
 
@@ -759,7 +803,11 @@ describe.sequential("search command", () => {
 					slug(fixture.repoAlpha),
 					"long.jsonl",
 				);
-				const long = `zebras ${"padding words ".repeat(40)}end of prompt`;
+				const long = [
+					"zebras",
+					...Array.from({ length: 205 }, (_, index) => `line ${index}`),
+					"end of prompt",
+				].join("\n");
 				await writeFile(
 					sessionFile,
 					`${claudeUser(long, "2026-08-09T10:00:00.000Z", fixture.repoAlpha, "sess-l")}\n`,
@@ -767,8 +815,19 @@ describe.sequential("search command", () => {
 				useFixture(fixture);
 				await search(["zebras", "--full"]);
 
-				// The excerpt would have clamped this; --full must reach the final words.
+				// The excerpt and the former 200-line display cap would both have dropped this.
 				expect(stdout()).toContain("end of prompt");
+			});
+		});
+
+		it("exits 1 under --copy when an explicitly selected target has no history", async () => {
+			await withSearchHome(async (fixture) => {
+				await rm(path.join(fixture.homeDir, ".claude"), { recursive: true, force: true });
+				useFixture(fixture);
+				await search(["zebras", "--only", "claude", "--copy"]);
+
+				expect(exitSpy).toHaveBeenCalledWith(1);
+				expect(clipboard.copied).toEqual([]);
 			});
 		});
 
@@ -819,6 +878,16 @@ describe.sequential("search command", () => {
 				useFixture(fixture);
 				await search(["x", "--since", "notadate"]);
 
+				expect(exitSpy).toHaveBeenCalledWith(2);
+			});
+		});
+
+		it("rejects an out-of-range relative date through the JSON envelope", async () => {
+			await withSearchHome(async (fixture) => {
+				useFixture(fixture);
+				await search(["x", "--since", "999999999999999999999d", "--json"]);
+
+				expect(envelope().errors[0]?.code).toBe("invalid_since");
 				expect(exitSpy).toHaveBeenCalledWith(2);
 			});
 		});

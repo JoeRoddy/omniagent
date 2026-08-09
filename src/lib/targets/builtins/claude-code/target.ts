@@ -1,6 +1,7 @@
 import {
 	listClaudeFiles,
 	normalizeClaudeLine,
+	prefilterClaudeLine,
 	resumeClaudeSession,
 } from "../../../history/claude.js";
 import type { TargetDefinition } from "../../config-types.js";
@@ -74,6 +75,7 @@ export const claudeTarget: TargetDefinition = {
 		// Subagent transcripts are on disk, so Claude can answer for all three roles.
 		roles: ["user", "assistant", "agent"],
 		listFiles: listClaudeFiles,
+		prefilter: prefilterClaudeLine,
 		normalize: normalizeClaudeLine,
 		resume: resumeClaudeSession,
 	},

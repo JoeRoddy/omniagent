@@ -11,8 +11,10 @@ import {
 } from "../../lib/history/filters.js";
 import {
 	buildSearchEnvelope,
+	collapseText,
 	formatSearchSummary,
 	formatTimestamp,
+	sanitizeTerminalText,
 	shouldUseColor,
 } from "../../lib/history/format.js";
 import { runPicker } from "../../lib/history/picker.js";
@@ -91,7 +93,7 @@ function printError(options: {
 			),
 		);
 	} else {
-		console.error(`Error: ${options.message}`);
+		console.error(`Error: ${sanitizeTerminalText(options.message)}`);
 	}
 	process.exit(options.exitCode);
 }
@@ -104,7 +106,7 @@ function printError(options: {
 function emitNotes(notes: SearchNote[]): void {
 	const useColor = shouldUseColor();
 	for (const note of notes) {
-		const line = `Note: ${note.message}`;
+		const line = `Note: ${sanitizeTerminalText(note.message)}`;
 		console.error(useColor ? `\x1b[2m${line}\x1b[0m` : line);
 	}
 }
@@ -156,6 +158,7 @@ function writeText(match: SearchMatch): void {
 function describeMatch(match: SearchMatch): string {
 	return [match.agentId, match.project, formatTimestamp(match.timestamp)]
 		.filter((part): part is string => Boolean(part))
+		.map(collapseText)
 		.join(" · ");
 }
 
@@ -486,6 +489,9 @@ async function runSearchCommand(argv: SearchArgs): Promise<void> {
 	if (wantsCopy) {
 		if (matches.length === 0) {
 			console.log(formatSearchSummary(envelope, jsonOutput, { full: argv.full === true }));
+			if (failed) {
+				process.exit(1);
+			}
 			return;
 		}
 		const index = resolveIndex(argv.copy, matches.length, jsonOutput, "copy");

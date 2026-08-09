@@ -1,3 +1,5 @@
+import type { HistoryQuery } from "./query.js";
+
 export const HISTORY_ROLES = ["user", "assistant", "agent"] as const;
 export type HistoryRole = (typeof HISTORY_ROLES)[number];
 
@@ -72,6 +74,11 @@ export type TargetHistoryDefinition = {
 	roles: HistoryRole[];
 	/** Enumerate candidate transcripts. Owns all discovery and pruning. readdir/stat only. */
 	listFiles: (scope: SearchScope, context: HistoryContext) => AsyncIterable<HistoryFile>;
+	/**
+	 * Optional raw-line optimization. Omit unless returning false proves the normalized record could
+	 * not match; the engine defaults to parsing every line so normalization cannot lose results.
+	 */
+	prefilter?: (line: string, query: HistoryQuery) => boolean;
 	/**
 	 * How the engine turns a file into records. Omit for the JSONL fast path, where the engine
 	 * owns the read loop so it can prefilter raw lines before `JSON.parse`.

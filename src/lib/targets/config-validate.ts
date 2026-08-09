@@ -392,6 +392,9 @@ function validateHistoryDefinition(
 	if (typeof history.listFiles !== "function") {
 		errors.push(`${label}.listFiles must be a function.`);
 	}
+	if (history.prefilter !== undefined && typeof history.prefilter !== "function") {
+		errors.push(`${label}.prefilter must be a function when provided.`);
+	}
 
 	const scan = history.scan;
 	let customRead = false;

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { findRanges, type HistoryQuery } from "./query.js";
 import type {
 	HistoryResume,
@@ -19,15 +20,15 @@ const ANSI = {
 
 type AnsiStyle = keyof typeof ANSI;
 
-// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping real ANSI escapes is the point.
-const ANSI_ESCAPE = /\u001b\[[0-9;]*[a-zA-Z]/g;
+// Preserve line feeds and tabs for display layout; strip every other C0/C1 control after VT
+// sequences so transcript content cannot rewrite the terminal or its clipboard.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal controls are the point.
+const TERMINAL_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
 const EXCERPT_LEAD = 24;
 const EXCERPT_SNAP = 12;
 const DEFAULT_WIDTH = 100;
 const MAX_WIDTH = 120;
 const INDENT = "  ";
-/** Guards the JSON envelope against one pathological pasted prompt bloating the document. */
-const MAX_TEXT_BYTES = 64 * 1024;
 
 export function shouldUseColor(): boolean {
 	if (process.env.FORCE_COLOR != null && process.env.FORCE_COLOR !== "0") {
@@ -51,7 +52,11 @@ function color(value: string, style: AnsiStyle, useColor: boolean): string {
  * to a single logical line is what makes results scannable.
  */
 export function collapseText(text: string): string {
-	return text.replace(ANSI_ESCAPE, "").replace(/\s+/g, " ").trim();
+	return sanitizeTerminalText(text).replace(/\s+/g, " ").trim();
+}
+
+export function sanitizeTerminalText(text: string): string {
+	return stripVTControlCharacters(text).replace(TERMINAL_CONTROL, "");
 }
 
 export function buildExcerpt(
@@ -126,25 +131,54 @@ export function formatResumeCommand(
 	resume: HistoryResume | null,
 	currentCwd: string,
 	homeDir: string,
+	platform: NodeJS.Platform = process.platform,
 ): string | null {
 	if (!resume) {
 		return null;
 	}
-	const command = [resume.command, ...resume.args].join(" ");
+	if (platform === "win32") {
+		const command = `& ${[resume.command, ...resume.args].map(quotePowerShellToken).join(" ")}`;
+		if (!resume.cwd || resume.cwd === currentCwd) {
+			return command;
+		}
+		return `Set-Location -LiteralPath ${quotePowerShellToken(resume.cwd)}; if ($?) { ${command} }`;
+	}
+	const command = [quoteShellCommand(resume.command), ...resume.args.map(quoteShellToken)].join(
+		" ",
+	);
 	if (!resume.cwd || resume.cwd === currentCwd) {
 		return command;
 	}
-	return `cd ${shortenHome(resume.cwd, homeDir)} && ${command}`;
+	return `cd ${quoteShellPath(shortenHome(resume.cwd, homeDir))} && ${command}`;
 }
 
-function truncateText(text: string): { text: string; truncated: boolean } {
-	if (Buffer.byteLength(text, "utf8") <= MAX_TEXT_BYTES) {
-		return { text, truncated: false };
+function quotePowerShellToken(value: string): string {
+	return `'${value.replaceAll("'", "''")}'`;
+}
+
+const SAFE_SHELL_COMMAND = /^[a-zA-Z0-9_./-]+$/;
+const SAFE_SHELL_TOKEN = /^[a-zA-Z0-9_@%+=:,./-]+$/;
+
+function quoteShellCommand(value: string): string {
+	return SAFE_SHELL_COMMAND.test(value) ? value : quoteShellLiteral(value);
+}
+
+function quoteShellToken(value: string): string {
+	if (SAFE_SHELL_TOKEN.test(value)) {
+		return value;
 	}
-	return {
-		text: Buffer.from(text, "utf8").subarray(0, MAX_TEXT_BYTES).toString("utf8"),
-		truncated: true,
-	};
+	return quoteShellLiteral(value);
+}
+
+function quoteShellLiteral(value: string): string {
+	return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function quoteShellPath(value: string): string {
+	if (value.startsWith("~/")) {
+		return `~/${quoteShellToken(value.slice(2))}`;
+	}
+	return quoteShellToken(value);
 }
 
 function terminalWidth(): number {
@@ -196,7 +230,6 @@ export function buildSearchEnvelope(options: {
 		const collapsed = collapseText(hit.record.text);
 		const ranges = findRanges(options.query, collapsed);
 		const excerpt = buildExcerpt(collapsed, ranges, width);
-		const text = truncateText(hit.record.text);
 		return {
 			agentId: hit.record.agentId,
 			displayName: hit.displayName,
@@ -209,8 +242,8 @@ export function buildSearchEnvelope(options: {
 			sourcePath: hit.record.sourcePath,
 			// Newlines are preserved here so the full prompt round-trips and stays reusable;
 			// `excerpt` is the collapsed display form.
-			text: text.text,
-			textTruncated: text.truncated,
+			text: hit.record.text,
+			textTruncated: false,
 			excerpt: excerpt.excerpt,
 			matchRanges: excerpt.ranges,
 			resumeCommand: formatResumeCommand(hit.resume, options.cwd, options.homeDir),
@@ -321,7 +354,7 @@ export function formatSearchSummary(
 	// With the default single role the column would be constant, so it is folded away.
 	const showRole = envelope.scope.roles.length > 1 || envelope.scope.roles[0] !== "user";
 	const agentLabels = envelope.matches.map((match) =>
-		showRole ? `${match.agentId}/${match.role}` : match.agentId,
+		collapseText(showRole ? `${match.agentId}/${match.role}` : match.agentId),
 	);
 	const agentWidth = Math.max(...agentLabels.map((label) => label.length));
 	// Results are numbered so --copy and --print can address one without a second search.
@@ -339,20 +372,24 @@ export function formatSearchSummary(
 			[
 				color(formatTimestamp(match.timestamp), "gray", useColor),
 				color((agentLabels[index] as string).padEnd(agentWidth), "bold", useColor),
-				color(match.project ?? "", "gray", useColor),
+				color(collapseText(match.project ?? ""), "gray", useColor),
 			]
 				.join("  ")
 				.trimEnd();
 		lines.push(header);
 		if (options.full) {
-			for (const line of wrapText(match.text, terminalWidth() - bodyIndent.length, 200)) {
+			for (const line of wrapText(
+				sanitizeTerminalText(match.text),
+				terminalWidth() - bodyIndent.length,
+				Number.POSITIVE_INFINITY,
+			)) {
 				lines.push(line.length === 0 ? "" : `${bodyIndent}${line}`);
 			}
 		} else {
 			lines.push(`${bodyIndent}${highlight(match.excerpt, match.matchRanges, useColor)}`);
 		}
 		if (match.resumeCommand) {
-			lines.push(`${bodyIndent}${color(match.resumeCommand, "dim", useColor)}`);
+			lines.push(`${bodyIndent}${color(collapseText(match.resumeCommand), "dim", useColor)}`);
 		}
 	});
 

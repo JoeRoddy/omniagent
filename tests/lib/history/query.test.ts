@@ -3,6 +3,7 @@ import {
 	findRanges,
 	InvalidQueryError,
 	matchesText,
+	prefilterJsonLine,
 	prefilterLine,
 } from "../../../src/lib/history/query.js";
 
@@ -149,6 +150,29 @@ describe("prefilter", () => {
 		expect(line).toContain('\\"hello\\"');
 		expect(matchesText(query, text)).toBe(true);
 		expect(prefilterLine(query, line)).toBe(true);
+	});
+
+	it("admits JSON lines whose matching text is unicode escaped", () => {
+		const query = compileQuery(["merge"]);
+		const line = '{"message":"\\u006d\\u0065\\u0072\\u0067\\u0065"}';
+
+		expect(prefilterLine(query, line)).toBe(false);
+		expect(prefilterJsonLine(query, line)).toBe(true);
+	});
+
+	it("admits multiple text fields that normalization may join", () => {
+		const query = compileQuery(["merge"]);
+		const line = '{"content":[{"text":"mer"},{"text":"ge"}]}';
+
+		expect(prefilterLine(query, line)).toBe(false);
+		expect(prefilterJsonLine(query, line)).toBe(true);
+	});
+
+	it("still rejects an unrelated JSON line with one text field", () => {
+		const query = compileQuery(["merge"]);
+		const line = '{"content":[{"type":"text","text":"unrelated"}]}';
+
+		expect(prefilterJsonLine(query, line)).toBe(false);
 	});
 });
 

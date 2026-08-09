@@ -99,6 +99,7 @@ describe("codex builtin target", () => {
 		expect(codexTarget.history?.roles).toEqual(["user", "assistant"]);
 		expect(codexTarget.history?.roles).not.toContain("agent");
 		expect(typeof codexTarget.history?.listFiles).toBe("function");
+		expect(typeof codexTarget.history?.prefilter).toBe("function");
 		expect(typeof codexTarget.history?.normalize).toBe("function");
 		expect(typeof codexTarget.history?.resume).toBe("function");
 	});

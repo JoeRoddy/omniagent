@@ -35,7 +35,7 @@ export function parseWhen(
 ): Date {
 	const trimmed = value.trim();
 	const code = options.flag === "--until" ? "invalid_until" : "invalid_since";
-	const fail = () => {
+	const fail = (): never => {
 		throw new InvalidFilterError(
 			code,
 			`${options.flag} must be YYYY-MM-DD, an ISO timestamp, or a relative duration like 7d, 24h, or 30m.`,
@@ -50,7 +50,12 @@ export function parseWhen(
 		const amount = Number(relative[1]);
 		const unit = (relative[2] as string).toLowerCase();
 		const now = options.now ?? new Date();
-		return new Date(now.getTime() - amount * (DURATION_MS[unit] as number));
+		const timestamp = now.getTime() - amount * (DURATION_MS[unit] as number);
+		const resolved = new Date(timestamp);
+		if (!Number.isFinite(timestamp) || Number.isNaN(resolved.getTime())) {
+			fail();
+		}
+		return resolved;
 	}
 
 	const dateOnly = DATE_ONLY.exec(trimmed);
@@ -63,7 +68,12 @@ export function parseWhen(
 		const resolved = options.endOfDay
 			? new Date(year, month - 1, day, 23, 59, 59, 999)
 			: new Date(year, month - 1, day, 0, 0, 0, 0);
-		if (Number.isNaN(resolved.getTime())) {
+		if (
+			Number.isNaN(resolved.getTime()) ||
+			resolved.getFullYear() !== year ||
+			resolved.getMonth() !== month - 1 ||
+			resolved.getDate() !== day
+		) {
 			fail();
 		}
 		return resolved;

@@ -1,9 +1,8 @@
 import readline from "node:readline";
-import { formatTimestamp, wrapText } from "./format.js";
+import { collapseText, formatTimestamp, sanitizeTerminalText, wrapText } from "./format.js";
 import type { SearchMatch } from "./types.js";
 
 const MAX_LIST_ROWS = 10;
-const MIN_BODY_ROWS = 3;
 /** title, blank, separator, blank, hint */
 const CHROME_ROWS = 5;
 
@@ -171,10 +170,9 @@ export function layout(
 	dimensions: PickerDimensions,
 	entryCount: number,
 ): { listRows: number; previewRows: number } {
-	const usable = Math.max(10, dimensions.rows - 1);
-	const body = Math.max(MIN_BODY_ROWS, usable - CHROME_ROWS);
+	const body = Math.max(1, dimensions.rows - CHROME_ROWS);
 	const listRows = Math.max(1, Math.min(entryCount || 1, MAX_LIST_ROWS, Math.ceil(body * 0.6)));
-	const previewRows = Math.max(1, body - listRows);
+	const previewRows = Math.max(0, body - listRows);
 	return { listRows, previewRows };
 }
 
@@ -199,10 +197,11 @@ export function renderPicker(
 	const total = state.entries.length;
 	const shown = positioned.visible.length;
 	const counter = shown === total ? `${total} matches` : `${shown} of ${total}`;
-	const header =
+	const header = collapseText(
 		positioned.filter.length > 0
 			? `${options.query} › ${positioned.filter}▏  ${counter}`
-			: `${options.query} · ${counter}`;
+			: `${options.query} · ${counter}`,
+	);
 
 	const lines: string[] = [style(truncate(header, width), ANSI.dim), ""];
 
@@ -223,9 +222,11 @@ export function renderPicker(
 			}
 			const entry = positioned.entries[positioned.visible[visibleIndex] as number] as PickerEntry;
 			const marker = visibleIndex === positioned.selected ? "▸" : " ";
-			const label = `${marker} [${String(entry.number).padStart(numberWidth)}] ${formatTimestamp(
-				entry.match.timestamp,
-			)}  ${entry.match.agentId.padEnd(agentWidth)}  ${entry.match.project ?? ""}`;
+			const label = collapseText(
+				`${marker} [${String(entry.number).padStart(numberWidth)}] ${formatTimestamp(
+					entry.match.timestamp,
+				)}  ${entry.match.agentId.padEnd(agentWidth)}  ${entry.match.project ?? ""}`,
+			);
 			const clamped = truncate(label.trimEnd(), width);
 			lines.push(
 				visibleIndex === positioned.selected ? style(clamped.padEnd(width), ANSI.reverse) : clamped,
@@ -236,7 +237,7 @@ export function renderPicker(
 	lines.push(style("─".repeat(width), ANSI.dim));
 
 	const match = selectedMatch(positioned);
-	const preview = match ? wrapText(match.text, width, previewRows) : [];
+	const preview = match ? wrapText(sanitizeTerminalText(match.text), width, previewRows) : [];
 	for (let row = 0; row < previewRows; row += 1) {
 		lines.push(preview[row] ?? "");
 	}
@@ -251,7 +252,7 @@ export function renderPicker(
 			ANSI.dim,
 		),
 	);
-	return lines;
+	return lines.slice(0, Math.max(1, dimensions.rows));
 }
 
 export type PickerIo = {

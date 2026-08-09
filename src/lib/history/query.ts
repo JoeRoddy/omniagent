@@ -18,9 +18,8 @@ export type HistoryQuery = {
 	regex: RegExp | null;
 	caseSensitive: boolean;
 	/**
-	 * Case-normalized substring safe to test against a raw JSON line before parsing it.
-	 * Null when no safe needle is derivable, in which case every candidate line is parsed.
-	 * May yield false positives (rejected after parse); never false negatives.
+	 * Case-normalized substring candidate for a target-owned raw-line prefilter. The target must
+	 * account for its encoding and normalization; null means every candidate line must be parsed.
 	 */
 	prefilter: string | null;
 };
@@ -93,8 +92,8 @@ export function compileQuery(
 }
 
 /**
- * Cheap gate run on the raw JSON line before `JSON.parse`. Skips the overwhelming majority of
- * lines; a `true` result only means "worth parsing", never "matches".
+ * Cheap literal gate for encodings guaranteed to retain the needle verbatim. Targets whose
+ * records can escape or transform text must wrap this with their own conservative checks.
  */
 export function prefilterLine(query: HistoryQuery, line: string): boolean {
 	if (query.prefilter === null) {
@@ -104,6 +103,37 @@ export function prefilterLine(query: HistoryQuery, line: string): boolean {
 	// make search results depend on the ambient LANG.
 	const haystack = query.caseSensitive ? line : line.toLowerCase();
 	return haystack.includes(query.prefilter);
+}
+
+/**
+ * Conservative prefilter for JSON records whose normalized text is assembled from string fields.
+ * Legal JSON may escape any character as `\uXXXX` (and `/` as `\/`), so those lines must be
+ * parsed. Multiple text fields are also admitted because normalization may join their values.
+ */
+export function prefilterJsonLine(query: HistoryQuery, line: string): boolean {
+	if (line.includes("\\u") || line.includes("\\/")) {
+		return true;
+	}
+	const firstTextField = findJsonTextField(line);
+	if (firstTextField !== -1 && findJsonTextField(line, firstTextField + 6) !== -1) {
+		return true;
+	}
+	return prefilterLine(query, line);
+}
+
+function findJsonTextField(line: string, from = 0): number {
+	let index = line.indexOf('"text"', from);
+	while (index !== -1) {
+		let cursor = index + 6;
+		while (cursor < line.length && /\s/.test(line[cursor] as string)) {
+			cursor += 1;
+		}
+		if (line[cursor] === ":") {
+			return index;
+		}
+		index = line.indexOf('"text"', index + 6);
+	}
+	return -1;
 }
 
 /** Authoritative match, run against a record's cleaned text. */

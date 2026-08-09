@@ -1,4 +1,9 @@
-import { listCodexFiles, normalizeCodexLine, resumeCodexSession } from "../../../history/codex.js";
+import {
+	listCodexFiles,
+	normalizeCodexLine,
+	prefilterCodexLine,
+	resumeCodexSession,
+} from "../../../history/codex.js";
 import type { TargetDefinition } from "../../config-types.js";
 
 export const codexTarget: TargetDefinition = {
@@ -90,6 +95,7 @@ export const codexTarget: TargetDefinition = {
 		// support rather than silently returning no rows for `--role agent`.
 		roles: ["user", "assistant"],
 		listFiles: listCodexFiles,
+		prefilter: prefilterCodexLine,
 		normalize: normalizeCodexLine,
 		resume: resumeCodexSession,
 	},

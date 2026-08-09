@@ -226,6 +226,16 @@ describe("picker rendering", () => {
 
 		expect(frame.includes(String.fromCharCode(27))).toBe(false);
 	});
+
+	it("sanitizes terminal controls embedded in transcript text", () => {
+		const unsafe = state([
+			match({ text: "before\x1b]52;c;YXR0YWNr\x07after", sessionId: "unsafe" }),
+		]);
+		const frame = renderPicker(unsafe, dimensions, { query: "before", useColor: false }).join("\n");
+
+		expect(frame).not.toContain("\x1b");
+		expect(frame).not.toContain("\x07");
+	});
 });
 
 describe("picker layout", () => {
@@ -238,10 +248,13 @@ describe("picker layout", () => {
 	});
 
 	it("stays usable in a very short terminal", () => {
-		const { listRows, previewRows } = layout({ rows: 6, columns: 40 }, 20);
+		const dimensions = { rows: 6, columns: 40 };
+		const { listRows, previewRows } = layout(dimensions, 20);
+		const frame = renderPicker(state(), dimensions, { query: "prompt", useColor: false });
 
 		expect(listRows).toBeGreaterThanOrEqual(1);
-		expect(previewRows).toBeGreaterThanOrEqual(1);
+		expect(previewRows).toBeGreaterThanOrEqual(0);
+		expect(frame.length).toBeLessThanOrEqual(dimensions.rows);
 	});
 
 	it("never reserves more list rows than there are results", () => {

@@ -205,6 +205,8 @@ history: {
 
 - `roles` must be a non-empty subset of `user`, `assistant`, `agent`.
 - `listFiles` is required.
+- `prefilter(line, query)` is optional and must never reject a line whose normalized record could
+  match; omit it unless the raw encoding makes that guarantee possible.
 - Define exactly one reader: `normalize` for the line-oriented fast path, or `scan.read` for a
   custom store. Defining both is rejected; defining neither yields no records.
 - `resume` is optional.

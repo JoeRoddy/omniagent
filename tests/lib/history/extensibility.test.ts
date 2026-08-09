@@ -49,7 +49,9 @@ export default {
 						agentId: context.targetId,
 						role: "user",
 						timestamp,
-						text: rest.join("|"),
+						text: rest.join("|").startsWith("encoded:")
+							? Buffer.from(rest.join("|").slice("encoded:".length), "base64").toString("utf8")
+							: rest.join("|"),
 						sessionId: file.sessionId,
 						cwd: file.projectPath,
 						sourcePath: file.path,
@@ -128,6 +130,7 @@ async function withCustomAgent(fn: (fixture: Fixture) => Promise<void>): Promise
 				"2026-08-09T10:00:00.000Z|user|demo agent talks about zebras",
 				"2026-08-09T10:01:00.000Z|assistant|assistant mentions zebras",
 				"2026-08-09T09:00:00.000Z|user|an older zebras prompt",
+				`2026-08-09T08:00:00.000Z|user|encoded:${Buffer.from("decoded pangolin").toString("base64")}`,
 				"",
 			].join("\n"),
 		);
@@ -204,6 +207,15 @@ describe.sequential("history capability extensibility", () => {
 			]);
 			expect(result.matches[0]?.agentId).toBe("demo");
 			expect(result.matches[0]?.displayName).toBe("Demo Agent");
+		});
+	});
+
+	it("does not prefilter custom normalization unless the target opts in", async () => {
+		await withCustomAgent(async (fixture) => {
+			use(fixture);
+			await runCli(["node", "omniagent", "search", "decoded pangolin", "--only", "demo", "--json"]);
+
+			expect(envelope().matches.map((match) => match.text)).toEqual(["decoded pangolin"]);
 		});
 	});
 
