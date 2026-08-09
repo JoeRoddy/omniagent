@@ -4,6 +4,7 @@ import type {
 	ResolvedTarget,
 	TargetCliDefinition,
 	TargetDefinition,
+	TargetHistoryDefinition,
 	TargetOutputs,
 	TargetUsageDefinition,
 } from "./config-types.js";
@@ -34,6 +35,15 @@ function cloneUsage(usage: TargetUsageDefinition | undefined): TargetUsageDefini
 				}
 			: undefined,
 	};
+}
+
+function cloneHistory(
+	history: TargetHistoryDefinition | undefined,
+): TargetHistoryDefinition | undefined {
+	if (!history) {
+		return undefined;
+	}
+	return { ...history, roles: [...history.roles] };
 }
 
 function mergeOutputs(
@@ -126,6 +136,7 @@ export function resolveTargets(options: {
 				outputs: cloneOutputs(builtIn.outputs),
 				cli: cloneCli(builtIn.cli),
 				usage: cloneUsage(builtIn.usage),
+				history: cloneHistory(builtIn.history),
 				hooks: builtIn.hooks,
 				isBuiltIn: true,
 				isCustomized: false,
@@ -147,6 +158,7 @@ export function resolveTargets(options: {
 				outputs: mergedOutputs,
 				cli: cloneCli(customTarget.cli ?? inherited?.cli),
 				usage: cloneUsage(customTarget.usage ?? inherited?.usage),
+				history: cloneHistory(customTarget.history ?? inherited?.history),
 				hooks: customTarget.hooks ?? inherited?.hooks,
 				isBuiltIn: true,
 				isCustomized: true,
@@ -160,6 +172,7 @@ export function resolveTargets(options: {
 				outputs: cloneOutputs(customTarget.outputs),
 				cli: cloneCli(customTarget.cli),
 				usage: cloneUsage(customTarget.usage),
+				history: cloneHistory(customTarget.history),
 				hooks: customTarget.hooks,
 				isBuiltIn: true,
 				isCustomized: true,
@@ -186,6 +199,7 @@ export function resolveTargets(options: {
 			outputs: mergedOutputs,
 			cli: cloneCli(target.cli ?? inherited?.cli),
 			usage: cloneUsage(target.usage ?? inherited?.usage),
+			history: cloneHistory(target.history ?? inherited?.history),
 			hooks: target.hooks ?? inherited?.hooks,
 			isBuiltIn: false,
 			isCustomized: true,

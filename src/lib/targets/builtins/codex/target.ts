@@ -1,3 +1,9 @@
+import {
+	listCodexFiles,
+	normalizeCodexLine,
+	prefilterCodexLine,
+	resumeCodexSession,
+} from "../../../history/codex.js";
 import type { TargetDefinition } from "../../config-types.js";
 
 export const codexTarget: TargetDefinition = {
@@ -83,5 +89,14 @@ export const codexTarget: TargetDefinition = {
 			const { extractCodexUsage } = await import("../../../usage/codex.js");
 			return extractCodexUsage(context);
 		},
+	},
+	history: {
+		// Codex persists nothing equivalent to a subagent transcript, so it declares partial
+		// support rather than silently returning no rows for `--role agent`.
+		roles: ["user", "assistant"],
+		listFiles: listCodexFiles,
+		prefilter: prefilterCodexLine,
+		normalize: normalizeCodexLine,
+		resume: resumeCodexSession,
 	},
 };

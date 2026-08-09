@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 const README_PATH = new URL("../../README.md", import.meta.url);
 const DOCS_INDEX_PATH = new URL("../../docs/README.md", import.meta.url);
 const TEMPLATING_PATH = new URL("../../docs/templating.md", import.meta.url);
+const REFERENCE_PATH = new URL("../../docs/reference.md", import.meta.url);
+const CUSTOM_TARGETS_PATH = new URL("../../docs/custom-targets.md", import.meta.url);
 const QUICKSTART_PATH = new URL(
 	"../../specs/017-dynamic-template-scripts/quickstart.md",
 	import.meta.url,
@@ -30,10 +32,29 @@ describe("README", () => {
 		expect(contents).toContain("my-personal-command.md");
 		expect(contents).toContain("<agents claude,codex>");
 		expect(contents).toMatch(/agent="\$\{1:-claude\}"/);
+		expect(contents).toContain("omniagent search");
 		expect(contents).toContain("## Contributing");
 		expect(contents).toContain("CONTRIBUTING.md");
 		expect(contents).not.toContain("## Validation");
 		expect(contents).not.toContain("docs/cli-shim-e2e.md");
+	});
+
+	it("documents the search command surface", async () => {
+		const reference = await readFile(REFERENCE_PATH, "utf8");
+		const customTargets = await readFile(CUSTOM_TARGETS_PATH, "utf8");
+
+		expect(reference).toContain("## Search");
+		expect(reference).toContain("--role");
+		expect(reference).toContain("--project");
+		// Copying a past prompt is the command's main purpose, and agents need the scriptable path.
+		expect(reference).toContain("--copy");
+		expect(reference).toContain("--print");
+		expect(reference).toContain("--no-interactive");
+		// Adding a searchable agent must stay a config-only change, so the capability is documented
+		// alongside the other target capabilities.
+		expect(customTargets).toContain("## Searchable history (`history`)");
+		expect(customTargets).toContain("scan");
+		expect(customTargets).toContain("normalize");
 	});
 
 	it("keeps advanced templating details in docs pages", async () => {

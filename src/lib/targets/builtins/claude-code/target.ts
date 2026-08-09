@@ -1,3 +1,9 @@
+import {
+	listClaudeFiles,
+	normalizeClaudeLine,
+	prefilterClaudeLine,
+	resumeClaudeSession,
+} from "../../../history/claude.js";
 import type { TargetDefinition } from "../../config-types.js";
 
 export const claudeTarget: TargetDefinition = {
@@ -59,5 +65,18 @@ export const claudeTarget: TargetDefinition = {
 			const { extractClaudeUsage } = await import("../../../usage/claude.js");
 			return extractClaudeUsage(context);
 		},
+	},
+	// Everything Claude-specific about searching history lives here, not in the search engine:
+	// where transcripts are, how the cwd is encoded into a directory name, which record shapes
+	// count as messages, and how to get back into a session.
+	// Imported statically rather than through a lazy thunk (as `usage.extract` does) because
+	// `normalize` runs per line and must stay synchronous, so deferring the import buys nothing.
+	history: {
+		// Subagent transcripts are on disk, so Claude can answer for all three roles.
+		roles: ["user", "assistant", "agent"],
+		listFiles: listClaudeFiles,
+		prefilter: prefilterClaudeLine,
+		normalize: normalizeClaudeLine,
+		resume: resumeClaudeSession,
 	},
 };

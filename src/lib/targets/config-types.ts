@@ -1,6 +1,8 @@
+import type { TargetHistoryDefinition } from "../history/types.js";
 import type { TemplateScriptRuntime } from "../template-scripts.js";
 import type { TargetUsageDefinition } from "../usage/types.js";
 
+export type { TargetHistoryDefinition } from "../history/types.js";
 export type { TargetUsageDefinition } from "../usage/types.js";
 
 export const APPROVAL_POLICIES = ["prompt", "auto-edit", "yolo"] as const;
@@ -263,6 +265,7 @@ export type TargetDefinition = {
 	outputs?: TargetOutputs;
 	cli?: TargetCliDefinition;
 	usage?: TargetUsageDefinition;
+	history?: TargetHistoryDefinition;
 	hooks?: TargetHooks;
 };
 
@@ -280,6 +283,7 @@ export type ResolvedTarget = {
 	outputs: TargetOutputs;
 	cli?: TargetCliDefinition;
 	usage?: TargetUsageDefinition;
+	history?: TargetHistoryDefinition;
 	hooks?: TargetHooks;
 	isBuiltIn: boolean;
 	isCustomized: boolean;

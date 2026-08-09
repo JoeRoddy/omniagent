@@ -111,6 +111,91 @@ Failure basics:
 - If no installed active usage-capable agents are found in all-target mode, omniagent prints an
   actionable note and exits successfully.
 
+## Search
+
+```bash
+npx omniagent@latest search merge conflict
+npx omniagent@latest search "merge conflict"
+npx omniagent@latest search merge conflict --copy
+npx omniagent@latest search merge conflict --copy 3
+npx omniagent@latest search merge conflict --print 2
+npx omniagent@latest search merge conflict --full --no-interactive
+npx omniagent@latest search --project . migration
+npx omniagent@latest search --project bt-monorepo rls
+npx omniagent@latest search --role assistant flaky test
+npx omniagent@latest search --role agent exploration
+npx omniagent@latest search --only codex --since 7d deploy
+npx omniagent@latest search --skip codex refactor
+npx omniagent@latest search --regex "TODO\(\w+\)"
+npx omniagent@latest search --limit 50 --json refactor
+```
+
+Searches the conversation transcripts agent CLIs already write to disk so you can find a prompt
+you wrote before and reuse it. The primary path is copying a past message to the clipboard.
+Nothing is launched, nothing is written, and no network request is made — unlike `usage`, no agent
+CLI needs to be installed for its past sessions to be searchable.
+
+### Picking a result
+
+By default, results open in an interactive picker: a list on top, the full text of the highlighted
+match below.
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓`, `ctrl-p` / `ctrl-n` | Move between results |
+| any character | Filter the results further, in memory, with no re-scan |
+| `enter` | Copy the highlighted message to the clipboard and exit |
+| `ctrl-r` | Copy that session's resume command instead |
+| `esc` | Clear the filter; exit when the filter is already empty |
+| `ctrl-c` | Exit without copying |
+
+Result numbers stay fixed to the unfiltered list, so a number seen while filtering is the same
+number `--copy` and `--print` accept.
+
+### Non-interactive use
+
+The picker is skipped automatically outside a TTY and whenever `--json`, `--copy`, or `--print` is
+passed, so scripts and agents never hit a prompt. `--no-interactive` forces the plain listing.
+
+- `--copy [n]` copies a result and prints a confirmation to stderr. With no number it copies the
+  newest match. If no clipboard helper is available the text is written to stdout instead of being
+  lost, and the command exits 1.
+- `--print [n]` writes only that result's complete message text to stdout — no header, no excerpt,
+  no resume line — so `omniagent search deploy --print | pbcopy` works and an agent gets clean
+  input.
+- `--full` prints every match's complete text instead of a one-line excerpt.
+- `--json` carries full text in `matches[].text` with newlines preserved, so
+  `omniagent search deploy --json | jq -r '.matches[0].text'` round-trips a prompt verbatim.
+- Put the query before `--copy` / `--print`. `search --copy merge conflict` would otherwise consume
+  a search term as the index; that case is rejected with a message naming the fix.
+
+- Command surface: `search [query..]` with `--role`, `--project`, `--only`, `--skip`, `--since`,
+  `--until`, `--limit`, `--case-sensitive`, `--regex`, `--full`, `--copy`, `--print`,
+  `--no-interactive`, `--agentsDir`, and `--json`.
+- Query behavior: matching is case-insensitive by default. Each argument is a separate term and
+  all terms must match, so `search merge conflict` also finds "conflict during the merge". Quote a
+  phrase to match it exactly: `search "merge conflict"`.
+- Role behavior: `--role user` (the default) returns only what you typed. `assistant` returns
+  agent replies, `agent` returns subagent transcripts, and `all` spans everything. Agents declare
+  which roles they record; requesting one an agent cannot produce prints a note rather than
+  silently returning nothing.
+- Scope behavior: every project is searched by default. `--project` accepts either a path or a
+  name fragment — a value that looks like a path (`.`, `./x`, `~/x`, `/x`) is resolved and scoped
+  to the repository containing it, so `--project .` means "this repository"; anything else matches
+  the project path as a case-insensitive substring.
+- Target behavior: `--only` and `--skip` accept comma-separated target ids or aliases and are
+  mutually exclusive. Only agents that declare a `history` capability are searchable.
+- Result order is newest first. `--limit` defaults to 20 and applies after ordering; pass
+  `--limit 0` to use the 10,000-result safety cap.
+- Each hit in the plain listing is numbered and prints a resume command, prefixed with `cd` when
+  the session belongs to another directory, so it can be pasted as-is.
+- Notes and warnings go to stderr in both modes, keeping stdout a clean, pipeable result list.
+- Zero matches is a successful result and exits 0. Invalid flag values exit 2. An invalid agents
+  directory, invalid target configuration, or an agent named in `--only` with no history to search
+  exits 1. Interrupting a search exits 130.
+- Transcripts can contain secrets you pasted into a session. Human output shows only a window
+  around the match, but `--json` includes full message text.
+
 ## Shim
 
 ```bash

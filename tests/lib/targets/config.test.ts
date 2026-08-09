@@ -455,6 +455,29 @@ describe("target config validation", () => {
 			]),
 		);
 	});
+
+	it("rejects a non-function history prefilter", () => {
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "searchable",
+					history: {
+						roles: ["user"],
+						listFiles: async function* () {},
+						normalize: () => null,
+						prefilter: "nope",
+					},
+				} as unknown as TargetDefinition,
+			],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(false);
+		expect(validation.errors).toContain(
+			"targets[0].history.prefilter must be a function when provided.",
+		);
+	});
 });
 
 describe("target resolution", () => {
