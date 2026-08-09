@@ -113,4 +113,29 @@ describe("bounded history search", () => {
 			["unknown-b", "session-5", 0, "not-a-date"],
 		]);
 	});
+
+	it("uses source paths to resolve otherwise identical ordering ties", async () => {
+		const timestamp = "2026-01-01T00:00:00.000Z";
+		const records = [
+			record(1, {
+				timestamp,
+				sessionId: "shared-session",
+				sourcePath: "/z-history.json",
+				recordIndex: 0,
+			}),
+			record(0, {
+				timestamp,
+				sessionId: "shared-session",
+				sourcePath: "/a-history.json",
+				recordIndex: 0,
+			}),
+		];
+
+		const result = await search(records, 0);
+
+		expect(result.hits.map((hit) => hit.record.sourcePath)).toEqual([
+			"/a-history.json",
+			"/z-history.json",
+		]);
+	});
 });

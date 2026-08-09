@@ -220,7 +220,7 @@ async function runSearchCommand(argv: SearchArgs): Promise<void> {
 		printError({
 			json: jsonOutput,
 			code: "invalid_limit",
-			message: "--limit must be a non-negative integer. Use 0 for no limit.",
+			message: "--limit must be a non-negative integer. Use 0 for the 10,000-result cap.",
 			exitCode: 2,
 		});
 		return;
@@ -561,7 +561,7 @@ export const searchCommand: CommandModule<Record<string, never>, SearchArgs> = {
 			.option("limit", {
 				type: "number",
 				default: DEFAULT_LIMIT,
-				describe: "Maximum matches to print, newest first (0 for no limit)",
+				describe: "Maximum matches to print, newest first (0 uses the 10,000-result cap)",
 			})
 			.option("case-sensitive", {
 				type: "boolean",

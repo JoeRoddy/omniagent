@@ -186,7 +186,7 @@ passed, so scripts and agents never hit a prompt. `--no-interactive` forces the 
 - Target behavior: `--only` and `--skip` accept comma-separated target ids or aliases and are
   mutually exclusive. Only agents that declare a `history` capability are searchable.
 - Result order is newest first. `--limit` defaults to 20 and applies after ordering; pass
-  `--limit 0` for no limit.
+  `--limit 0` to use the 10,000-result safety cap.
 - Each hit in the plain listing is numbered and prints a resume command, prefixed with `cd` when
   the session belongs to another directory, so it can be pasted as-is.
 - Notes and warnings go to stderr in both modes, keeping stdout a clean, pipeable result list.

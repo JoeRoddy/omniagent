@@ -128,6 +128,7 @@ function compareHits(a: SearchHit, b: SearchHit): number {
 	return (
 		a.record.agentId.localeCompare(b.record.agentId) ||
 		a.record.sessionId.localeCompare(b.record.sessionId) ||
+		a.record.sourcePath.localeCompare(b.record.sourcePath) ||
 		a.record.recordIndex - b.record.recordIndex
 	);
 }
