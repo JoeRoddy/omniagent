@@ -38,8 +38,12 @@ export type HistoryFile = {
 	projectPath: string | null;
 	/** Session id when derivable from the path or header; else null. */
 	sessionId: string | null;
-	/** ISO 8601. Drives newest-first file ordering so `--limit` short-circuits sensibly. */
+	/**
+	 * ISO 8601. Enables safe cutoff pruning and newest-first ordering. Null or invalid values fail
+	 * open and leave the file eligible for scanning.
+	 */
 	modifiedAt: string | null;
+	/** Contributes to adaptive cutoff selection. Null or invalid values are ignored. */
 	sizeBytes: number | null;
 	/** Free-form payload carried from `listFiles` through to `normalize`. */
 	meta?: Record<string, unknown>;

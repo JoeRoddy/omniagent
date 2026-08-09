@@ -6,6 +6,7 @@ import { runCli } from "../../src/cli/index.js";
 // The clipboard is stubbed so the suite never writes to the developer's real clipboard, and so
 // the copy paths behave identically on a CI box with no clipboard helper installed.
 const clipboard = vi.hoisted(() => ({ copied: [] as string[], shouldFail: false }));
+const automaticSince = vi.hoisted(() => ({ argument: null as "90d" | null }));
 vi.mock("../../src/lib/history/clipboard.js", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../../src/lib/history/clipboard.js")>();
 	return {
@@ -17,6 +18,21 @@ vi.mock("../../src/lib/history/clipboard.js", async (importOriginal) => {
 			clipboard.copied.push(text);
 			return { command: "stub", args: [] };
 		}),
+	};
+});
+vi.mock("../../src/lib/history/auto-since.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../../src/lib/history/auto-since.js")>();
+	return {
+		...actual,
+		chooseAutomaticSince(files: Parameters<typeof actual.chooseAutomaticSince>[0], now?: Date) {
+			if (automaticSince.argument === null) {
+				return actual.chooseAutomaticSince(files, now);
+			}
+			return {
+				argument: automaticSince.argument,
+				since: new Date("2026-05-11T12:00:00.000Z"),
+			};
+		},
 	};
 });
 
@@ -189,6 +205,7 @@ describe.sequential("search command", () => {
 		originalNoColor = process.env.NO_COLOR;
 		process.env.NO_COLOR = "1";
 		process.exitCode = undefined;
+		automaticSince.argument = null;
 	});
 
 	afterEach(() => {
@@ -436,6 +453,134 @@ describe.sequential("search command", () => {
 				expect(envelope().matches.map((match) => match.text)).toEqual([
 					"beta wants a merge conflict fix",
 				]);
+			});
+		});
+	});
+
+	describe("adaptive cutoff", () => {
+		it("prints the locked notice to stderr and exposes the effective JSON scope", async () => {
+			await withSearchHome(async (fixture) => {
+				automaticSince.argument = "90d";
+				useFixture(fixture);
+				await search(["merge conflict", "--json", "--limit", "0"]);
+
+				const result = envelope();
+				const message =
+					"Large history detected: using `--since 90d`. Use `--all-history` for everything.";
+				expect(() => JSON.parse(stdout())).not.toThrow();
+				expect(stderr()).toBe(message);
+				expect(stderr()).not.toContain("Note:");
+				expect(result.scope.since).toBe("2026-05-11T12:00:00.000Z");
+				expect(result.notes).toContainEqual({
+					targetId: "",
+					displayName: "",
+					code: "automatic_since",
+					message,
+				});
+			});
+		});
+
+		it("accepts --all-history and disables the automatic cutoff", async () => {
+			await withSearchHome(async (fixture) => {
+				automaticSince.argument = "90d";
+				useFixture(fixture);
+				await search(["merge conflict", "--all-history", "--json", "--limit", "0"]);
+
+				const result = envelope();
+				expect(result.matches).toHaveLength(3);
+				expect(result.scope.since).toBeNull();
+				expect(result.notes).not.toContainEqual(
+					expect.objectContaining({ code: "automatic_since" }),
+				);
+				expect(stderr()).toBe("");
+			});
+		});
+
+		it("lets an explicit --since bypass adaptation", async () => {
+			await withSearchHome(async (fixture) => {
+				automaticSince.argument = "90d";
+				useFixture(fixture);
+				await search(["merge conflict", "--since", "7d", "--json", "--limit", "0"]);
+
+				expect(envelope().notes).not.toContainEqual(
+					expect.objectContaining({ code: "automatic_since" }),
+				);
+				expect(stderr()).not.toContain("Large history detected");
+			});
+		});
+
+		it("rejects --all-history with --since", async () => {
+			await withSearchHome(async (fixture) => {
+				useFixture(fixture);
+				await search(["x", "--all-history", "--since", "7d"]);
+
+				expect(errorSpy).toHaveBeenCalledWith(
+					"Error: Use either --all-history or --since/--until, not both.",
+				);
+				expect(exitSpy).toHaveBeenCalledWith(2);
+			});
+		});
+
+		it("rejects --all-history with --until through the JSON-aware error path", async () => {
+			await withSearchHome(async (fixture) => {
+				useFixture(fixture);
+				await search(["x", "--all-history", "--until", "7d", "--json"]);
+
+				expect(envelope().errors[0]?.code).toBe("conflicting_history_scope");
+				expect(exitSpy).toHaveBeenCalledWith(2);
+			});
+		});
+
+		it("keeps the 10,000-result cap under --all-history", async () => {
+			await withSearchHome(async (fixture) => {
+				const agentsDir = path.join(fixture.repoAlpha, "agents");
+				await mkdir(agentsDir, { recursive: true });
+				await writeFile(
+					path.join(agentsDir, "omniagent.config.mjs"),
+					`export default {
+	targets: [{
+		id: "bulk",
+		displayName: "Bulk Agent",
+		history: {
+			roles: ["user"],
+			listFiles: async function* () {
+				yield {
+					path: "/virtual/bulk.json",
+					projectPath: "/repo",
+					sessionId: "bulk",
+					modifiedAt: "2026-08-09T00:00:00.000Z",
+					sizeBytes: 1,
+				};
+			},
+			scan: {
+				kind: "custom",
+				read: async function* (file, context) {
+					for (let index = 0; index < 10005; index += 1) {
+						yield {
+							agentId: context.targetId,
+							role: "user",
+							timestamp: new Date(Date.UTC(2026, 7, 1) + index).toISOString(),
+							text: \`matching record \${index}\`,
+							sessionId: "bulk",
+							cwd: "/repo",
+							sourcePath: file.path,
+							recordIndex: index,
+						};
+					}
+				},
+			},
+		},
+	}],
+};
+`,
+				);
+				useFixture(fixture);
+				await search(["matching", "--only", "bulk", "--all-history", "--limit", "0", "--json"]);
+
+				const result = envelope();
+				expect(result.matches).toHaveLength(10_000);
+				expect(result.stats.matchedRecords).toBe(10_005);
+				expect(result.stats.truncated).toBe(true);
 			});
 		});
 	});

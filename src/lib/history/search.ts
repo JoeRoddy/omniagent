@@ -1,4 +1,5 @@
 import type { ResolvedTarget } from "../targets/config-types.js";
+import { chooseAutomaticSince, historyFileMatchesSince } from "./auto-since.js";
 import { BoundedTopK } from "./bounded-top-k.js";
 import { recordMatchesScope } from "./filters.js";
 import { type JsonlCounters, readJsonlLines } from "./jsonl.js";
@@ -33,6 +34,7 @@ export type SearchOptions = {
 	cwd: string;
 	signal: AbortSignal;
 	concurrency?: number;
+	automaticSince?: boolean;
 };
 
 export type SearchResult = {
@@ -40,6 +42,7 @@ export type SearchResult = {
 	stats: SearchStats;
 	errors: SearchNote[];
 	notes: SearchNote[];
+	effectiveScope: SearchScope;
 };
 
 type QueuedFile = {
@@ -149,11 +152,12 @@ export async function searchHistory(options: SearchOptions): Promise<SearchResul
 	};
 	const errors: SearchNote[] = [];
 	const notes: SearchNote[] = [];
+	const effectiveScope = { ...options.scope };
 	const hitCapacity =
 		options.limit > 0 ? Math.min(options.limit, MAX_BUFFERED_HITS) : MAX_BUFFERED_HITS;
 	const hits = new BoundedTopK<SearchHit>(hitCapacity, compareHits);
 
-	const queue: QueuedFile[] = [];
+	let queue: QueuedFile[] = [];
 	for (const target of options.targets) {
 		const history = target.history;
 		if (!history) {
@@ -206,6 +210,22 @@ export async function searchHistory(options: SearchOptions): Promise<SearchResul
 		}
 	}
 
+	if (options.automaticSince && !options.scope.since && !options.scope.until) {
+		const decision = chooseAutomaticSince(queue.map((entry) => entry.file));
+		if (decision) {
+			effectiveScope.since = decision.since;
+			notes.push({
+				targetId: "",
+				displayName: "",
+				code: "automatic_since",
+				message:
+					`Large history detected: using \`--since ${decision.argument}\`. ` +
+					"Use `--all-history` for everything.",
+			});
+			queue = queue.filter((entry) => historyFileMatchesSince(entry.file, decision.since));
+		}
+	}
+
 	// Process recent transcripts first for predictable scan behavior. The bounded heap and its
 	// comparator determine which hits survive regardless of file or worker completion order.
 	queue.sort((a, b) => (b.file.modifiedAt ?? "").localeCompare(a.file.modifiedAt ?? ""));
@@ -216,7 +236,7 @@ export async function searchHistory(options: SearchOptions): Promise<SearchResul
 		if (!options.roles.has(record.role)) {
 			return;
 		}
-		if (!recordMatchesScope(record, options.scope)) {
+		if (!recordMatchesScope(record, effectiveScope)) {
 			return;
 		}
 		if (!matchesText(options.query, record.text)) {
@@ -293,5 +313,5 @@ export async function searchHistory(options: SearchOptions): Promise<SearchResul
 	stats.returnedMatches = retained.length;
 	stats.elapsedMs = Date.now() - startedAt;
 
-	return { hits: retained, stats, errors, notes };
+	return { hits: retained, stats, errors, notes, effectiveScope };
 }

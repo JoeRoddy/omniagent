@@ -91,6 +91,7 @@ omniagent search "merge conflict"
 omniagent search --project . migration
 omniagent search --role agent exploration
 omniagent search --only codex --since 7d deploy
+omniagent search deploy --all-history       # exhaustive scan; may be slow
 
 # Non-interactive, for scripts and agents
 omniagent search merge conflict --copy      # copy the newest match
@@ -102,6 +103,10 @@ omniagent search --limit 50 --json refactor
 omniagent --agent codex
 omniagent -p "Summarize this repo" --agent codex --output json
 ```
+
+Large unbounded searches may automatically use a metadata-derived `--since` cutoff. The effective
+range is displayed; pass an explicit `--since`/`--until`, or use `--all-history` for an exhaustive
+scan. No index or cache is created.
 
 `usage` supports Codex, Claude, and Antigravity (`agy`; `gemini` works as an alias). Copilot
 is not supported for usage extraction yet. Usage extraction may launch agent TUIs and may incur

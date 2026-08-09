@@ -330,6 +330,8 @@ describe("listCodexFiles", () => {
 			expect(found).toHaveLength(4);
 			expect(alpha?.projectPath).toBe("/repo/alpha");
 			expect(alpha?.sessionId).toBe("roll-alpha");
+			expect(Date.parse(alpha?.modifiedAt as string)).toBeGreaterThan(0);
+			expect(alpha?.sizeBytes).toBeGreaterThan(0);
 		});
 	});
 
