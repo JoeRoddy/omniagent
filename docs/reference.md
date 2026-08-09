@@ -125,6 +125,7 @@ npx omniagent@latest search --project bt-monorepo rls
 npx omniagent@latest search --role assistant flaky test
 npx omniagent@latest search --role agent exploration
 npx omniagent@latest search --only codex --since 7d deploy
+npx omniagent@latest search deploy --all-history
 npx omniagent@latest search --skip codex refactor
 npx omniagent@latest search --regex "TODO\(\w+\)"
 npx omniagent@latest search --limit 50 --json refactor
@@ -134,6 +135,12 @@ Searches the conversation transcripts agent CLIs already write to disk so you ca
 you wrote before and reuse it. The primary path is copying a past message to the clipboard.
 Nothing is launched, nothing is written, and no network request is made — unlike `usage`, no agent
 CLI needs to be installed for its past sessions to be searchable.
+
+Large searches with no date range may receive an automatic `--since` cutoff based on transcript
+file counts and sizes. The effective range is always displayed. An explicit `--since` or `--until`
+bypasses adaptation; `--all-history` disables it and scans every candidate transcript, which may be
+slow. This does not remove the 10,000-result safety cap. Discovery still walks filesystem metadata,
+but old transcript contents are not read. No persistent index or cache is created.
 
 ### Picking a result
 
@@ -170,7 +177,7 @@ passed, so scripts and agents never hit a prompt. `--no-interactive` forces the 
   a search term as the index; that case is rejected with a message naming the fix.
 
 - Command surface: `search [query..]` with `--role`, `--project`, `--only`, `--skip`, `--since`,
-  `--until`, `--limit`, `--case-sensitive`, `--regex`, `--full`, `--copy`, `--print`,
+  `--until`, `--all-history`, `--limit`, `--case-sensitive`, `--regex`, `--full`, `--copy`, `--print`,
   `--no-interactive`, `--agentsDir`, and `--json`.
 - Query behavior: matching is case-insensitive by default. Each argument is a separate term and
   all terms must match, so `search merge conflict` also finds "conflict during the merge". Quote a

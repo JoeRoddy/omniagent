@@ -198,12 +198,16 @@ describe("listClaudeFiles", () => {
 		}
 	}
 
-	async function collect(homeDir: string, s: SearchScope, roles: HistoryRole[]) {
-		const out: string[] = [];
+	async function collectFiles(homeDir: string, s: SearchScope, roles: HistoryRole[]) {
+		const out: HistoryFile[] = [];
 		for await (const found of listClaudeFiles(s, context({ homeDir, roles: new Set(roles) }))) {
-			out.push(found.path);
+			out.push(found);
 		}
 		return out;
+	}
+
+	async function collect(homeDir: string, s: SearchScope, roles: HistoryRole[]) {
+		return (await collectFiles(homeDir, s, roles)).map((found) => found.path);
 	}
 
 	// 111 of 203 files on a real install live under subagents/. A one-level walk drops them all.
@@ -213,6 +217,16 @@ describe("listClaudeFiles", () => {
 
 			expect(found.some((p) => p.includes(`${path.sep}subagents${path.sep}`))).toBe(true);
 			expect(found).toHaveLength(3);
+		});
+	});
+
+	it("returns filesystem modification time and size metadata", async () => {
+		await withHome(async (homeDir) => {
+			const found = await collectFiles(homeDir, scope(), ["user"]);
+
+			expect(found.every((candidate) => candidate.modifiedAt !== null)).toBe(true);
+			expect(found.every((candidate) => Date.parse(candidate.modifiedAt as string) > 0)).toBe(true);
+			expect(found.every((candidate) => candidate.sizeBytes === 3)).toBe(true);
 		});
 	});
 

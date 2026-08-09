@@ -437,6 +437,7 @@ describe.sequential("history capability extensibility", () => {
 	// the first time someone reaches for a target-specific shortcut inside the engine.
 	it("keeps every engine module free of agent-specific knowledge", async () => {
 		const engineModules = [
+			"auto-since.ts",
 			"bounded-top-k.ts",
 			"types.ts",
 			"query.ts",

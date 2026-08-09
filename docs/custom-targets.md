@@ -205,6 +205,10 @@ history: {
 
 - `roles` must be a non-empty subset of `user`, `assistant`, `agent`.
 - `listFiles` is required.
+- Return accurate `modifiedAt` and `sizeBytes` metadata whenever available. `null` is supported:
+  unknown sizes still count as files but not bytes, and unknown or invalid modification times fail
+  open during automatic pruning. An incorrectly old `modifiedAt` can hide records from automatic or
+  explicit `--since` searches.
 - `prefilter(line, query)` is optional and must never reject a line whose normalized record could
   match; omit it unless the raw encoding makes that guarantee possible.
 - Define exactly one reader: `normalize` for the line-oriented fast path, or `scan.read` for a

@@ -47,6 +47,7 @@ type SearchArgs = {
 	skip?: string | string[];
 	since?: string;
 	until?: string;
+	allHistory?: boolean;
 	limit?: number;
 	caseSensitive?: boolean;
 	regex?: boolean;
@@ -106,7 +107,10 @@ function printError(options: {
 function emitNotes(notes: SearchNote[]): void {
 	const useColor = shouldUseColor();
 	for (const note of notes) {
-		const line = `Note: ${sanitizeTerminalText(note.message)}`;
+		const line =
+			note.code === "automatic_since"
+				? sanitizeTerminalText(note.message)
+				: `Note: ${sanitizeTerminalText(note.message)}`;
 		console.error(useColor ? `\x1b[2m${line}\x1b[0m` : line);
 	}
 }
@@ -221,6 +225,15 @@ async function runSearchCommand(argv: SearchArgs): Promise<void> {
 			json: jsonOutput,
 			code: "invalid_limit",
 			message: "--limit must be a non-negative integer. Use 0 for the 10,000-result cap.",
+			exitCode: 2,
+		});
+		return;
+	}
+	if (argv.allHistory && (argv.since !== undefined || argv.until !== undefined)) {
+		printError({
+			json: jsonOutput,
+			code: "conflicting_history_scope",
+			message: "Use either --all-history or --since/--until, not both.",
 			exitCode: 2,
 		});
 		return;
@@ -382,6 +395,7 @@ async function runSearchCommand(argv: SearchArgs): Promise<void> {
 			homeDir,
 			cwd: startDir,
 			signal: controller.signal,
+			automaticSince: argv.allHistory !== true && since === null && until === null,
 		});
 	} finally {
 		process.removeListener("SIGINT", onInterrupt);
@@ -413,10 +427,10 @@ async function runSearchCommand(argv: SearchArgs): Promise<void> {
 		query,
 		roles,
 		targets: selected.map((target) => target.id),
-		projectPath: scope.projectPath,
-		projectMatch: scope.projectMatch,
-		since,
-		until,
+		projectPath: result.effectiveScope.projectPath,
+		projectMatch: result.effectiveScope.projectMatch,
+		since: result.effectiveScope.since,
+		until: result.effectiveScope.until,
 		cwd: startDir,
 		homeDir,
 		generatedAt: new Date().toISOString(),
@@ -521,6 +535,7 @@ export const searchCommand: CommandModule<Record<string, never>, SearchArgs> = {
 			.usage(
 				"omniagent search <query..> [--role <role>] [--project <path|substring>] " +
 					"[--only <targets>] [--skip <targets>] [--since <when>] [--until <when>] " +
+					"[--all-history] " +
 					"[--limit <n>] [--case-sensitive] [--regex] [--full] [--copy [n]] [--print [n]] " +
 					"[--no-interactive] [--agentsDir <path>] [--json]",
 			)
@@ -557,6 +572,11 @@ export const searchCommand: CommandModule<Record<string, never>, SearchArgs> = {
 				type: "string",
 				describe:
 					"Only match messages at or before this time (YYYY-MM-DD, ISO timestamp, or 7d/24h/30m)",
+			})
+			.option("all-history", {
+				type: "boolean",
+				default: false,
+				describe: "Disable the automatic history cutoff (may be slow)",
 			})
 			.option("limit", {
 				type: "number",
@@ -614,6 +634,7 @@ export const searchCommand: CommandModule<Record<string, never>, SearchArgs> = {
 			.epilog(
 				"Reads agent transcripts directly from disk. No agent CLI is launched, nothing is " +
 					"written, and no network request is made.\n" +
+					"Large unbounded histories may use an automatic --since cutoff; --all-history disables it.\n" +
 					"Multiple terms are ANDed; quote a phrase to match it exactly.\n" +
 					"Transcripts may contain secrets you pasted; --json prints full message text.",
 			)
@@ -628,6 +649,7 @@ export const searchCommand: CommandModule<Record<string, never>, SearchArgs> = {
 			.example("omniagent search --role assistant flaky test", "Search agent replies, not prompts")
 			.example("omniagent search --role agent exploration", "Search subagent transcripts")
 			.example("omniagent search --only codex --since 7d deploy", "One agent, last week only")
+			.example("omniagent search deploy --all-history", "Search every transcript (may be slow)")
 			.example('omniagent search --regex "TODO\\(\\w+\\)"', "Match with a regular expression")
 			.example("omniagent search --limit 50 --json refactor", "Emit machine-readable results"),
 	handler: async (argv) => {
