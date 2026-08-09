@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import {
 	buildEntries,
 	createPickerState,
@@ -6,9 +7,11 @@ import {
 	type PickerKey,
 	type PickerState,
 	renderPicker,
+	runPicker,
 	selectedMatch,
 } from "../../../src/lib/history/picker.js";
 import type { SearchMatch } from "../../../src/lib/history/types.js";
+import { createHeadlessTerminal, readScreen } from "../../../src/lib/usage/pty.js";
 
 function match(overrides: Partial<SearchMatch> = {}): SearchMatch {
 	return {
@@ -235,6 +238,57 @@ describe("picker rendering", () => {
 
 		expect(frame).not.toContain("\x1b");
 		expect(frame).not.toContain("\x07");
+	});
+});
+
+describe("picker terminal repaint", () => {
+	it("preserves the terminal line before the picker across repaint and cleanup", async () => {
+		const input = new EventEmitter() as EventEmitter &
+			Pick<NodeJS.ReadStream, "isTTY" | "pause" | "resume" | "setRawMode">;
+		input.isTTY = false;
+		input.pause = vi.fn(() => input as NodeJS.ReadStream);
+		input.resume = vi.fn(() => input as NodeJS.ReadStream);
+		input.setRawMode = vi.fn(() => input as NodeJS.ReadStream);
+
+		const writes: string[] = [];
+		const output = new EventEmitter() as EventEmitter &
+			Pick<NodeJS.WriteStream, "columns" | "rows" | "write">;
+		output.columns = 80;
+		output.rows = 12;
+		output.write = vi.fn((value: string | Uint8Array) => {
+			writes.push(String(value));
+			return true;
+		});
+
+		const outcome = runPicker(
+			MATCHES,
+			{
+				input: input as NodeJS.ReadStream,
+				output: output as NodeJS.WriteStream,
+				useColor: false,
+			},
+			{ query: "prompt" },
+		);
+		input.emit("keypress", undefined, key("down"));
+		input.emit("keypress", undefined, key("escape"));
+
+		await expect(outcome).resolves.toEqual({ type: "quit" });
+		const terminal = createHeadlessTerminal(80, 24);
+		try {
+			await new Promise<void>((resolve) => {
+				// A real TTY's output processing expands LF to CRLF. Headless xterm consumes raw
+				// bytes, so mirror that line discipline before replaying the captured writes.
+				const ttyOutput = writes.join("").replaceAll("\n", "\r\n");
+				terminal.write(`sentinel before picker\r\n${ttyOutput}`, resolve);
+			});
+			const nonEmptyLines = readScreen(terminal)
+				.split("\n")
+				.filter((line) => line.length > 0);
+
+			expect(nonEmptyLines).toEqual(["sentinel before picker"]);
+		} finally {
+			terminal.dispose();
+		}
 	});
 });
 

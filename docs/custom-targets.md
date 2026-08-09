@@ -210,6 +210,10 @@ history: {
 - Define exactly one reader: `normalize` for the line-oriented fast path, or `scan.read` for a
   custom store. Defining both is rejected; defining neither yields no records.
 - `resume` is optional.
+- Every emitted record is runtime-validated: `agentId`, `sessionId`, and `sourcePath` are strings;
+  `role` is `user`, `assistant`, or `agent`; `timestamp` and `cwd` are strings or `null`;
+  `gitBranch` is optional, a string, or `null`; and `recordIndex` is a non-negative integer.
+  Malformed records are skipped and counted in search statistics.
 - `text` must be cleaned and non-empty. Returning `null` from `normalize` is how you discard
   everything that is not a real message — tool output, harness wrappers, duplicate encodings.
 - `scope` passed to `listFiles` is only a hint. The engine re-applies every project and date

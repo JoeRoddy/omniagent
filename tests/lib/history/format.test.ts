@@ -52,6 +52,16 @@ describe("terminal-safe formatting", () => {
 		).toBe("cd ~/'project with spaces' && codex resume abc");
 	});
 
+	it("leaves an exact home path unquoted so the shell expands it", () => {
+		expect(
+			formatResumeCommand(
+				{ command: "codex", args: ["resume", "abc"], cwd: "/Users/demo" },
+				"/tmp/else",
+				"/Users/demo",
+			),
+		).toBe("cd ~ && codex resume abc");
+	});
+
 	it("renders a PowerShell-safe command on Windows", () => {
 		expect(
 			formatResumeCommand(

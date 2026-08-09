@@ -261,6 +261,10 @@ export type PickerIo = {
 	useColor: boolean;
 };
 
+function rewindFrame(lineCount: number): string {
+	return lineCount > 1 ? `\r\x1b[${lineCount - 1}A` : "\r";
+}
+
 /**
  * Thin IO shell. All decisions live in the pure helpers above; this only paints frames and feeds
  * keystrokes in, so the picker's behavior is testable without a terminal.
@@ -285,10 +289,7 @@ export function runPicker(
 				query: options.query,
 				useColor: io.useColor,
 			});
-			let out = "";
-			if (painted > 0) {
-				out += `\x1b[${painted}A`;
-			}
+			let out = rewindFrame(painted);
 			out += ANSI.clearDown;
 			out += frame.join("\n");
 			io.output.write(out);
@@ -309,9 +310,7 @@ export function runPicker(
 			}
 			io.input.pause();
 			// Erase the picker so the terminal is left exactly as it was found.
-			io.output.write(
-				`${painted > 0 ? `\x1b[${painted}A` : ""}${ANSI.clearDown}${ANSI.showCursor}`,
-			);
+			io.output.write(`${rewindFrame(painted)}${ANSI.clearDown}${ANSI.showCursor}`);
 			resolve(outcome);
 		};
 

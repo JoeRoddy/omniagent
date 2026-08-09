@@ -45,7 +45,10 @@ export type HistoryFile = {
 	meta?: Record<string, unknown>;
 };
 
-/** The one shape every target's reader emits. `text` is cleaned and never empty. */
+/**
+ * The runtime-validated shape every target reader emits. `text` is cleaned and never empty;
+ * `recordIndex` is a non-negative integer.
+ */
 export type SearchRecord = {
 	agentId: string;
 	role: HistoryRole;

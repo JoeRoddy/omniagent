@@ -101,6 +101,55 @@ export default {
 				},
 			},
 		},
+		{
+			id: "malformed",
+			displayName: "Malformed Agent",
+			history: {
+				roles: ["user"],
+				listFiles: async function* () {
+					yield {
+						path: path.join(ARRAY_ROOT, "store.json"),
+						projectPath: null,
+						sessionId: null,
+						modifiedAt: null,
+						sizeBytes: null,
+					};
+				},
+				scan: {
+					kind: "custom",
+					read: async function* (file, context) {
+						const valid = {
+							agentId: context.targetId,
+							role: "user",
+							timestamp: null,
+							text: "runtime validation",
+							sessionId: "",
+							cwd: null,
+							gitBranch: null,
+							sourcePath: file.path,
+							recordIndex: 0,
+						};
+						const malformed = [
+							null,
+							{ ...valid, agentId: undefined },
+							{ ...valid, role: "system" },
+							{ ...valid, timestamp: 7 },
+							{ ...valid, text: "" },
+							{ ...valid, text: 7 },
+							{ ...valid, sessionId: undefined },
+							{ ...valid, cwd: undefined },
+							{ ...valid, gitBranch: 7 },
+							{ ...valid, sourcePath: undefined },
+							{ ...valid, recordIndex: -1 },
+							{ ...valid, recordIndex: 1.5 },
+							{ ...valid, recordIndex: NaN },
+						];
+						for (const record of malformed) yield record;
+						yield valid;
+					},
+				},
+			},
+		},
 	],
 };
 `;
@@ -272,6 +321,76 @@ describe.sequential("history capability extensibility", () => {
 		});
 	});
 
+	it("skips malformed custom scan records while retaining valid nullable fields", async () => {
+		await withCustomAgent(async (fixture) => {
+			use(fixture);
+			await runCli([
+				"node",
+				"omniagent",
+				"search",
+				"runtime validation",
+				"--only",
+				"malformed",
+				"--json",
+				"--limit",
+				"0",
+			]);
+
+			const result = envelope();
+			expect(result.matches).toHaveLength(1);
+			expect(result.matches[0]?.sessionId).toBe("");
+			expect(result.matches[0]?.timestamp).toBeNull();
+			expect(result.matches[0]?.cwd).toBeNull();
+			expect(result.stats.malformedRecords).toBe(13);
+			expect(result.stats.skippedFiles).toBe(0);
+		});
+	});
+
+	it("runtime-validates custom normalize results", async () => {
+		await withCustomAgent(async (fixture) => {
+			use(fixture);
+			await writeFile(
+				path.join(fixture.repoRoot, "agents", "omniagent.config.mjs"),
+				`export default {
+	targets: [{
+		id: "broken-normalize",
+		history: {
+			roles: ["user"],
+			listFiles: async function* () {
+				yield { path: ${JSON.stringify(path.join(fixture.root, "normalize.log"))}, projectPath: null, sessionId: null, modifiedAt: null, sizeBytes: null };
+			},
+			normalize: () => ({
+				agentId: "broken-normalize",
+				role: "user",
+				timestamp: null,
+				text: "malformed normalized record",
+				sessionId: "",
+				cwd: null,
+				recordIndex: 0,
+			}),
+		},
+	}],
+};
+`,
+			);
+			await writeFile(path.join(fixture.root, "normalize.log"), "one line\n");
+			await runCli([
+				"node",
+				"omniagent",
+				"search",
+				"malformed normalized",
+				"--only",
+				"broken-normalize",
+				"--json",
+			]);
+
+			const result = envelope();
+			expect(result.matches).toEqual([]);
+			expect(result.stats.malformedRecords).toBe(1);
+			expect(result.stats.skippedFiles).toBe(0);
+		});
+	});
+
 	it("orders results newest-first across built-in and custom agents alike", async () => {
 		await withCustomAgent(async (fixture) => {
 			use(fixture);
@@ -318,6 +437,7 @@ describe.sequential("history capability extensibility", () => {
 	// the first time someone reaches for a target-specific shortcut inside the engine.
 	it("keeps every engine module free of agent-specific knowledge", async () => {
 		const engineModules = [
+			"bounded-top-k.ts",
 			"types.ts",
 			"query.ts",
 			"jsonl.ts",

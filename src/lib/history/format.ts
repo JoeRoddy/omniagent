@@ -175,6 +175,9 @@ function quoteShellLiteral(value: string): string {
 }
 
 function quoteShellPath(value: string): string {
+	if (value === "~") {
+		return "~";
+	}
 	if (value.startsWith("~/")) {
 		return `~/${quoteShellToken(value.slice(2))}`;
 	}

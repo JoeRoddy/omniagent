@@ -1,17 +1,19 @@
 import type { ResolvedTarget } from "../targets/config-types.js";
+import { BoundedTopK } from "./bounded-top-k.js";
 import { recordMatchesScope } from "./filters.js";
 import { type JsonlCounters, readJsonlLines } from "./jsonl.js";
 import { type HistoryQuery, matchesText } from "./query.js";
-import type {
-	HistoryContext,
-	HistoryFile,
-	HistoryRole,
-	SearchHit,
-	SearchNote,
-	SearchRecord,
-	SearchScope,
-	SearchStats,
-	TargetHistoryDefinition,
+import {
+	type HistoryContext,
+	type HistoryFile,
+	type HistoryRole,
+	isHistoryRole,
+	type SearchHit,
+	type SearchNote,
+	type SearchRecord,
+	type SearchScope,
+	type SearchStats,
+	type TargetHistoryDefinition,
 } from "./types.js";
 
 const DEFAULT_CONCURRENCY = 8;
@@ -66,12 +68,28 @@ async function* toAsyncIterable<T>(value: unknown): AsyncGenerator<T> {
 	}
 }
 
-function isUsableRecord(value: unknown): value is SearchRecord {
+function isSearchRecord(value: unknown): value is SearchRecord {
 	if (!value || typeof value !== "object") {
 		return false;
 	}
-	const record = value as SearchRecord;
-	return typeof record.text === "string" && record.text.length > 0;
+	const record = value as Record<string, unknown>;
+	return (
+		typeof record.agentId === "string" &&
+		typeof record.role === "string" &&
+		isHistoryRole(record.role) &&
+		(record.timestamp === null || typeof record.timestamp === "string") &&
+		typeof record.text === "string" &&
+		record.text.length > 0 &&
+		typeof record.sessionId === "string" &&
+		(record.cwd === null || typeof record.cwd === "string") &&
+		(record.gitBranch === undefined ||
+			record.gitBranch === null ||
+			typeof record.gitBranch === "string") &&
+		typeof record.sourcePath === "string" &&
+		typeof record.recordIndex === "number" &&
+		Number.isInteger(record.recordIndex) &&
+		record.recordIndex >= 0
+	);
 }
 
 async function runPool<T>(
@@ -130,7 +148,9 @@ export async function searchHistory(options: SearchOptions): Promise<SearchResul
 	};
 	const errors: SearchNote[] = [];
 	const notes: SearchNote[] = [];
-	const hits: SearchHit[] = [];
+	const hitCapacity =
+		options.limit > 0 ? Math.min(options.limit, MAX_BUFFERED_HITS) : MAX_BUFFERED_HITS;
+	const hits = new BoundedTopK<SearchHit>(hitCapacity, compareHits);
 
 	const queue: QueuedFile[] = [];
 	for (const target of options.targets) {
@@ -185,8 +205,8 @@ export async function searchHistory(options: SearchOptions): Promise<SearchResul
 		}
 	}
 
-	// Newest file first. Results are sorted authoritatively at the end regardless, but this makes
-	// the MAX_BUFFERED_HITS backstop discard the least interesting matches if it ever fires.
+	// Process recent transcripts first for predictable scan behavior. The bounded heap and its
+	// comparator determine which hits survive regardless of file or worker completion order.
 	queue.sort((a, b) => (b.file.modifiedAt ?? "").localeCompare(a.file.modifiedAt ?? ""));
 
 	const counters: JsonlCounters = { scannedBytes: 0, oversizedLines: 0 };
@@ -202,14 +222,12 @@ export async function searchHistory(options: SearchOptions): Promise<SearchResul
 			return;
 		}
 		stats.matchedRecords += 1;
-		hits.push({
+		const offered = hits.offer({
 			record,
 			displayName: entry.target.displayName,
 			resume: entry.history.resume ? (entry.history.resume(record) ?? null) : null,
 		});
-		if (hits.length > MAX_BUFFERED_HITS) {
-			hits.sort(compareHits);
-			hits.length = MAX_BUFFERED_HITS;
+		if (offered.discarded) {
 			stats.truncated = true;
 		}
 	};
@@ -228,7 +246,7 @@ export async function searchHistory(options: SearchOptions): Promise<SearchResul
 					if (options.signal.aborted) {
 						return;
 					}
-					if (!isUsableRecord(record)) {
+					if (!isSearchRecord(record)) {
 						stats.malformedRecords += 1;
 						continue;
 					}
@@ -252,7 +270,7 @@ export async function searchHistory(options: SearchOptions): Promise<SearchResul
 				if (record === null) {
 					continue;
 				}
-				if (!isUsableRecord(record)) {
+				if (!isSearchRecord(record)) {
 					stats.malformedRecords += 1;
 					continue;
 				}
@@ -270,13 +288,9 @@ export async function searchHistory(options: SearchOptions): Promise<SearchResul
 	stats.scannedBytes = counters.scannedBytes;
 	stats.oversizedLines = counters.oversizedLines;
 
-	hits.sort(compareHits);
-	const limited = options.limit > 0 ? hits.slice(0, options.limit) : hits;
-	if (limited.length < hits.length) {
-		stats.truncated = true;
-	}
-	stats.returnedMatches = limited.length;
+	const retained = hits.toSortedArray();
+	stats.returnedMatches = retained.length;
 	stats.elapsedMs = Date.now() - startedAt;
 
-	return { hits: limited, stats, errors, notes };
+	return { hits: retained, stats, errors, notes };
 }
