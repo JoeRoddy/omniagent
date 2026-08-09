@@ -13,6 +13,9 @@ export type AutomaticSinceDecision = {
 	since: Date;
 };
 
+const ISO_TIMESTAMP =
+	/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
 function knownSizeBytes(file: HistoryFile): number {
 	return typeof file.sizeBytes === "number" &&
 		Number.isFinite(file.sizeBytes) &&
@@ -21,10 +24,38 @@ function knownSizeBytes(file: HistoryFile): number {
 		: 0;
 }
 
+function parseKnownModifiedAt(value: unknown): number | null {
+	if (typeof value !== "string") {
+		return null;
+	}
+	const match = ISO_TIMESTAMP.exec(value);
+	if (!match) {
+		return null;
+	}
+
+	const [year, month, day, hour, minute, second] = match.slice(1, 7).map((part) => Number(part));
+	const calendar = new Date(0);
+	calendar.setUTCFullYear(year as number, (month as number) - 1, day);
+	calendar.setUTCHours(hour as number, minute, second, 0);
+	if (
+		calendar.getUTCFullYear() !== year ||
+		calendar.getUTCMonth() !== (month as number) - 1 ||
+		calendar.getUTCDate() !== day ||
+		calendar.getUTCHours() !== hour ||
+		calendar.getUTCMinutes() !== minute ||
+		calendar.getUTCSeconds() !== second
+	) {
+		return null;
+	}
+
+	const timestamp = Date.parse(value);
+	return Number.isFinite(timestamp) ? timestamp : null;
+}
+
 /** Missing or invalid mtimes fail open so uncertain metadata never hides a transcript. */
 export function historyFileMatchesSince(file: HistoryFile, since: Date): boolean {
-	const modifiedAt = file.modifiedAt === null ? Number.NaN : Date.parse(file.modifiedAt);
-	return !Number.isFinite(modifiedAt) || modifiedAt >= since.getTime();
+	const modifiedAt = parseKnownModifiedAt(file.modifiedAt);
+	return modifiedAt === null || modifiedAt >= since.getTime();
 }
 
 /** Selects a responsive search window using only metadata gathered during normal discovery. */

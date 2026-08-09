@@ -1,6 +1,7 @@
 import {
 	AUTO_SINCE_WINDOWS,
 	chooseAutomaticSince,
+	historyFileMatchesSince,
 	LARGE_HISTORY_BYTES,
 	LARGE_HISTORY_FILES,
 	TARGET_HISTORY_BYTES,
@@ -127,5 +128,29 @@ describe("chooseAutomaticSince", () => {
 		const decision = chooseAutomaticSince(corpusSelecting("90d"), NOW);
 
 		expect(decision?.since).toEqual(parseWhen("90d", { flag: "--since", now: NOW }));
+	});
+});
+
+describe("historyFileMatchesSince", () => {
+	const since = new Date("2026-01-01T00:00:00.000Z");
+
+	it.each([
+		"0",
+		"2026/08/01",
+		"2026-02-30T00:00:00.000Z",
+	])("fails open for invalid timestamp %s", (modifiedAt) => {
+		expect(historyFileMatchesSince(file({ modifiedAt }), since)).toBe(true);
+	});
+
+	it("fails open for a non-string value from a JavaScript custom target", () => {
+		const modifiedAt = Symbol("invalid") as unknown as string;
+
+		expect(historyFileMatchesSince(file({ modifiedAt }), since)).toBe(true);
+	});
+
+	it("still excludes files with a valid ISO timestamp before the cutoff", () => {
+		expect(historyFileMatchesSince(file({ modifiedAt: "2025-12-31T18:00:00-05:00" }), since)).toBe(
+			false,
+		);
 	});
 });
