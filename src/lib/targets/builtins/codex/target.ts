@@ -20,11 +20,16 @@ export const codexTarget: TargetDefinition = {
 			collisions: [
 				{ option: "--ask-for-approval", sources: ["approval"] },
 				{ option: "-a", allowAttachedValue: true, sources: ["approval"] },
-				{ option: "--full-auto", sources: ["approval"] },
+				{ option: "--full-auto", sources: ["approval", "sandbox"] },
 				{ option: "--yolo", sources: ["approval", "sandbox"] },
+				{
+					option: "--dangerously-bypass-approvals-and-sandbox",
+					sources: ["approval", "sandbox"],
+				},
 				{ option: "--sandbox", sources: ["sandbox"] },
 				{ option: "-s", allowAttachedValue: true, sources: ["sandbox"] },
 				{ option: "--json", sources: ["output"], modes: ["one-shot"] },
+				{ option: "--experimental-json", sources: ["output"], modes: ["one-shot"] },
 				{ option: "--model", sources: ["model"] },
 				{ option: "-m", allowAttachedValue: true, sources: ["model"] },
 				{ option: "--search", sources: ["web"] },

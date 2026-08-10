@@ -147,6 +147,16 @@ describe("CLI shim passthrough", () => {
 				"-sread-only",
 			],
 		},
+		{
+			name: "interactive full-auto preset",
+			argv: ["--agent", "codex", "--", "--full-auto"],
+			expected: ["--disable", "web_search_request", "--full-auto"],
+		},
+		{
+			name: "interactive canonical yolo alias",
+			argv: ["--agent", "codex", "--", "--dangerously-bypass-approvals-and-sandbox"],
+			expected: ["--disable", "web_search_request", "--dangerously-bypass-approvals-and-sandbox"],
+		},
 	])("lets passthrough replace a shim default in $name mode", async ({ argv, expected }) => {
 		const spawn = createSpawnStub(0);
 		const exitCode = await runShim(argv, { stdinIsTTY: true, spawn });
@@ -160,14 +170,59 @@ describe("CLI shim passthrough", () => {
 		{
 			name: "explicit shared sandbox",
 			argv: ["--agent", "codex", "--sandbox", "workspace-write", "--", "--sandbox", "read-only"],
+			expectedOption: "--sandbox",
 			expectedOrigin: "explicit shared --sandbox policy",
 		},
 		{
 			name: "sandbox derived from yolo",
 			argv: ["--agent", "codex", "--yolo", "--", "--sandbox=read-only"],
+			expectedOption: "--sandbox",
 			expectedOrigin: "sandbox policy derived from explicit --yolo",
 		},
-	])("rejects a passthrough collision with $name", async ({ argv, expectedOrigin }) => {
+		{
+			name: "explicit sandbox plus canonical yolo alias",
+			argv: [
+				"--agent",
+				"codex",
+				"--sandbox",
+				"workspace-write",
+				"--",
+				"--dangerously-bypass-approvals-and-sandbox",
+			],
+			expectedOption: "--dangerously-bypass-approvals-and-sandbox",
+			expectedOrigin: "explicit shared --sandbox policy",
+		},
+		{
+			name: "explicit output plus experimental JSON alias",
+			argv: ["--agent", "codex", "--output", "text", "-p", "Hello", "--", "--experimental-json"],
+			expectedOption: "--experimental-json",
+			expectedOrigin: "explicit shared --output format",
+		},
+		{
+			name: "explicit sandbox plus full-auto preset",
+			argv: ["--agent", "codex", "--sandbox", "off", "--", "--full-auto"],
+			expectedOption: "--full-auto",
+			expectedOrigin: "explicit shared --sandbox policy",
+		},
+		{
+			name: "explicit sandbox taking precedence over yolo derivation",
+			argv: [
+				"--agent",
+				"codex",
+				"--yolo",
+				"--sandbox",
+				"workspace-write",
+				"--",
+				"--sandbox=read-only",
+			],
+			expectedOption: "--sandbox",
+			expectedOrigin: "explicit shared --sandbox policy",
+		},
+	])("rejects a passthrough collision with $name", async ({
+		argv,
+		expectedOption,
+		expectedOrigin,
+	}) => {
 		const spawn = createSpawnStub(0);
 		const stderrWrites: string[] = [];
 		const stderr = {
@@ -182,7 +237,7 @@ describe("CLI shim passthrough", () => {
 		expect(exitCode).toBe(2);
 		expect(spawn).not.toHaveBeenCalled();
 		const output = stderrWrites.join("");
-		expect(output).toContain("Passthrough option --sandbox");
+		expect(output).toContain(`Passthrough option ${expectedOption}`);
 		expect(output).toContain(expectedOrigin);
 		expect(output).toContain("Remove one of the conflicting options.");
 	});

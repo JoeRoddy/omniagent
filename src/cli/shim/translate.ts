@@ -149,7 +149,8 @@ export function translateInvocation(
 	const { requests } = invocation;
 	const { approvalExplicit, modelExplicit, outputExplicit, sandboxExplicit, webExplicit } =
 		invocation.session;
-	const sandboxDerivedExplicit = approvalExplicit && requests.approval === "yolo";
+	const sandboxDerivedExplicit =
+		approvalExplicit && requests.approval === "yolo" && !sandboxExplicit;
 	const sandboxWarnExplicit = sandboxExplicit || sandboxDerivedExplicit;
 	const flags = cli.flags;
 
