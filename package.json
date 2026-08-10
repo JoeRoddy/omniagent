@@ -48,7 +48,7 @@
     "@xterm/headless": "^5.5.0",
     "ajv": "^8.20.0",
     "jiti": "^2.6.1",
-    "minimatch": "^10.2.5",
+    "minimatch": "^9.0.9",
     "node-pty": "^1.0.0",
     "yargs": "^17.7.2"
   },
