@@ -16,6 +16,25 @@ export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
 
 export type InvocationMode = "interactive" | "one-shot";
 
+export const PASSTHROUGH_COLLISION_SOURCES = [
+	"mode",
+	"prompt",
+	"approval",
+	"sandbox",
+	"output",
+	"model",
+	"web",
+	"structuredOutput",
+] as const;
+export type PassthroughCollisionSource = (typeof PASSTHROUGH_COLLISION_SOURCES)[number];
+
+export type PassthroughCollisionRule = {
+	option: string;
+	value?: string;
+	sources: PassthroughCollisionSource[];
+	modes?: InvocationMode[];
+};
+
 export type CommandLocation = "project" | "user";
 export type OutputType = "skills" | "commands" | "subagents" | "instructions";
 
@@ -197,7 +216,10 @@ export type TargetCliDefinition = {
 		structuredOutput?: StructuredOutputSpec;
 		structuredOutputFallback?: StructuredOutputFallbackSpec;
 	};
-	passthrough?: { position?: "after" | "before-prompt" };
+	passthrough?: {
+		position?: "after" | "before-prompt";
+		collisions?: PassthroughCollisionRule[];
+	};
 	translate?: (invocation: TranslationInvocation) => TranslationResult;
 };
 

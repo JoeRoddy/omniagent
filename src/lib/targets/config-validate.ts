@@ -12,7 +12,12 @@ import type {
 	TargetOutputs,
 	TargetUsageDefinition,
 } from "./config-types.js";
-import { APPROVAL_POLICIES, OUTPUT_FORMATS, SANDBOX_MODES } from "./config-types.js";
+import {
+	APPROVAL_POLICIES,
+	OUTPUT_FORMATS,
+	PASSTHROUGH_COLLISION_SOURCES,
+	SANDBOX_MODES,
+} from "./config-types.js";
 import { type PlaceholderKey, validatePlaceholders } from "./placeholders.js";
 
 export type ConfigValidationResult = {
@@ -211,6 +216,55 @@ function validatePromptSpec(value: unknown, label: string, errors: string[]): vo
 	errors.push(`${label}.type must be "flag" or "positional".`);
 }
 
+function validatePassthroughCollisions(value: unknown, label: string, errors: string[]): void {
+	if (!Array.isArray(value)) {
+		errors.push(`${label} must be an array.`);
+		return;
+	}
+	for (const [index, entry] of value.entries()) {
+		const entryLabel = `${label}[${index}]`;
+		if (!isPlainObject(entry)) {
+			errors.push(`${entryLabel} must be an object.`);
+			continue;
+		}
+		const option = normalizeString(entry.option);
+		if (!option || !option.startsWith("-")) {
+			errors.push(`${entryLabel}.option must be a non-empty option beginning with "-".`);
+		}
+		if (entry.value !== undefined && normalizeString(entry.value) === null) {
+			errors.push(`${entryLabel}.value must be a non-empty string when provided.`);
+		}
+
+		validateStringArray(entry.sources, `${entryLabel}.sources`, errors);
+		if (Array.isArray(entry.sources)) {
+			for (const source of entry.sources) {
+				if (
+					typeof source === "string" &&
+					!PASSTHROUGH_COLLISION_SOURCES.includes(
+						source as (typeof PASSTHROUGH_COLLISION_SOURCES)[number],
+					)
+				) {
+					errors.push(`${entryLabel}.sources has unsupported source "${source}".`);
+				}
+			}
+		}
+
+		if (entry.modes !== undefined) {
+			validateStringArray(entry.modes, `${entryLabel}.modes`, errors);
+			if (Array.isArray(entry.modes)) {
+				for (const mode of entry.modes) {
+					if (
+						typeof mode === "string" &&
+						!INVOCATION_MODES.includes(mode as (typeof INVOCATION_MODES)[number])
+					) {
+						errors.push(`${entryLabel}.modes has unsupported mode "${mode}".`);
+					}
+				}
+			}
+		}
+	}
+}
+
 function validateCliDefinition(
 	cli: TargetCliDefinition | undefined,
 	label: string,
@@ -304,12 +358,26 @@ function validateCliDefinition(
 	if (cli.passthrough !== undefined) {
 		if (!isPlainObject(cli.passthrough)) {
 			errors.push(`${label}.passthrough must be an object.`);
-		} else if (
-			cli.passthrough.position !== undefined &&
-			cli.passthrough.position !== "after" &&
-			cli.passthrough.position !== "before-prompt"
-		) {
-			errors.push(`${label}.passthrough.position must be "after" or "before-prompt".`);
+		} else {
+			if (
+				cli.passthrough.position !== undefined &&
+				cli.passthrough.position !== "after" &&
+				cli.passthrough.position !== "before-prompt"
+			) {
+				errors.push(`${label}.passthrough.position must be "after" or "before-prompt".`);
+			}
+			if (cli.passthrough.collisions !== undefined) {
+				validatePassthroughCollisions(
+					cli.passthrough.collisions,
+					`${label}.passthrough.collisions`,
+					errors,
+				);
+				if (cli.translate !== undefined) {
+					errors.push(
+						`${label}.passthrough.collisions cannot be combined with ${label}.translate.`,
+					);
+				}
+			}
 		}
 	}
 	if (cli.translate !== undefined && typeof cli.translate !== "function") {

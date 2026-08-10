@@ -273,6 +273,107 @@ describe("target config validation", () => {
 		expect(validation.errors).toEqual([]);
 	});
 
+	it("allows target-aware passthrough collision rules", () => {
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "custom-agent",
+					cli: {
+						modes: {
+							interactive: { command: "custom" },
+							oneShot: { command: "custom", args: ["run"] },
+						},
+						passthrough: {
+							collisions: [
+								{ option: "--sandbox", sources: ["sandbox"] },
+								{
+									option: "--disable",
+									value: "web",
+									sources: ["web"],
+									modes: ["one-shot"],
+								},
+							],
+						},
+					},
+				},
+			],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(true);
+		expect(validation.errors).toEqual([]);
+	});
+
+	it("rejects invalid passthrough collision rules", () => {
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "custom-agent",
+					cli: {
+						modes: {
+							interactive: { command: "custom" },
+							oneShot: { command: "custom" },
+						},
+						passthrough: {
+							collisions: [
+								{
+									option: "sandbox",
+									value: " ",
+									sources: ["telepathy"],
+									modes: ["batch"],
+								},
+							],
+						},
+					},
+				} as unknown as TargetDefinition,
+			],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(false);
+		expect(validation.errors).toEqual(
+			expect.arrayContaining([
+				'targets[0].cli.passthrough.collisions[0].option must be a non-empty option beginning with "-".',
+				"targets[0].cli.passthrough.collisions[0].value must be a non-empty string when provided.",
+				'targets[0].cli.passthrough.collisions[0].sources has unsupported source "telepathy".',
+				'targets[0].cli.passthrough.collisions[0].modes has unsupported mode "batch".',
+			]),
+		);
+	});
+
+	it("leaves collision handling to custom translators", () => {
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "custom-agent",
+					cli: {
+						modes: {
+							interactive: { command: "custom" },
+							oneShot: { command: "custom" },
+						},
+						passthrough: {
+							collisions: [{ option: "--sandbox", sources: ["sandbox"] }],
+						},
+						translate: (invocation) => ({
+							command: "custom",
+							args: invocation.passthrough.args,
+							warnings: [],
+						}),
+					},
+				},
+			],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(false);
+		expect(validation.errors).toContain(
+			"targets[0].cli.passthrough.collisions cannot be combined with targets[0].cli.translate.",
+		);
+	});
+
 	it("rejects invalid structured output specs", () => {
 		const config: OmniagentConfig = {
 			targets: [

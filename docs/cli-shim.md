@@ -110,9 +110,15 @@ Rules:
 - `--` passthrough is only valid after `--agent`.
 - Unsupported shared flags are ignored with a warning.
 - Output is passed through unmodified, except for `--output-schema` runs (see above).
-- Passthrough args after `--` are not checked for collisions with shim-generated flags such as
-  `--output-schema` or fallback-injected flags (copilot's `--silent`); the agent CLI's own
-  duplicate-flag error surfaces instead.
+- For target-declared native options, an explicit passthrough value suppresses the corresponding
+  shim default. This is silent in normal output and visible in `--trace-translate` through
+  `shimArgs` and `passthroughArgs`.
+- Passthrough cannot override an explicit shared flag, a policy derived from one (such as
+  `--yolo` selecting its sandbox), prompt delivery, or structured-output arguments. These
+  conflicts exit with code 2 before the target starts and identify both inputs.
+- Undeclared native options and duplicates wholly within passthrough remain the target CLI's
+  responsibility. Value-sensitive declarations keep repeatable flags such as
+  `--disable <feature>` independent.
 - Some approval values are agent-specific.
 - Some output formats are one-shot only for specific CLIs.
 - Copilot exposes JSONL via `--output-format json`, so `--output json` and `--output stream-json` both map to that flag in one-shot mode.
