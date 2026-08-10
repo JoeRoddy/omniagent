@@ -65,8 +65,8 @@ describe("CLI shim interactive mode", () => {
 				"on-request",
 				"--sandbox",
 				"workspace-write",
-				"--disable",
-				"web_search_request",
+				"-c",
+				'web_search="disabled"',
 			]);
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
@@ -92,8 +92,8 @@ describe("CLI shim interactive mode", () => {
 			"workspace-write",
 			"-m",
 			"gpt-5",
-			"--disable",
-			"web_search_request",
+			"-c",
+			'web_search="disabled"',
 		]);
 	});
 

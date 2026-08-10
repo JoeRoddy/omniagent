@@ -86,8 +86,8 @@ describe("CLI shim execution", () => {
 			"--sandbox",
 			"workspace-write",
 			"--json",
-			"--disable",
-			"web_search_request",
+			"-c",
+			'web_search="disabled"',
 			"Hello",
 		]);
 		expect(options).toEqual({ stdio: "inherit" });
@@ -447,8 +447,8 @@ describe("CLI shim execution", () => {
 			"--sandbox",
 			"workspace-write",
 			"--json",
-			"--disable",
-			"web_search_request",
+			"-c",
+			'web_search="disabled"',
 			"Hello",
 		]);
 		expect(result.exitCode).toBe(0);

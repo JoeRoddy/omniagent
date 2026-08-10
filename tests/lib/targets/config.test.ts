@@ -297,6 +297,11 @@ describe("target config validation", () => {
 									sources: ["web"],
 									modes: ["one-shot"],
 								},
+								{
+									option: "--config",
+									valuePrefix: "web_search=",
+									sources: ["web"],
+								},
 							],
 						},
 					},
@@ -325,6 +330,7 @@ describe("target config validation", () => {
 								{
 									option: "sandbox",
 									value: " ",
+									valuePrefix: " ",
 									allowAttachedValue: "yes",
 									sources: ["telepathy"],
 									modes: ["batch"],
@@ -348,6 +354,8 @@ describe("target config validation", () => {
 			expect.arrayContaining([
 				'targets[0].cli.passthrough.collisions[0].option must be a non-empty option beginning with "-".',
 				"targets[0].cli.passthrough.collisions[0].value must be a non-empty string when provided.",
+				"targets[0].cli.passthrough.collisions[0].valuePrefix must be a non-empty string when provided.",
+				"targets[0].cli.passthrough.collisions[0].value and valuePrefix cannot both be provided.",
 				"targets[0].cli.passthrough.collisions[0].allowAttachedValue must be a boolean when provided.",
 				'targets[0].cli.passthrough.collisions[0].sources has unsupported source "telepathy".',
 				'targets[0].cli.passthrough.collisions[0].modes has unsupported mode "batch".',

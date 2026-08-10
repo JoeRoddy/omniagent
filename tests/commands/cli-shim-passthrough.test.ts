@@ -44,8 +44,8 @@ describe("CLI shim passthrough", () => {
 			"on-request",
 			"--sandbox",
 			"workspace-write",
-			"--disable",
-			"web_search_request",
+			"-c",
+			'web_search="disabled"',
 			"--some-flag",
 			"--model",
 			"gpt-5",
@@ -107,8 +107,8 @@ describe("CLI shim passthrough", () => {
 			"--sandbox",
 			"workspace-write",
 			"--json",
-			"--disable",
-			"web_search_request",
+			"-c",
+			'web_search="disabled"',
 			"--some-flag",
 			"--extra",
 			"value",
@@ -125,8 +125,8 @@ describe("CLI shim passthrough", () => {
 				"on-request",
 				"-m",
 				"gpt-5.3-codex-spark",
-				"--disable",
-				"web_search_request",
+				"-c",
+				'web_search="disabled"',
 				"--sandbox",
 				"read-only",
 			],
@@ -134,28 +134,22 @@ describe("CLI shim passthrough", () => {
 		{
 			name: "one-shot --flag=value",
 			argv: ["--agent", "codex", "-p", "Hello", "--", "--sandbox=read-only"],
-			expected: ["exec", "--disable", "web_search_request", "--sandbox=read-only", "Hello"],
+			expected: ["exec", "-c", 'web_search="disabled"', "--sandbox=read-only", "Hello"],
 		},
 		{
 			name: "interactive attached short-option value",
 			argv: ["--agent", "codex", "--", "-sread-only"],
-			expected: [
-				"--ask-for-approval",
-				"on-request",
-				"--disable",
-				"web_search_request",
-				"-sread-only",
-			],
+			expected: ["--ask-for-approval", "on-request", "-c", 'web_search="disabled"', "-sread-only"],
 		},
 		{
 			name: "interactive full-auto preset",
 			argv: ["--agent", "codex", "--", "--full-auto"],
-			expected: ["--disable", "web_search_request", "--full-auto"],
+			expected: ["-c", 'web_search="disabled"', "--full-auto"],
 		},
 		{
 			name: "interactive canonical yolo alias",
 			argv: ["--agent", "codex", "--", "--dangerously-bypass-approvals-and-sandbox"],
-			expected: ["--disable", "web_search_request", "--dangerously-bypass-approvals-and-sandbox"],
+			expected: ["-c", 'web_search="disabled"', "--dangerously-bypass-approvals-and-sandbox"],
 		},
 	])("lets passthrough replace a shim default in $name mode", async ({ argv, expected }) => {
 		const spawn = createSpawnStub(0);
@@ -218,6 +212,42 @@ describe("CLI shim passthrough", () => {
 			expectedOption: "--sandbox",
 			expectedOrigin: "explicit shared --sandbox policy",
 		},
+		{
+			name: "explicit web setting with separated short config",
+			argv: ["--agent", "codex", "--web", "off", "--", "-c", 'web_search="disabled"'],
+			expectedOption: "-c web_search=*",
+			expectedOrigin: "explicit shared --web setting",
+		},
+		{
+			name: "explicit web setting with a different short config value",
+			argv: ["--agent", "codex", "--web", "off", "--", "-c", 'web_search="live"'],
+			expectedOption: "-c web_search=*",
+			expectedOrigin: "explicit shared --web setting",
+		},
+		{
+			name: "explicit web setting with attached short config",
+			argv: ["--agent", "codex", "--web", "off", "--", "-cweb_search=cached"],
+			expectedOption: "-c web_search=*",
+			expectedOrigin: "explicit shared --web setting",
+		},
+		{
+			name: "explicit web setting with equals short config",
+			argv: ["--agent", "codex", "--web", "off", "--", "-c=web_search=indexed"],
+			expectedOption: "-c web_search=*",
+			expectedOrigin: "explicit shared --web setting",
+		},
+		{
+			name: "explicit web setting with separated long config",
+			argv: ["--agent", "codex", "--web", "off", "--", "--config", "web_search=live"],
+			expectedOption: "--config web_search=*",
+			expectedOrigin: "explicit shared --web setting",
+		},
+		{
+			name: "explicit web setting with equals long config",
+			argv: ["--agent", "codex", "--web", "off", "--", "--config=web_search=disabled"],
+			expectedOption: "--config web_search=*",
+			expectedOrigin: "explicit shared --web setting",
+		},
 	])("rejects a passthrough collision with $name", async ({
 		argv,
 		expectedOption,
@@ -256,8 +286,8 @@ describe("CLI shim passthrough", () => {
 			"on-request",
 			"--sandbox",
 			"workspace-write",
-			"--disable",
-			"web_search_request",
+			"-c",
+			'web_search="disabled"',
 			"--version",
 			"--",
 			"--sandbox",
@@ -276,10 +306,42 @@ describe("CLI shim passthrough", () => {
 			"on-request",
 			"--sandbox",
 			"workspace-write",
-			"--disable",
-			"web_search_request",
+			"-c",
+			'web_search="disabled"',
 			"--disable",
 			"apps",
+		]);
+
+		const unrelatedConfigSpawn = createSpawnStub(0);
+		await runShim(["--agent", "codex", "--", "--config", 'model="gpt-5"'], {
+			stdinIsTTY: true,
+			spawn: unrelatedConfigSpawn,
+		});
+		const [, unrelatedConfigArgs] = unrelatedConfigSpawn.mock.calls[0] as SpawnCall;
+		expect(unrelatedConfigArgs).toEqual([
+			"--ask-for-approval",
+			"on-request",
+			"--sandbox",
+			"workspace-write",
+			"-c",
+			'web_search="disabled"',
+			"--config",
+			'model="gpt-5"',
+		]);
+
+		const currentSettingSpawn = createSpawnStub(0);
+		await runShim(["--agent", "codex", "--", "-c", 'web_search="disabled"'], {
+			stdinIsTTY: true,
+			spawn: currentSettingSpawn,
+		});
+		const [, currentSettingArgs] = currentSettingSpawn.mock.calls[0] as SpawnCall;
+		expect(currentSettingArgs).toEqual([
+			"--ask-for-approval",
+			"on-request",
+			"--sandbox",
+			"workspace-write",
+			"-c",
+			'web_search="disabled"',
 		]);
 
 		const matchingSpawn = createSpawnStub(0);

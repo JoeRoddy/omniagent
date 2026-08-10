@@ -132,7 +132,7 @@ function buildCodex(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation |
 	}
 
 	if (caseId !== "web-on") {
-		flags.push("--disable", "web_search_request");
+		flags.push("-c", 'web_search="disabled"');
 	}
 
 	if (caseId === "output-schema-inline") {

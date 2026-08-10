@@ -6,8 +6,8 @@
     "workspace-write",
     "-m",
     "gpt-5.1-codex-mini",
-    "--disable",
-    "web_search_request",
+    "-c",
+    "web_search=\"disabled\"",
     "-c",
     "model_reasoning_effort=\"high\"",
     "Output exactly: 5"
