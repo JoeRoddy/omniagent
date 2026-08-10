@@ -33,7 +33,13 @@ export const codexTarget: TargetDefinition = {
 				{ option: "--model", sources: ["model"] },
 				{ option: "-m", allowAttachedValue: true, sources: ["model"] },
 				{ option: "--search", sources: ["web"] },
-				{ option: "-c", value: 'web_search="disabled"', sources: ["web"] },
+				{
+					option: "-c",
+					valuePrefix: "web_search=",
+					allowAttachedValue: true,
+					sources: ["web"],
+				},
+				{ option: "--config", valuePrefix: "web_search=", sources: ["web"] },
 				// Keep recognizing the legacy toggle when users pass it through explicitly.
 				{ option: "--disable", value: "web_search_request", sources: ["web"] },
 				{

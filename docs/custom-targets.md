@@ -246,6 +246,8 @@ cli: {
 			{ option: "-s", allowAttachedValue: true, sources: ["sandbox"] },
 			// Match a single value of a repeatable option without affecting other values.
 			{ option: "--disable", value: "web", sources: ["web"] },
+			// Match every assignment for one key while leaving other assignments alone.
+			{ option: "--config", valuePrefix: "web_search=", sources: ["web"] },
 			{ option: "-p", sources: ["prompt"], modes: ["one-shot"] },
 		],
 	},
@@ -256,6 +258,8 @@ cli: {
 `structuredOutput`. Rules without `modes` apply to both interactive and one-shot invocations.
 Declare aliases as separate rules. When `value` is present, both `--flag value` and
 `--flag=value` match only that exact value; this is appropriate for repeatable keyed options.
+Use `valuePrefix` to match a family of values, such as every assignment to one configuration key.
+`value` and `valuePrefix` are mutually exclusive.
 Set `allowAttachedValue: true` only for a single-character short option that accepts attached
 values, such as `-sread-only`. A target-native `--` ends collision scanning, so later positional
 arguments are never mistaken for options.

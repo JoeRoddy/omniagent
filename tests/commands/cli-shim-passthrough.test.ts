@@ -213,9 +213,39 @@ describe("CLI shim passthrough", () => {
 			expectedOrigin: "explicit shared --sandbox policy",
 		},
 		{
-			name: "explicit web setting",
+			name: "explicit web setting with separated short config",
 			argv: ["--agent", "codex", "--web", "off", "--", "-c", 'web_search="disabled"'],
-			expectedOption: '-c web_search="disabled"',
+			expectedOption: "-c web_search=*",
+			expectedOrigin: "explicit shared --web setting",
+		},
+		{
+			name: "explicit web setting with a different short config value",
+			argv: ["--agent", "codex", "--web", "off", "--", "-c", 'web_search="live"'],
+			expectedOption: "-c web_search=*",
+			expectedOrigin: "explicit shared --web setting",
+		},
+		{
+			name: "explicit web setting with attached short config",
+			argv: ["--agent", "codex", "--web", "off", "--", "-cweb_search=cached"],
+			expectedOption: "-c web_search=*",
+			expectedOrigin: "explicit shared --web setting",
+		},
+		{
+			name: "explicit web setting with equals short config",
+			argv: ["--agent", "codex", "--web", "off", "--", "-c=web_search=indexed"],
+			expectedOption: "-c web_search=*",
+			expectedOrigin: "explicit shared --web setting",
+		},
+		{
+			name: "explicit web setting with separated long config",
+			argv: ["--agent", "codex", "--web", "off", "--", "--config", "web_search=live"],
+			expectedOption: "--config web_search=*",
+			expectedOrigin: "explicit shared --web setting",
+		},
+		{
+			name: "explicit web setting with equals long config",
+			argv: ["--agent", "codex", "--web", "off", "--", "--config=web_search=disabled"],
+			expectedOption: "--config web_search=*",
 			expectedOrigin: "explicit shared --web setting",
 		},
 	])("rejects a passthrough collision with $name", async ({
@@ -280,6 +310,23 @@ describe("CLI shim passthrough", () => {
 			'web_search="disabled"',
 			"--disable",
 			"apps",
+		]);
+
+		const unrelatedConfigSpawn = createSpawnStub(0);
+		await runShim(["--agent", "codex", "--", "--config", 'model="gpt-5"'], {
+			stdinIsTTY: true,
+			spawn: unrelatedConfigSpawn,
+		});
+		const [, unrelatedConfigArgs] = unrelatedConfigSpawn.mock.calls[0] as SpawnCall;
+		expect(unrelatedConfigArgs).toEqual([
+			"--ask-for-approval",
+			"on-request",
+			"--sandbox",
+			"workspace-write",
+			"-c",
+			'web_search="disabled"',
+			"--config",
+			'model="gpt-5"',
 		]);
 
 		const currentSettingSpawn = createSpawnStub(0);

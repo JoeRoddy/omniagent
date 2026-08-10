@@ -31,6 +31,7 @@ export type PassthroughCollisionSource = (typeof PASSTHROUGH_COLLISION_SOURCES)[
 export type PassthroughCollisionRule = {
 	option: string;
 	value?: string;
+	valuePrefix?: string;
 	allowAttachedValue?: boolean;
 	sources: PassthroughCollisionSource[];
 	modes?: InvocationMode[];

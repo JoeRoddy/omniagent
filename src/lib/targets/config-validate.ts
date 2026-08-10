@@ -234,6 +234,12 @@ function validatePassthroughCollisions(value: unknown, label: string, errors: st
 		if (entry.value !== undefined && normalizeString(entry.value) === null) {
 			errors.push(`${entryLabel}.value must be a non-empty string when provided.`);
 		}
+		if (entry.valuePrefix !== undefined && normalizeString(entry.valuePrefix) === null) {
+			errors.push(`${entryLabel}.valuePrefix must be a non-empty string when provided.`);
+		}
+		if (entry.value !== undefined && entry.valuePrefix !== undefined) {
+			errors.push(`${entryLabel}.value and valuePrefix cannot both be provided.`);
+		}
 		if (entry.allowAttachedValue !== undefined && typeof entry.allowAttachedValue !== "boolean") {
 			errors.push(`${entryLabel}.allowAttachedValue must be a boolean when provided.`);
 		}

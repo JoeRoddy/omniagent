@@ -49,6 +49,19 @@ function modeAllowed(modes: InvocationMode[] | undefined, mode: InvocationMode):
 	return modes.includes(mode);
 }
 
+function matchesPassthroughValue(
+	value: string | undefined,
+	rule: PassthroughCollisionRule,
+): boolean {
+	if (rule.value !== undefined) {
+		return value === rule.value;
+	}
+	if (rule.valuePrefix !== undefined) {
+		return value?.startsWith(rule.valuePrefix) ?? false;
+	}
+	return true;
+}
+
 function matchesPassthroughRule(args: string[], rule: PassthroughCollisionRule): boolean {
 	const equalsPrefix = `${rule.option}=`;
 	for (const [index, arg] of args.entries()) {
@@ -56,13 +69,13 @@ function matchesPassthroughRule(args: string[], rule: PassthroughCollisionRule):
 			break;
 		}
 		if (arg.startsWith(equalsPrefix)) {
-			if (rule.value === undefined || arg.slice(equalsPrefix.length) === rule.value) {
+			if (matchesPassthroughValue(arg.slice(equalsPrefix.length), rule)) {
 				return true;
 			}
 			continue;
 		}
 		if (rule.allowAttachedValue && arg.startsWith(rule.option) && arg.length > rule.option.length) {
-			if (rule.value === undefined || arg.slice(rule.option.length) === rule.value) {
+			if (matchesPassthroughValue(arg.slice(rule.option.length), rule)) {
 				return true;
 			}
 			continue;
@@ -70,7 +83,7 @@ function matchesPassthroughRule(args: string[], rule: PassthroughCollisionRule):
 		if (arg !== rule.option) {
 			continue;
 		}
-		if (rule.value === undefined || args[index + 1] === rule.value) {
+		if (matchesPassthroughValue(args[index + 1], rule)) {
 			return true;
 		}
 	}
@@ -78,7 +91,13 @@ function matchesPassthroughRule(args: string[], rule: PassthroughCollisionRule):
 }
 
 function formatCollisionOption(rule: PassthroughCollisionRule): string {
-	return rule.value === undefined ? rule.option : `${rule.option} ${rule.value}`;
+	if (rule.value !== undefined) {
+		return `${rule.option} ${rule.value}`;
+	}
+	if (rule.valuePrefix !== undefined) {
+		return `${rule.option} ${rule.valuePrefix}*`;
+	}
+	return rule.option;
 }
 
 function resolvePassthroughSuppression(
