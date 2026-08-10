@@ -224,6 +224,50 @@ history: {
   filter to each surviving record, so pruning too little is slow but never wrong; pruning too much
   silently loses results.
 
+## Passthrough collisions (`cli.passthrough.collisions`)
+
+The default CLI translator can identify target-native options that overlap with shim-generated
+arguments. A matching passthrough option suppresses an implicit shim default. If the associated
+source was explicitly requested or is required for the invocation, omniagent exits with code 2
+instead of sending duplicate or contradictory options to the target.
+
+```ts
+cli: {
+	modes: {
+		interactive: { command: "acme" },
+		oneShot: { command: "acme", args: ["run"] },
+	},
+	passthrough: {
+		position: "before-prompt",
+		collisions: [
+			// Matches both `--sandbox read-only` and `--sandbox=read-only`.
+			{ option: "--sandbox", sources: ["sandbox"] },
+			// Short value options can opt into matching attached forms such as `-sread-only`.
+			{ option: "-s", allowAttachedValue: true, sources: ["sandbox"] },
+			// Match a single value of a repeatable option without affecting other values.
+			{ option: "--disable", value: "web", sources: ["web"] },
+			{ option: "-p", sources: ["prompt"], modes: ["one-shot"] },
+		],
+	},
+}
+```
+
+`sources` accepts `mode`, `prompt`, `approval`, `sandbox`, `output`, `model`, `web`, and
+`structuredOutput`. Rules without `modes` apply to both interactive and one-shot invocations.
+Declare aliases as separate rules. When `value` is present, both `--flag value` and
+`--flag=value` match only that exact value; this is appropriate for repeatable keyed options.
+Set `allowAttachedValue: true` only for a single-character short option that accepts attached
+values, such as `-sread-only`. A target-native `--` ends collision scanning, so later positional
+arguments are never mistaken for options.
+
+Collision metadata is optional. Undeclared native options pass through unchanged, and duplicate
+options supplied entirely after `--` remain the target CLI's responsibility. Targets with a
+custom `cli.translate` function cannot declare these rules because the translator owns argument
+provenance and collision behavior itself. Custom translators receive resolved shared values in
+`invocation.requests` and can distinguish defaults from explicit requests through
+`approvalExplicit`, `sandboxExplicit`, `outputExplicit`, `modelExplicit`, and `webExplicit` on
+`invocation.session`.
+
 ## Structured output (`cli.flags.structuredOutput`)
 
 Custom targets whose CLI supports schema-constrained responses can declare a

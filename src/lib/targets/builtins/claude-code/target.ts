@@ -15,6 +15,25 @@ export const claudeTarget: TargetDefinition = {
 			oneShot: { command: "claude" },
 		},
 		prompt: { type: "flag", flag: ["-p"] },
+		passthrough: {
+			collisions: [
+				{
+					option: "-p",
+					allowAttachedValue: true,
+					sources: ["prompt"],
+					modes: ["one-shot"],
+				},
+				{ option: "--print", sources: ["prompt"], modes: ["one-shot"] },
+				{ option: "--dangerously-skip-permissions", sources: ["approval"] },
+				{ option: "--model", sources: ["model"] },
+				{ option: "--output-format", sources: ["output", "structuredOutput"] },
+				{
+					option: "--json-schema",
+					sources: ["structuredOutput"],
+					modes: ["one-shot"],
+				},
+			],
+		},
 		flags: {
 			approval: {
 				values: {

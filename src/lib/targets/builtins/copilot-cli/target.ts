@@ -29,6 +29,20 @@ export const copilotTarget: TargetDefinition = {
 			oneShot: { command: "copilot" },
 		},
 		prompt: { type: "flag", flag: ["-p"] },
+		passthrough: {
+			collisions: [
+				{
+					option: "-p",
+					allowAttachedValue: true,
+					sources: ["prompt"],
+					modes: ["one-shot"],
+				},
+				{ option: "--allow-all-tools", sources: ["approval"] },
+				{ option: "--output-format", sources: ["output"] },
+				{ option: "--model", sources: ["model"] },
+				{ option: "--silent", sources: ["structuredOutput"], modes: ["one-shot"] },
+			],
+		},
 		flags: {
 			approval: {
 				values: {

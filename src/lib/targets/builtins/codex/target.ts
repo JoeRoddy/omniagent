@@ -15,7 +15,43 @@ export const codexTarget: TargetDefinition = {
 			oneShot: { command: "codex", args: ["exec"] },
 		},
 		prompt: { type: "positional", position: "last" },
-		passthrough: { position: "before-prompt" },
+		passthrough: {
+			position: "before-prompt",
+			collisions: [
+				{ option: "--ask-for-approval", sources: ["approval"] },
+				{ option: "-a", allowAttachedValue: true, sources: ["approval"] },
+				{ option: "--full-auto", sources: ["approval", "sandbox"] },
+				{ option: "--yolo", sources: ["approval", "sandbox"] },
+				{
+					option: "--dangerously-bypass-approvals-and-sandbox",
+					sources: ["approval", "sandbox"],
+				},
+				{ option: "--sandbox", sources: ["sandbox"] },
+				{ option: "-s", allowAttachedValue: true, sources: ["sandbox"] },
+				{ option: "--json", sources: ["output"], modes: ["one-shot"] },
+				{ option: "--experimental-json", sources: ["output"], modes: ["one-shot"] },
+				{ option: "--model", sources: ["model"] },
+				{ option: "-m", allowAttachedValue: true, sources: ["model"] },
+				{ option: "--search", sources: ["web"] },
+				{ option: "--disable", value: "web_search_request", sources: ["web"] },
+				{
+					option: "--output-schema",
+					sources: ["structuredOutput"],
+					modes: ["one-shot"],
+				},
+				{
+					option: "--output-last-message",
+					sources: ["structuredOutput"],
+					modes: ["one-shot"],
+				},
+				{
+					option: "-o",
+					allowAttachedValue: true,
+					sources: ["structuredOutput"],
+					modes: ["one-shot"],
+				},
+			],
+		},
 		flags: {
 			approval: {
 				byMode: {

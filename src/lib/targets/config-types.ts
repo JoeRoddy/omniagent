@@ -16,6 +16,26 @@ export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
 
 export type InvocationMode = "interactive" | "one-shot";
 
+export const PASSTHROUGH_COLLISION_SOURCES = [
+	"mode",
+	"prompt",
+	"approval",
+	"sandbox",
+	"output",
+	"model",
+	"web",
+	"structuredOutput",
+] as const;
+export type PassthroughCollisionSource = (typeof PASSTHROUGH_COLLISION_SOURCES)[number];
+
+export type PassthroughCollisionRule = {
+	option: string;
+	value?: string;
+	allowAttachedValue?: boolean;
+	sources: PassthroughCollisionSource[];
+	modes?: InvocationMode[];
+};
+
 export type CommandLocation = "project" | "user";
 export type OutputType = "skills" | "commands" | "subagents" | "instructions";
 
@@ -197,7 +217,10 @@ export type TargetCliDefinition = {
 		structuredOutput?: StructuredOutputSpec;
 		structuredOutputFallback?: StructuredOutputFallbackSpec;
 	};
-	passthrough?: { position?: "after" | "before-prompt" };
+	passthrough?: {
+		position?: "after" | "before-prompt";
+		collisions?: PassthroughCollisionRule[];
+	};
 	translate?: (invocation: TranslationInvocation) => TranslationResult;
 };
 
@@ -216,14 +239,18 @@ export type TranslationInvocation = {
 		outputFormat: OutputFormat;
 		model: string | null;
 		webEnabled: boolean;
+		approvalExplicit: boolean;
 		sandboxExplicit: boolean;
+		outputExplicit: boolean;
+		modelExplicit: boolean;
+		webExplicit: boolean;
 	};
 	requests: {
-		approval?: ApprovalPolicy;
-		sandbox?: SandboxMode;
-		output?: OutputFormat;
+		approval: ApprovalPolicy;
+		sandbox: SandboxMode;
+		output: OutputFormat;
 		model?: string;
-		web?: boolean;
+		web: boolean;
 	};
 	passthrough: {
 		hasDelimiter: boolean;

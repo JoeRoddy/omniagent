@@ -9,6 +9,7 @@ import {
 	resolveInvocationFromFlags,
 	runShim,
 } from "../../src/cli/shim/index.js";
+import type { TargetCliDefinition } from "../../src/lib/targets/config-types.js";
 
 type InvocationOptions = {
 	stdinIsTTY?: boolean;
@@ -294,6 +295,56 @@ describe("CLI shim flag parsing", () => {
 			"workspace-write",
 			"--search",
 		]);
+	});
+
+	it("keeps suppressed defaults out of shimArgs while preserving passthroughArgs", async () => {
+		const invocation = await buildInvocation(["--agent", "codex", "--", "--sandbox=read-only"]);
+		const result = buildAgentArgs(invocation);
+
+		expect(result.shimArgs).toEqual([
+			"--ask-for-approval",
+			"on-request",
+			"--disable",
+			"web_search_request",
+		]);
+		expect(result.passthroughArgs).toEqual(["--sandbox=read-only"]);
+		expect(result.args).toEqual([...result.shimArgs, "--sandbox=read-only"]);
+	});
+
+	it("applies declared collision rules to custom targets using the default translator", async () => {
+		const invocation = await buildInvocation([
+			"--agent",
+			"codex",
+			"--",
+			"--native-sandbox",
+			"read-only",
+		]);
+		const customCli: TargetCliDefinition = {
+			modes: {
+				interactive: { command: "custom" },
+				oneShot: { command: "custom", args: ["run"] },
+			},
+			flags: {
+				sandbox: {
+					values: {
+						"workspace-write": ["--native-sandbox", "workspace"],
+						off: ["--native-sandbox", "none"],
+					},
+				},
+			},
+			passthrough: {
+				collisions: [{ option: "--native-sandbox", sources: ["sandbox"] }],
+			},
+		};
+		const result = buildAgentArgs({
+			...invocation,
+			agent: { ...invocation.agent, id: "custom" },
+			target: { ...invocation.target, id: "custom", cli: customCli },
+		});
+
+		expect(result.shimArgs).toEqual([]);
+		expect(result.passthroughArgs).toEqual(["--native-sandbox", "read-only"]);
+		expect(result.args).toEqual(["--native-sandbox", "read-only"]);
 	});
 
 	it("resolves mode/output for common flag combinations", async () => {

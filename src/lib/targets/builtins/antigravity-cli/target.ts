@@ -12,6 +12,22 @@ export const agyTarget: TargetDefinition = {
 		// agy requires the prompt as -p's argument; the shim always passes the
 		// (possibly stdin-derived) prompt inline, so piped stdin works.
 		prompt: { type: "flag", flag: ["-p"] },
+		passthrough: {
+			collisions: [
+				{
+					option: "-p",
+					allowAttachedValue: true,
+					sources: ["prompt"],
+					modes: ["one-shot"],
+				},
+				{
+					option: "--dangerously-skip-permissions",
+					sources: ["approval", "sandbox"],
+				},
+				{ option: "--sandbox", sources: ["sandbox"] },
+				{ option: "--model", sources: ["model"] },
+			],
+		},
 		flags: {
 			approval: {
 				values: {
