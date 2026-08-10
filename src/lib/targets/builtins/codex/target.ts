@@ -33,6 +33,8 @@ export const codexTarget: TargetDefinition = {
 				{ option: "--model", sources: ["model"] },
 				{ option: "-m", allowAttachedValue: true, sources: ["model"] },
 				{ option: "--search", sources: ["web"] },
+				{ option: "-c", value: 'web_search="disabled"', sources: ["web"] },
+				// Keep recognizing the legacy toggle when users pass it through explicitly.
 				{ option: "--disable", value: "web_search_request", sources: ["web"] },
 				{
 					option: "--output-schema",
@@ -83,7 +85,7 @@ export const codexTarget: TargetDefinition = {
 				},
 			},
 			model: { flag: ["-m"] },
-			web: { on: ["--search"], off: ["--disable", "web_search_request"] },
+			web: { on: ["--search"], off: ["-c", 'web_search="disabled"'] },
 			structuredOutput: {
 				delivery: "file",
 				flag: ["--output-schema"],

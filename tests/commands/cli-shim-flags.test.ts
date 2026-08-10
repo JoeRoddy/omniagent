@@ -304,8 +304,8 @@ describe("CLI shim flag parsing", () => {
 		expect(result.shimArgs).toEqual([
 			"--ask-for-approval",
 			"on-request",
-			"--disable",
-			"web_search_request",
+			"-c",
+			'web_search="disabled"',
 		]);
 		expect(result.passthroughArgs).toEqual(["--sandbox=read-only"]);
 		expect(result.args).toEqual([...result.shimArgs, "--sandbox=read-only"]);

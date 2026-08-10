@@ -39,8 +39,8 @@ describe("CLI shim one-shot mode", () => {
 			"exec",
 			"--sandbox",
 			"workspace-write",
-			"--disable",
-			"web_search_request",
+			"-c",
+			'web_search="disabled"',
 			"Hello",
 		]);
 		expect(exitSpy).not.toHaveBeenCalled();
@@ -61,8 +61,8 @@ describe("CLI shim one-shot mode", () => {
 			"exec",
 			"--sandbox",
 			"workspace-write",
-			"--disable",
-			"web_search_request",
+			"-c",
+			'web_search="disabled"',
 			"From stdin",
 		]);
 	});
@@ -82,8 +82,8 @@ describe("CLI shim one-shot mode", () => {
 			"exec",
 			"--sandbox",
 			"workspace-write",
-			"--disable",
-			"web_search_request",
+			"-c",
+			'web_search="disabled"',
 			"Flag wins",
 		]);
 	});
@@ -172,8 +172,8 @@ describe("CLI shim one-shot mode", () => {
 			"--full-auto",
 			"--sandbox",
 			"workspace-write",
-			"--disable",
-			"web_search_request",
+			"-c",
+			'web_search="disabled"',
 			"Run automation",
 		]);
 	});
@@ -193,8 +193,8 @@ describe("CLI shim one-shot mode", () => {
 			"--yolo",
 			"--sandbox",
 			"danger-full-access",
-			"--disable",
-			"web_search_request",
+			"-c",
+			'web_search="disabled"',
 			"No prompts",
 		]);
 	});
