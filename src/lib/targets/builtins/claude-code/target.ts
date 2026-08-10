@@ -17,7 +17,12 @@ export const claudeTarget: TargetDefinition = {
 		prompt: { type: "flag", flag: ["-p"] },
 		passthrough: {
 			collisions: [
-				{ option: "-p", sources: ["prompt"], modes: ["one-shot"] },
+				{
+					option: "-p",
+					allowAttachedValue: true,
+					sources: ["prompt"],
+					modes: ["one-shot"],
+				},
 				{ option: "--print", sources: ["prompt"], modes: ["one-shot"] },
 				{ option: "--dangerously-skip-permissions", sources: ["approval"] },
 				{ option: "--model", sources: ["model"] },

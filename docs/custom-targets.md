@@ -242,6 +242,8 @@ cli: {
 		collisions: [
 			// Matches both `--sandbox read-only` and `--sandbox=read-only`.
 			{ option: "--sandbox", sources: ["sandbox"] },
+			// Short value options can opt into matching attached forms such as `-sread-only`.
+			{ option: "-s", allowAttachedValue: true, sources: ["sandbox"] },
 			// Match a single value of a repeatable option without affecting other values.
 			{ option: "--disable", value: "web", sources: ["web"] },
 			{ option: "-p", sources: ["prompt"], modes: ["one-shot"] },
@@ -254,11 +256,17 @@ cli: {
 `structuredOutput`. Rules without `modes` apply to both interactive and one-shot invocations.
 Declare aliases as separate rules. When `value` is present, both `--flag value` and
 `--flag=value` match only that exact value; this is appropriate for repeatable keyed options.
+Set `allowAttachedValue: true` only for a single-character short option that accepts attached
+values, such as `-sread-only`. A target-native `--` ends collision scanning, so later positional
+arguments are never mistaken for options.
 
 Collision metadata is optional. Undeclared native options pass through unchanged, and duplicate
 options supplied entirely after `--` remain the target CLI's responsibility. Targets with a
 custom `cli.translate` function cannot declare these rules because the translator owns argument
-provenance and collision behavior itself.
+provenance and collision behavior itself. Custom translators receive resolved shared values in
+`invocation.requests` and can distinguish defaults from explicit requests through
+`approvalExplicit`, `sandboxExplicit`, `outputExplicit`, `modelExplicit`, and `webExplicit` on
+`invocation.session`.
 
 ## Structured output (`cli.flags.structuredOutput`)
 

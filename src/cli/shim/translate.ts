@@ -52,8 +52,17 @@ function modeAllowed(modes: InvocationMode[] | undefined, mode: InvocationMode):
 function matchesPassthroughRule(args: string[], rule: PassthroughCollisionRule): boolean {
 	const equalsPrefix = `${rule.option}=`;
 	for (const [index, arg] of args.entries()) {
+		if (arg === "--") {
+			break;
+		}
 		if (arg.startsWith(equalsPrefix)) {
 			if (rule.value === undefined || arg.slice(equalsPrefix.length) === rule.value) {
+				return true;
+			}
+			continue;
+		}
+		if (rule.allowAttachedValue && arg.startsWith(rule.option) && arg.length > rule.option.length) {
+			if (rule.value === undefined || arg.slice(rule.option.length) === rule.value) {
 				return true;
 			}
 			continue;

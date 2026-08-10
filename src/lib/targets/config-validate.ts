@@ -234,6 +234,17 @@ function validatePassthroughCollisions(value: unknown, label: string, errors: st
 		if (entry.value !== undefined && normalizeString(entry.value) === null) {
 			errors.push(`${entryLabel}.value must be a non-empty string when provided.`);
 		}
+		if (entry.allowAttachedValue !== undefined && typeof entry.allowAttachedValue !== "boolean") {
+			errors.push(`${entryLabel}.allowAttachedValue must be a boolean when provided.`);
+		}
+		if (
+			entry.allowAttachedValue === true &&
+			(!option || !option.startsWith("-") || option.startsWith("--") || option.length !== 2)
+		) {
+			errors.push(
+				`${entryLabel}.allowAttachedValue can only be enabled for a single-character short option.`,
+			);
+		}
 
 		validateStringArray(entry.sources, `${entryLabel}.sources`, errors);
 		if (Array.isArray(entry.sources)) {

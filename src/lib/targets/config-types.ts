@@ -31,6 +31,7 @@ export type PassthroughCollisionSource = (typeof PASSTHROUGH_COLLISION_SOURCES)[
 export type PassthroughCollisionRule = {
 	option: string;
 	value?: string;
+	allowAttachedValue?: boolean;
 	sources: PassthroughCollisionSource[];
 	modes?: InvocationMode[];
 };
@@ -238,14 +239,18 @@ export type TranslationInvocation = {
 		outputFormat: OutputFormat;
 		model: string | null;
 		webEnabled: boolean;
+		approvalExplicit: boolean;
 		sandboxExplicit: boolean;
+		outputExplicit: boolean;
+		modelExplicit: boolean;
+		webExplicit: boolean;
 	};
 	requests: {
-		approval?: ApprovalPolicy;
-		sandbox?: SandboxMode;
-		output?: OutputFormat;
+		approval: ApprovalPolicy;
+		sandbox: SandboxMode;
+		output: OutputFormat;
 		model?: string;
-		web?: boolean;
+		web: boolean;
 	};
 	passthrough: {
 		hasDelimiter: boolean;

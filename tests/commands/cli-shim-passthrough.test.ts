@@ -136,6 +136,17 @@ describe("CLI shim passthrough", () => {
 			argv: ["--agent", "codex", "-p", "Hello", "--", "--sandbox=read-only"],
 			expected: ["exec", "--disable", "web_search_request", "--sandbox=read-only", "Hello"],
 		},
+		{
+			name: "interactive attached short-option value",
+			argv: ["--agent", "codex", "--", "-sread-only"],
+			expected: [
+				"--ask-for-approval",
+				"on-request",
+				"--disable",
+				"web_search_request",
+				"-sread-only",
+			],
+		},
 	])("lets passthrough replace a shim default in $name mode", async ({ argv, expected }) => {
 		const spawn = createSpawnStub(0);
 		const exitCode = await runShim(argv, { stdinIsTTY: true, spawn });
@@ -174,6 +185,28 @@ describe("CLI shim passthrough", () => {
 		expect(output).toContain("Passthrough option --sandbox");
 		expect(output).toContain(expectedOrigin);
 		expect(output).toContain("Remove one of the conflicting options.");
+	});
+
+	it("stops collision matching at the target-native end-of-options delimiter", async () => {
+		const spawn = createSpawnStub(0);
+		const exitCode = await runShim(
+			["--agent", "codex", "--sandbox", "workspace-write", "--", "--version", "--", "--sandbox"],
+			{ stdinIsTTY: true, spawn },
+		);
+
+		expect(exitCode).toBe(0);
+		const [, args] = spawn.mock.calls[0] as SpawnCall;
+		expect(args).toEqual([
+			"--ask-for-approval",
+			"on-request",
+			"--sandbox",
+			"workspace-write",
+			"--disable",
+			"web_search_request",
+			"--version",
+			"--",
+			"--sandbox",
+		]);
 	});
 
 	it("matches repeatable native options by value without suppressing unrelated values", async () => {

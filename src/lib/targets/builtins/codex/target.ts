@@ -19,14 +19,14 @@ export const codexTarget: TargetDefinition = {
 			position: "before-prompt",
 			collisions: [
 				{ option: "--ask-for-approval", sources: ["approval"] },
-				{ option: "-a", sources: ["approval"] },
+				{ option: "-a", allowAttachedValue: true, sources: ["approval"] },
 				{ option: "--full-auto", sources: ["approval"] },
 				{ option: "--yolo", sources: ["approval", "sandbox"] },
 				{ option: "--sandbox", sources: ["sandbox"] },
-				{ option: "-s", sources: ["sandbox"] },
+				{ option: "-s", allowAttachedValue: true, sources: ["sandbox"] },
 				{ option: "--json", sources: ["output"], modes: ["one-shot"] },
 				{ option: "--model", sources: ["model"] },
-				{ option: "-m", sources: ["model"] },
+				{ option: "-m", allowAttachedValue: true, sources: ["model"] },
 				{ option: "--search", sources: ["web"] },
 				{ option: "--disable", value: "web_search_request", sources: ["web"] },
 				{
@@ -39,7 +39,12 @@ export const codexTarget: TargetDefinition = {
 					sources: ["structuredOutput"],
 					modes: ["one-shot"],
 				},
-				{ option: "-o", sources: ["structuredOutput"], modes: ["one-shot"] },
+				{
+					option: "-o",
+					allowAttachedValue: true,
+					sources: ["structuredOutput"],
+					modes: ["one-shot"],
+				},
 			],
 		},
 		flags: {

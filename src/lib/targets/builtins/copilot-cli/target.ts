@@ -31,7 +31,12 @@ export const copilotTarget: TargetDefinition = {
 		prompt: { type: "flag", flag: ["-p"] },
 		passthrough: {
 			collisions: [
-				{ option: "-p", sources: ["prompt"], modes: ["one-shot"] },
+				{
+					option: "-p",
+					allowAttachedValue: true,
+					sources: ["prompt"],
+					modes: ["one-shot"],
+				},
 				{ option: "--allow-all-tools", sources: ["approval"] },
 				{ option: "--output-format", sources: ["output"] },
 				{ option: "--model", sources: ["model"] },
