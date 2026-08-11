@@ -67,7 +67,6 @@ type TargetExtractionOutcome =
 			debug: NormalizedUsageDebugArtifact[];
 	  };
 
-const USAGE_BAR_WIDTH = 12;
 const ANSI = {
 	reset: "\x1b[0m",
 	bold: "\x1b[1m",
@@ -99,7 +98,6 @@ type UsageDisplayRow =
 type UsageTableWidths = {
 	agent: number;
 	limit: number;
-	usage: number;
 	left: number;
 	reset: number;
 };
@@ -711,15 +709,6 @@ function percentText(value: number | null): string {
 	return value == null ? "unknown" : `${Math.round(value)}%`;
 }
 
-function usageBar(percentUsed: number | null): string {
-	if (percentUsed == null) {
-		return `[${"?".repeat(USAGE_BAR_WIDTH)}]`;
-	}
-	const clamped = Math.max(0, Math.min(100, percentUsed));
-	const filled = clamped === 0 ? 0 : Math.max(1, Math.round((clamped / 100) * USAGE_BAR_WIDTH));
-	return `[${"#".repeat(filled)}${"-".repeat(USAGE_BAR_WIDTH - filled)}]`;
-}
-
 function formatResetValue(limit: NormalizedUsageLimit, now: Date): string {
 	const resetAt = parseDate(limit.resetAt);
 	if (resetAt != null) {
@@ -900,7 +889,6 @@ function renderUsageTable(rows: UsageDisplayRow[], useColor: boolean): string {
 			"Limit",
 			rows.map((row) => row.limitLabel),
 		),
-		usage: maxWidth("Usage", rows.map(usageCellText)),
 		left: maxWidth("Left", rows.map(leftCellText)),
 		reset: maxWidth("Reset", rows.map(resetCellText)),
 	};
@@ -908,7 +896,6 @@ function renderUsageTable(rows: UsageDisplayRow[], useColor: boolean): string {
 		pad("Agent", widths.agent),
 		pad("Limit", widths.limit),
 		pad("Left", widths.left),
-		pad("Usage", widths.usage),
 		pad("Reset", widths.reset),
 	]
 		.join("  ")
@@ -917,7 +904,6 @@ function renderUsageTable(rows: UsageDisplayRow[], useColor: boolean): string {
 		"-".repeat(widths.agent),
 		"-".repeat(widths.limit),
 		"-".repeat(widths.left),
-		"-".repeat(widths.usage),
 		"-".repeat(widths.reset),
 	]
 		.join("  ")
@@ -935,18 +921,10 @@ function renderUsageRow(row: UsageDisplayRow, widths: UsageTableWidths, useColor
 		pad(row.agent, widths.agent),
 		pad(row.limitLabel, widths.limit),
 		renderLeftCell(row, widths.left, useColor),
-		renderUsageCell(row, widths.usage, useColor),
 		renderResetCell(row, widths.reset, useColor),
 	]
 		.join("  ")
 		.trimEnd();
-}
-
-function usageCellText(row: UsageDisplayRow): string {
-	if (row.status === "error") {
-		return "failed";
-	}
-	return `${usageBar(row.limit.percentUsed)} ${percentText(row.limit.percentUsed).padStart(4)} used`;
 }
 
 function leftCellText(row: UsageDisplayRow): string {
@@ -966,22 +944,6 @@ function resetCellText(row: UsageDisplayRow): string {
 	return row.reset;
 }
 
-function renderUsageCell(row: UsageDisplayRow, width: number, useColor: boolean): string {
-	const text = usageCellText(row);
-	const padding = " ".repeat(Math.max(0, width - text.length));
-	if (row.status === "error") {
-		return `${color(text, "red", useColor)}${padding}`;
-	}
-
-	const severity = usageSeverity(row.limit.percentUsed);
-	const used = percentText(row.limit.percentUsed).padStart(4);
-	return `${color(usageBar(row.limit.percentUsed), severity, useColor)} ${color(
-		used,
-		severity,
-		useColor,
-	)} used${padding}`;
-}
-
 function renderLeftCell(row: UsageDisplayRow, width: number, useColor: boolean): string {
 	const text = leftCellText(row);
 	const padding = " ".repeat(Math.max(0, width - text.length));
@@ -996,22 +958,6 @@ function renderResetCell(row: UsageDisplayRow, width: number, useColor: boolean)
 	const padding = " ".repeat(Math.max(0, width - text.length));
 	const style = row.status === "error" ? "red" : "gray";
 	return `${color(text, style, useColor)}${padding}`;
-}
-
-function usageSeverity(percentUsed: number | null): AnsiStyle {
-	if (percentUsed == null) {
-		return "gray";
-	}
-	if (percentUsed >= 95) {
-		return "red";
-	}
-	if (percentUsed >= 80) {
-		return "orange";
-	}
-	if (percentUsed >= 60) {
-		return "yellow";
-	}
-	return "green";
 }
 
 function remainingSeverity(percentRemaining: number | null): AnsiStyle {

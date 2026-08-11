@@ -312,16 +312,15 @@ describe.sequential("usage command", () => {
 			const output = joinOutput(logSpy.mock.calls);
 			expect(output).toContain("Agent");
 			expect(output).toContain("Limit");
-			expect(output).toContain("Usage");
 			expect(output).toContain("Left");
 			expect(output).toContain("Reset");
 			expect(output).toContain("Mock Codex");
-			expect(output).toContain("[#####-------]");
-			expect(output).toContain("40% used");
+			expect(output).not.toContain("Usage");
+			expect(output).not.toContain("% used");
 			expect(output).toContain("60%");
 			const header = output.split("\n")[0] ?? "";
 			expect(header.indexOf("Limit")).toBeLessThan(header.indexOf("Left"));
-			expect(header.indexOf("Left")).toBeLessThan(header.indexOf("Usage"));
+			expect(header.indexOf("Left")).toBeLessThan(header.indexOf("Reset"));
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});
@@ -589,8 +588,8 @@ module.exports = {
 				const output = joinOutput(logSpy.mock.calls);
 				expect(output).toContain("\x1b[1mAgent");
 				expect(output).toContain("Reset\x1b[0m");
-				expect(output).toContain("\x1b[32m[#####-------]\x1b[0m");
-				expect(output).toContain("\x1b[33m[########----]\x1b[0m");
+				expect(output).toContain("\x1b[32m60%\x1b[0m");
+				expect(output).toContain("\x1b[33m30%\x1b[0m");
 				expect(output).toContain("\x1b[90m35m");
 				expect(output).toContain("\x1b[90m1h43m");
 				expect(output).not.toContain("\x1b[38;5;208m35m");
@@ -1764,7 +1763,6 @@ module.exports = {
 			const output = joinOutput(logSpy.mock.calls);
 			expect(output).toContain("Mock Codex");
 			expect(output).toContain("error");
-			expect(output).toContain("failed");
 			expect(output).toContain("Usage extraction timed out after 10ms.");
 			expect(exitSpy).toHaveBeenCalledWith(1);
 		});
