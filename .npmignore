@@ -22,6 +22,9 @@ vitest.config.ts
 pnpm-workspace.yaml
 
 # Tooling
+# This repo's own agent config. The CLI always resolves the agents directory from the
+# consuming repo root, never from the installed package, so it is not package content.
+/agents/
 .agents/
 .claude/
 .codex/
