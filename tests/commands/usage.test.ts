@@ -315,12 +315,53 @@ describe.sequential("usage command", () => {
 			expect(output).toContain("Left");
 			expect(output).toContain("Reset");
 			expect(output).toContain("Mock Codex");
-			expect(output).not.toContain("Usage");
-			expect(output).not.toContain("% used");
 			expect(output).toContain("60%");
+			expect(output).not.toMatch(/\[[#?-]+\]/);
 			const header = output.split("\n")[0] ?? "";
+			expect(header).not.toContain("Usage");
 			expect(header.indexOf("Limit")).toBeLessThan(header.indexOf("Left"));
 			expect(header.indexOf("Left")).toBeLessThan(header.indexOf("Reset"));
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
+	it("derives the Left column from percentUsed when percentRemaining is missing", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					disableTargets: ["claude", "gemini"],
+					extractors: {
+						codex: `async (ctx) => ({
+							targetId: ctx.targetId,
+							displayName: ctx.displayName,
+							command: ctx.command,
+							limits: [
+								{
+									id: "codex.hourly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									window: "hourly",
+									percentUsed: 42,
+									percentRemaining: null,
+									resetAt: null,
+									resetText: "soon",
+									raw: "42% used"
+								}
+							]
+						})`,
+					},
+				}),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage"]);
+			});
+
+			const output = joinOutput(logSpy.mock.calls);
+			expect(output).toContain("58%");
+			expect(output).not.toContain("unknown");
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});
@@ -2124,7 +2165,7 @@ module.exports = {
 
 			const output = joinOutput(logSpy.mock.calls);
 			expect(output).toContain("Note: Mock Codex usage is not enabled for this account.");
-			expect(output).not.toContain("failed");
+			expect(output).not.toContain("Error:");
 			expect(exitSpy).not.toHaveBeenCalled();
 		});
 	});

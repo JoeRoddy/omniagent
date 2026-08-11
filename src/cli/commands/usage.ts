@@ -873,7 +873,7 @@ function usageSortValue(row: UsageDisplayRow, sortKey: UsageSortKey): number | n
 		return null;
 	}
 	if (sortKey === "left") {
-		return row.limit.percentRemaining;
+		return percentRemainingOf(row.limit);
 	}
 	const resetAt = parseDate(row.limit.resetAt);
 	return resetAt?.getTime() ?? null;
@@ -934,7 +934,17 @@ function leftCellText(row: UsageDisplayRow): string {
 	if (row.limit.percentRemaining == null && row.limit.remainingText) {
 		return row.limit.remainingText;
 	}
-	return percentText(row.limit.percentRemaining);
+	return percentText(percentRemainingOf(row.limit));
+}
+
+function percentRemainingOf(limit: NormalizedUsageLimit): number | null {
+	if (limit.percentRemaining != null) {
+		return limit.percentRemaining;
+	}
+	if (limit.percentUsed == null) {
+		return null;
+	}
+	return Math.max(0, Math.min(100, 100 - limit.percentUsed));
 }
 
 function resetCellText(row: UsageDisplayRow): string {
@@ -945,18 +955,16 @@ function resetCellText(row: UsageDisplayRow): string {
 }
 
 function renderLeftCell(row: UsageDisplayRow, width: number, useColor: boolean): string {
-	const text = leftCellText(row);
-	const padding = " ".repeat(Math.max(0, width - text.length));
-	if (row.status === "error") {
-		return `${color(text, "gray", useColor)}${padding}`;
-	}
-	return `${color(text, remainingSeverity(row.limit.percentRemaining), useColor)}${padding}`;
+	const style = row.status === "error" ? "gray" : remainingSeverity(percentRemainingOf(row.limit));
+	return renderCell(leftCellText(row), style, width, useColor);
 }
 
 function renderResetCell(row: UsageDisplayRow, width: number, useColor: boolean): string {
-	const text = resetCellText(row);
+	return renderCell(resetCellText(row), row.status === "error" ? "red" : "gray", width, useColor);
+}
+
+function renderCell(text: string, style: AnsiStyle, width: number, useColor: boolean): string {
 	const padding = " ".repeat(Math.max(0, width - text.length));
-	const style = row.status === "error" ? "red" : "gray";
 	return `${color(text, style, useColor)}${padding}`;
 }
 
