@@ -98,6 +98,10 @@ Limits that report an absolute balance instead of percentages can set
 `percentUsed`/`percentRemaining` to `null` and provide `remainingText` (for example `"1,234"`),
 which the human table renders in the Left column.
 
+The human table's Left column prefers `percentRemaining`, falls back to `remainingText`, and
+otherwise derives the remainder from `percentUsed`. Extractors that report only `percentUsed` still
+render correctly; `--json` always carries both fields as returned.
+
 Extractors can return `notes: string[]` for informational, nonfatal conditions. Notes appear as
 `Note:` lines in human output and are promoted to the top-level JSON envelope. Notes do not change
 the exit code; use `errors` when the condition should make `omniagent usage` exit with code 1.
