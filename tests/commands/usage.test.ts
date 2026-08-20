@@ -496,6 +496,73 @@ module.exports = {
 		});
 	});
 
+	it("labels a non-main scoped window when the matching main window is absent", async () => {
+		await withTempRepo(async (root) => {
+			await createFakeCliBin(root, ["codex"]);
+			await writeConfig(
+				root,
+				usageConfig({
+					disableTargets: ["claude", "gemini"],
+					extractors: {
+						codex: `async (ctx) => ({
+							targetId: ctx.targetId,
+							displayName: ctx.displayName,
+							command: ctx.command,
+							limits: [
+								{
+									id: "codex.main.weekly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									scope: "main",
+									window: "weekly",
+									percentUsed: 32,
+									percentRemaining: 68,
+									resetAt: null,
+									resetText: "Wednesday",
+									raw: "68% left"
+								},
+								{
+									id: "codex.spark.hourly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									scope: "spark",
+									window: "hourly",
+									percentUsed: 0,
+									percentRemaining: 100,
+									resetAt: null,
+									resetText: "Thursday",
+									raw: "100% left"
+								},
+								{
+									id: "codex.spark.weekly",
+									targetId: ctx.targetId,
+									agent: ctx.targetId,
+									scope: "spark",
+									window: "weekly",
+									percentUsed: 0,
+									percentRemaining: 100,
+									resetAt: null,
+									resetText: "Thursday",
+									raw: "100% left"
+								}
+							]
+						})`,
+					},
+				}),
+			);
+
+			await withCwd(root, async () => {
+				await runCli(["node", "omniagent", "usage"]);
+			});
+
+			const output = joinOutput(logSpy.mock.calls);
+			expect(output).toContain("Spark 5h");
+			expect(output).toContain("Spark Weekly");
+			expect(output).not.toContain("Main Weekly");
+			expect(exitSpy).not.toHaveBeenCalled();
+		});
+	});
+
 	it("formats resetAt as relative duration with local exact time before falling back to reset text", async () => {
 		await withTempRepo(async (root) => {
 			await createFakeCliBin(root, ["codex"]);

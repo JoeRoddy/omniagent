@@ -774,12 +774,15 @@ function formatLimitLabels(limits: NormalizedUsageLimit[]): string[] {
 	const duplicateLabels = new Set(
 		baseLabels.filter((label, index) => baseLabels.indexOf(label) !== index),
 	);
+	const hasMainScope = limits.some((limit) => limit.scope === "main");
 	return limits.map((limit, index) => {
 		const baseLabel = baseLabels[index] ?? formatLimitLabel(limit);
-		if (!duplicateLabels.has(baseLabel) || !limit.scope) {
+		if (!limit.scope || limit.scope === "main") {
 			return baseLabel;
 		}
-		if (limit.scope === "main") {
+		const hasExplicitLabel =
+			limit.label != null || limit.modelLabel != null || limit.modelId != null;
+		if (!duplicateLabels.has(baseLabel) && (!hasMainScope || hasExplicitLabel)) {
 			return baseLabel;
 		}
 		return `${formatScopeLabel(limit.scope)} ${baseLabel}`;
