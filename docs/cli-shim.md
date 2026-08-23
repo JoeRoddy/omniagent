@@ -38,7 +38,7 @@ You can set `defaultAgent` in `agents/omniagent.config.*` to avoid repeating `--
 | codex   | ✓        | ✓       | ✓      | ✓     | ✓   | ✓ (config)    | ✓ (native)    |
 | claude  | ✓        | ✗       | ✓      | ✓     | ✗   | ✓             | ✓ (native)    |
 | agy     | ✓        | ✓       | ✗      | ✓     | ✗   | ✓ (per-model) | ✓ (fallback)  |
-| copilot | ✓        | ✗       | ✓      | ✓     | ✗   | ✓ (max→xhigh) | ✓ (fallback)  |
+| copilot | ✓        | ✗       | ✓      | ✓     | ✗   | ✓ (per-model) | ✓ (fallback)  |
 
 `gemini` is accepted as an alias for `agy` (Antigravity CLI, Google's replacement for the
 retired Gemini CLI). agy has no approval granularity beyond `--yolo`
@@ -63,7 +63,7 @@ omniagent --agent copilot -p "Refactor this module" --effort high
 | codex   | `-c model_reasoning_effort="<level>"`   | No native flag; the level rides on a config override. Codex does not validate the value locally, so the shim rejects an unknown level before the agent starts. |
 | claude  | `--effort <level>`                      | Same ladder, 1:1. |
 | agy     | `--effort <level>`                      | agy resolves the level against the selected model's effort variants; a level the model does not expose is rejected by agy, not by the shim. |
-| copilot | `--reasoning-effort <level>`            | Copilot's ladder stops at `xhigh`, so `max` maps down to `xhigh`. |
+| copilot | `--reasoning-effort <level>`            | Copilot validates the level against the selected model's advertised efforts. |
 
 Unlike `--web`, effort has no default: with the flag absent the shim emits no effort arguments at
 all, so `~/.codex/config.toml`, `~/.copilot/settings.json`, and each agent's persisted selection

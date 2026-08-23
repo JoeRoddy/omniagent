@@ -467,8 +467,8 @@ describe("CLI shim --effort flag", () => {
 			{ agent: "claude", level: "max", flag: "--effort", value: "max" },
 			{ agent: "agy", level: "high", flag: "--effort", value: "high" },
 			{ agent: "copilot", level: "high", flag: "--reasoning-effort", value: "high" },
-			// Copilot's ladder stops at xhigh, so the shared max level maps down to it.
-			{ agent: "copilot", level: "max", flag: "--reasoning-effort", value: "xhigh" },
+			{ agent: "copilot", level: "xhigh", flag: "--reasoning-effort", value: "xhigh" },
+			{ agent: "copilot", level: "max", flag: "--reasoning-effort", value: "max" },
 		];
 
 		for (const testCase of cases) {
@@ -521,6 +521,62 @@ describe("CLI shim --effort flag", () => {
 		expect(exitCode).toBe(2);
 		expect(stderrWrites.join("")).toContain(
 			"conflicts with explicit shared --effort level. Remove one of the conflicting options.",
+		);
+		expect(spawn).not.toHaveBeenCalled();
+	});
+
+	it("detects a spaced config override so TOML whitespace cannot bypass the collision", async () => {
+		// Codex accepts `key = "value"` as readily as `key="value"`, and applies the last override
+		// it is given, so a spaced passthrough would silently outrank the explicit shared level.
+		const spacedForms = [
+			["-c", 'model_reasoning_effort = "low"'],
+			["--config", 'model_reasoning_effort = "low"'],
+			["-c", 'model_reasoning_effort  =  "low"'],
+			['-cmodel_reasoning_effort = "low"'],
+			['--config=model_reasoning_effort = "low"'],
+		];
+
+		for (const passthrough of spacedForms) {
+			const stderrWrites: string[] = [];
+			const stderr = {
+				write: (chunk: string) => {
+					stderrWrites.push(String(chunk));
+					return true;
+				},
+			} as NodeJS.WriteStream;
+			const spawn = createSpawnStub(0);
+
+			const exitCode = await runShim(
+				["--agent", "codex", "--effort", "high", "--", ...passthrough],
+				{ stdinIsTTY: true, stderr, spawn, repoRoot: process.cwd() },
+			);
+
+			expect(exitCode).toBe(2);
+			expect(stderrWrites.join("")).toContain(
+				"conflicts with explicit shared --effort level. Remove one of the conflicting options.",
+			);
+			expect(spawn).not.toHaveBeenCalled();
+		}
+	});
+
+	it("detects a spaced web_search override too, since the matcher is shared", async () => {
+		const stderrWrites: string[] = [];
+		const stderr = {
+			write: (chunk: string) => {
+				stderrWrites.push(String(chunk));
+				return true;
+			},
+		} as NodeJS.WriteStream;
+		const spawn = createSpawnStub(0);
+
+		const exitCode = await runShim(
+			["--agent", "codex", "--web", "on", "--", "-c", 'web_search = "live"'],
+			{ stdinIsTTY: true, stderr, spawn, repoRoot: process.cwd() },
+		);
+
+		expect(exitCode).toBe(2);
+		expect(stderrWrites.join("")).toContain(
+			"conflicts with explicit shared --web setting. Remove one of the conflicting options.",
 		);
 		expect(spawn).not.toHaveBeenCalled();
 	});

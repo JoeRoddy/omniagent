@@ -62,14 +62,15 @@ export const copilotTarget: TargetDefinition = {
 				},
 			},
 			model: { flag: ["--model"] },
-			// Copilot's ladder stops at xhigh, so the shared max level maps down to it.
+			// Copilot validates the level against the selected model's advertised efforts, so a level
+			// the model does not expose is rejected by copilot rather than clamped by the shim.
 			effort: {
 				values: {
 					low: ["--reasoning-effort", "low"],
 					medium: ["--reasoning-effort", "medium"],
 					high: ["--reasoning-effort", "high"],
 					xhigh: ["--reasoning-effort", "xhigh"],
-					max: ["--reasoning-effort", "xhigh"],
+					max: ["--reasoning-effort", "max"],
 				},
 			},
 			structuredOutputFallback: {

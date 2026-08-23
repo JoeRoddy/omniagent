@@ -49,6 +49,20 @@ function modeAllowed(modes: InvocationMode[] | undefined, mode: InvocationMode):
 	return modes.includes(mode);
 }
 
+// Config-style passthrough values are TOML assignments, where whitespace around the separator is
+// legal and meaningless (`key = "value"` and `key="value"` set the same key). Collapse it so a
+// spaced override still matches the value prefix its collision rule declares.
+function normalizeAssignmentSpacing(value: string): string {
+	const trimmed = value.trim();
+	const equalsIndex = trimmed.indexOf("=");
+	if (equalsIndex === -1) {
+		return trimmed;
+	}
+	const key = trimmed.slice(0, equalsIndex).trimEnd();
+	const assigned = trimmed.slice(equalsIndex + 1).trimStart();
+	return `${key}=${assigned}`;
+}
+
 function matchesPassthroughValue(
 	value: string | undefined,
 	rule: PassthroughCollisionRule,
@@ -57,7 +71,10 @@ function matchesPassthroughValue(
 		return value === rule.value;
 	}
 	if (rule.valuePrefix !== undefined) {
-		return value?.startsWith(rule.valuePrefix) ?? false;
+		if (value === undefined) {
+			return false;
+		}
+		return normalizeAssignmentSpacing(value).startsWith(rule.valuePrefix);
 	}
 	return true;
 }
