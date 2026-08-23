@@ -56,8 +56,11 @@ omniagent -p "Refactor this module" -a codex -m sol   # -> codex -m gpt-5.6-sol
 
 Resolution rules:
 
-- A value with no matching alias is forwarded **verbatim**, so official ids stay authoritative and a
-  newly released id works before omniagent knows about it.
+- A value with no matching alias is forwarded **verbatim**, so an id the table has never heard of —
+  including one released after the table was written — reaches the agent untouched.
+- A value that *does* match is always rewritten, so an alias shadows a model whose official id is
+  that exact string. Aliases are chosen to be unlikely ids, but if that ever collides, pass the id
+  after `--` (`-a codex -- -m sol`) to bypass alias resolution entirely.
 - Lookups are case-insensitive (`-m SOL` works).
 - Aliases apply only to the shared `--model` flag. Behind `--`, values pass through untouched.
 - `--trace-translate` shows the resolved id, which is how you confirm what an alias expanded to.

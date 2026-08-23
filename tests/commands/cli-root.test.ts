@@ -79,6 +79,32 @@ describe("CLI root command", () => {
 		}
 	});
 
+	it("keeps an attached value that begins with a dash intact", async () => {
+		// Expanding to `-p` plus the value would let yargs read the value as another option: `--help`
+		// would print help instead of becoming the prompt, and `-m-foo` would be rejected outright.
+		const writes: string[] = [];
+		await runCli(["node", "omniagent", "-p--help", "--agent", "definitely-not-an-agent"], {
+			shim: { stderr: captureStderr(writes), stdinIsTTY: true, repoRoot: process.cwd() },
+		});
+
+		expect(joinOutput(logSpy.mock.calls)).not.toContain("Commands:");
+		expect(writes.join("\n")).toContain("Unknown or disabled target: definitely-not-an-agent.");
+	});
+
+	it("accepts an attached model value that begins with a dash", async () => {
+		const writes: string[] = [];
+		await runCli(
+			["node", "omniagent", "-p", "hi", "-m-foo", "--agent", "definitely-not-an-agent"],
+			{
+				shim: { stderr: captureStderr(writes), stdinIsTTY: true, repoRoot: process.cwd() },
+			},
+		);
+
+		const output = [...writes, joinOutput(errorSpy.mock.calls)].join("\n");
+		expect(output).toContain("Unknown or disabled target: definitely-not-an-agent.");
+		expect(output).not.toContain("Unknown arguments");
+	});
+
 	it("still rejects an unknown short flag that only looks attached", async () => {
 		await runCli(["node", "omniagent", "-zfoo"]);
 

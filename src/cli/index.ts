@@ -103,9 +103,13 @@ const VALUE_TAKING_SHORT_FLAGS = new Set(["p", "m", "a", "e"]);
 
 // yargs-parser has no attached-value syntax for short options: it splits `-acodex` into a group of
 // single-character flags, and .strict() then rejects them — even though parseShimFlags accepts the
-// attached form and is the authoritative parser for shim invocations. Expand those tokens for the
-// yargs gate only; the shim still receives the original argv. Anything after `--` is passthrough and
-// belongs to the agent, so it is copied verbatim.
+// attached form and is the authoritative parser for shim invocations. Rewrite those tokens to the
+// `-a=codex` form the gate does understand; the shim still receives the original argv. Anything after
+// `--` is passthrough and belongs to the agent, so it is copied verbatim.
+//
+// The value has to stay in one token. Splitting it into `-a` plus the value lets yargs read a value
+// that begins with a dash as another option, so `-p--help` would print help instead of treating
+// "--help" as the prompt, and `-m-foo` would be rejected as a flag group.
 function expandAttachedShortFlags(args: string[]): string[] {
 	const expanded: string[] = [];
 	for (const [index, arg] of args.entries()) {
@@ -115,7 +119,7 @@ function expandAttachedShortFlags(args: string[]): string[] {
 		}
 		const match = /^-([A-Za-z])(.+)$/.exec(arg);
 		if (match && VALUE_TAKING_SHORT_FLAGS.has(match[1]) && !match[2].startsWith("=")) {
-			expanded.push(`-${match[1]}`, match[2]);
+			expanded.push(`-${match[1]}=${match[2]}`);
 			continue;
 		}
 		expanded.push(arg);

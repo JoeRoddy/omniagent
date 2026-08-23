@@ -326,9 +326,11 @@ cli: {
 Any target can declare a table; there is no built-in list of nicknames. Behavior:
 
 - Lookups are case-insensitive, and the resolved id is emitted exactly as declared.
-- A value that matches no alias is forwarded **verbatim**. This keeps official ids authoritative and
-  lets a newly released id work before the table knows about it, so an alias table can never block a
-  valid model.
+- A value that matches no alias is forwarded **verbatim**, so an id the table has never heard of —
+  including one released after the table was written — reaches the agent untouched.
+- A value that *does* match is always rewritten. An alias therefore shadows a model whose official id
+  is that same string, so prefer keys that are unlikely to become real ids. Passthrough
+  (`-- --model <id>`) bypasses alias resolution when an id has to reach the agent unchanged.
 - Keys that differ only in case are rejected at config validation time, since the winner would
   otherwise depend on declaration order.
 - Resolution happens once, before translation, so `--trace-translate` reports the resolved id.
