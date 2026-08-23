@@ -532,6 +532,7 @@ describe("CLI shim --effort flag", () => {
 			["-c", 'model_reasoning_effort = "low"'],
 			["--config", 'model_reasoning_effort = "low"'],
 			["-c", 'model_reasoning_effort  =  "low"'],
+			["-c", 'model_reasoning_effort\t=\t"low"'],
 			['-cmodel_reasoning_effort = "low"'],
 			['--config=model_reasoning_effort = "low"'],
 		];
@@ -579,6 +580,32 @@ describe("CLI shim --effort flag", () => {
 			"conflicts with explicit shared --web setting. Remove one of the conflicting options.",
 		);
 		expect(spawn).not.toHaveBeenCalled();
+	});
+
+	it("leaves a quoted config key alone, since codex does not resolve it to the bare key", async () => {
+		// Verified against codex 0.149.0 by holding the value at an invalid effort and watching who
+		// rejects it: the bare and tab/space-separated keys reach the API, which fails the run with
+		// invalid_enum_value, while `"model_reasoning_effort"` and `'model_reasoning_effort'` behave
+		// exactly like an unknown key and are silently dropped. Codex applies TOML quoting rules to
+		// an override's value, not its key, so canonicalizing quotes away here would reject a
+		// command line codex runs fine.
+		for (const quotedKey of ['"model_reasoning_effort"', "'model_reasoning_effort'"]) {
+			const passthroughArg = `${quotedKey} = "low"`;
+			const invocation = await buildInvocation([
+				"--agent",
+				"codex",
+				"--effort",
+				"high",
+				"--",
+				"-c",
+				passthroughArg,
+			]);
+			const result = buildAgentArgs(invocation);
+
+			expect(result.warnings).toEqual([]);
+			expect(hasPair(result.args, "-c", 'model_reasoning_effort="high"')).toBe(true);
+			expect(result.args).toContain(passthroughArg);
+		}
 	});
 
 	it("leaves a passthrough effort override alone when no level is requested", async () => {
