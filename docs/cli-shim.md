@@ -27,22 +27,47 @@ You can set `defaultAgent` in `agents/omniagent.config.*` to avoid repeating `--
 - `--output <text|json|stream-json>` (aliases: `--json`, `--stream-json`)
 - `--model <name>`
 - `--web <on|off|true|false|1|0>` (bare `--web` enables)
+- `--effort <low|medium|high|xhigh|max>` (reasoning effort; unset keeps the agent's own default)
 - `--output-schema <path-or-json>` (JSON schema file path or inline JSON object; one-shot only)
 - `--output-schema-retries <n>` (0-10, default 2; max retries for prompt-based fallback runs)
 
 ## Shared-flag capability matrix
 
-| Agent   | Approval | Sandbox | Output | Model | Web | Output schema |
-|---------|----------|---------|--------|-------|-----|---------------|
-| codex   | ✓        | ✓       | ✓      | ✓     | ✓   | ✓ (native)    |
-| claude  | ✓        | ✗       | ✓      | ✓     | ✗   | ✓ (native)    |
-| agy     | ✓        | ✓       | ✗      | ✓     | ✗   | ✓ (fallback)  |
-| copilot | ✓        | ✗       | ✓      | ✓     | ✗   | ✓ (fallback)  |
+| Agent   | Approval | Sandbox | Output | Model | Web | Effort        | Output schema |
+|---------|----------|---------|--------|-------|-----|---------------|---------------|
+| codex   | ✓        | ✓       | ✓      | ✓     | ✓   | ✓ (config)    | ✓ (native)    |
+| claude  | ✓        | ✗       | ✓      | ✓     | ✗   | ✓             | ✓ (native)    |
+| agy     | ✓        | ✓       | ✗      | ✓     | ✗   | ✓ (per-model) | ✓ (fallback)  |
+| copilot | ✓        | ✗       | ✓      | ✓     | ✗   | ✓ (max→xhigh) | ✓ (fallback)  |
 
 `gemini` is accepted as an alias for `agy` (Antigravity CLI, Google's replacement for the
 retired Gemini CLI). agy has no approval granularity beyond `--yolo`
 (`--dangerously-skip-permissions`) and no JSON output mode; `--output json`/`--stream-json`
 requests warn and are ignored.
+
+## Reasoning effort
+
+`--effort` is a shared ladder (`low`, `medium`, `high`, `xhigh`, `max`) that each agent maps onto
+its own reasoning-effort surface:
+
+```bash
+# Same flag, four different native surfaces
+omniagent --agent codex   -p "Refactor this module" --effort xhigh
+omniagent --agent claude  -p "Refactor this module" --effort xhigh
+omniagent --agent agy     -p "Refactor this module" --effort high
+omniagent --agent copilot -p "Refactor this module" --effort high
+```
+
+| Agent   | Native surface                          | Notes |
+|---------|-----------------------------------------|-------|
+| codex   | `-c model_reasoning_effort="<level>"`   | No native flag; the level rides on a config override. Codex does not validate the value locally, so the shim rejects an unknown level before the agent starts. |
+| claude  | `--effort <level>`                      | Same ladder, 1:1. |
+| agy     | `--effort <level>`                      | agy resolves the level against the selected model's effort variants; a level the model does not expose is rejected by agy, not by the shim. |
+| copilot | `--reasoning-effort <level>`            | Copilot's ladder stops at `xhigh`, so `max` maps down to `xhigh`. |
+
+Unlike `--web`, effort has no default: with the flag absent the shim emits no effort arguments at
+all, so `~/.codex/config.toml`, `~/.copilot/settings.json`, and each agent's persisted selection
+keep applying.
 
 ## Structured output
 
@@ -108,6 +133,8 @@ Rules:
 ## Notes
 
 - `--` passthrough is only valid after `--agent`.
+- A passthrough effort override (for example `-c model_reasoning_effort=low` on codex) conflicts
+  with an explicit `--effort` and exits with code 2; on its own it passes through untouched.
 - Unsupported shared flags are ignored with a warning.
 - Output is passed through unmodified, except for `--output-schema` runs (see above).
 - For target-declared native options, an explicit passthrough value suppresses the corresponding

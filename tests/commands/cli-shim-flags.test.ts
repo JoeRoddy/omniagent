@@ -410,3 +410,135 @@ describe("CLI shim flag parsing", () => {
 		}
 	});
 });
+
+describe("CLI shim --effort flag", () => {
+	function hasPair(args: string[], flag: string, value: string): boolean {
+		return args.some((arg, index) => arg === flag && args[index + 1] === value);
+	}
+
+	it("has no default level and parses the shared ladder", () => {
+		const defaults = parseShimFlags([]);
+		expect(defaults.effort).toBeNull();
+		expect(defaults.effortExplicit).toBe(false);
+
+		expect(parseShimFlags(["--effort", "low"]).effort).toBe("low");
+		expect(parseShimFlags(["--effort", "medium"]).effort).toBe("medium");
+		expect(parseShimFlags(["--effort=high"]).effort).toBe("high");
+		expect(parseShimFlags(["--effort", "xhigh"]).effort).toBe("xhigh");
+		expect(parseShimFlags(["--effort", "MAX"]).effort).toBe("max");
+		expect(parseShimFlags(["--effort", "max"]).effortExplicit).toBe(true);
+	});
+
+	it("rejects an unknown level before the agent starts", async () => {
+		const stderrWrites: string[] = [];
+		const stderr = {
+			write: (chunk: string) => {
+				stderrWrites.push(String(chunk));
+				return true;
+			},
+		} as NodeJS.WriteStream;
+		const spawn = createSpawnStub(0);
+
+		const exitCode = await runShim(["--agent", "codex", "--effort", "ultra"], {
+			stdinIsTTY: true,
+			stderr,
+			spawn,
+			repoRoot: process.cwd(),
+		});
+
+		expect(exitCode).toBe(2);
+		expect(stderrWrites.join("")).toContain("Invalid value for --effort");
+		expect(spawn).not.toHaveBeenCalled();
+	});
+
+	it("emits no effort arguments when the flag is absent", async () => {
+		const invocation = await buildInvocation(["--agent", "codex"]);
+		const result = buildAgentArgs(invocation);
+
+		expect(result.args.join(" ")).not.toContain("model_reasoning_effort");
+		expect(result.warnings).toEqual([]);
+	});
+
+	it("maps the shared level onto each agent's native surface", async () => {
+		const cases = [
+			{ agent: "codex", level: "xhigh", flag: "-c", value: 'model_reasoning_effort="xhigh"' },
+			{ agent: "codex", level: "max", flag: "-c", value: 'model_reasoning_effort="max"' },
+			{ agent: "claude", level: "xhigh", flag: "--effort", value: "xhigh" },
+			{ agent: "claude", level: "max", flag: "--effort", value: "max" },
+			{ agent: "agy", level: "high", flag: "--effort", value: "high" },
+			{ agent: "copilot", level: "high", flag: "--reasoning-effort", value: "high" },
+			// Copilot's ladder stops at xhigh, so the shared max level maps down to it.
+			{ agent: "copilot", level: "max", flag: "--reasoning-effort", value: "xhigh" },
+		];
+
+		for (const testCase of cases) {
+			const invocation = await buildInvocation([
+				"--agent",
+				testCase.agent,
+				"--effort",
+				testCase.level,
+			]);
+			const result = buildAgentArgs(invocation);
+
+			expect(result.warnings).toEqual([]);
+			expect(hasPair(result.args, testCase.flag, testCase.value)).toBe(true);
+		}
+	});
+
+	it("warns and ignores the level for a target without an effort mapping", async () => {
+		const invocation = await buildInvocation(["--agent", "codex", "--effort", "max"]);
+		const customCli: TargetCliDefinition = {
+			modes: {
+				interactive: { command: "custom" },
+				oneShot: { command: "custom", args: ["run"] },
+			},
+		};
+		const result = buildAgentArgs({
+			...invocation,
+			agent: { ...invocation.agent, id: "custom" },
+			target: { ...invocation.target, id: "custom", cli: customCli },
+		});
+
+		expect(result.warnings).toContain("Warning: custom does not support --effort (max); ignoring.");
+		expect(result.args).toEqual([]);
+	});
+
+	it("rejects a passthrough effort override that conflicts with an explicit level", async () => {
+		const stderrWrites: string[] = [];
+		const stderr = {
+			write: (chunk: string) => {
+				stderrWrites.push(String(chunk));
+				return true;
+			},
+		} as NodeJS.WriteStream;
+		const spawn = createSpawnStub(0);
+
+		const exitCode = await runShim(
+			["--agent", "codex", "--effort", "high", "--", "-c", 'model_reasoning_effort="low"'],
+			{ stdinIsTTY: true, stderr, spawn, repoRoot: process.cwd() },
+		);
+
+		expect(exitCode).toBe(2);
+		expect(stderrWrites.join("")).toContain(
+			"conflicts with explicit shared --effort level. Remove one of the conflicting options.",
+		);
+		expect(spawn).not.toHaveBeenCalled();
+	});
+
+	it("leaves a passthrough effort override alone when no level is requested", async () => {
+		const invocation = await buildInvocation([
+			"--agent",
+			"codex",
+			"--",
+			"-c",
+			'model_reasoning_effort="low"',
+		]);
+		const result = buildAgentArgs(invocation);
+
+		expect(result.warnings).toEqual([]);
+		expect(result.shimArgs.join(" ")).not.toContain("model_reasoning_effort");
+		expect(result.args.filter((arg) => arg.startsWith("model_reasoning_effort="))).toEqual([
+			'model_reasoning_effort="low"',
+		]);
+	});
+});

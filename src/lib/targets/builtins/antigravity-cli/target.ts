@@ -26,6 +26,7 @@ export const agyTarget: TargetDefinition = {
 				},
 				{ option: "--sandbox", sources: ["sandbox"] },
 				{ option: "--model", sources: ["model"] },
+				{ option: "--effort", sources: ["effort"] },
 			],
 		},
 		flags: {
@@ -53,6 +54,17 @@ export const agyTarget: TargetDefinition = {
 			},
 			// Model names are display strings, e.g. "Gemini 3.5 Flash (Low)"; list via `agy models`.
 			model: { flag: ["--model"] },
+			// agy resolves the level against the selected model's effort variants, so a level the
+			// model does not expose is rejected by agy rather than by the shim.
+			effort: {
+				values: {
+					low: ["--effort", "low"],
+					medium: ["--effort", "medium"],
+					high: ["--effort", "high"],
+					xhigh: ["--effort", "xhigh"],
+					max: ["--effort", "max"],
+				},
+			},
 			structuredOutputFallback: {
 				extraction: { type: "text" },
 			},

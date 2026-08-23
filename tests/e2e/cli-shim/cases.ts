@@ -13,6 +13,9 @@ export type ShimCase = {
 	id: string;
 	buildArgs: (agent: AgentE2EConfig) => string[];
 	buildPassthrough?: (agent: AgentE2EConfig) => string[];
+	// A case that drives a shared flag the agent config also pins through passthrough has to drop
+	// those defaults, otherwise the shim rejects the run as a passthrough/shared-flag conflict.
+	omitPassthroughDefaults?: boolean;
 	skipWhen?: (agent: AgentE2EConfig) => string | null;
 };
 
@@ -63,6 +66,11 @@ export const SHARED_CASES: ShimCase[] = [
 	{
 		id: "web-on",
 		buildArgs: () => ["-p", PROMPT, "--web", "on"],
+	},
+	{
+		id: "effort-high",
+		buildArgs: () => ["-p", PROMPT, "--effort", "high"],
+		omitPassthroughDefaults: true,
 	},
 	{
 		id: "model",

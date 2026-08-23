@@ -3,6 +3,7 @@ import { loadTargetConfig } from "../targets/config-loader.js";
 import {
 	APPROVAL_POLICIES,
 	type ApprovalPolicy,
+	type EffortLevel,
 	type InvocationMode,
 	OUTPUT_FORMATS,
 	type OutputFormat,
@@ -46,6 +47,8 @@ export type ParsedShimFlags = {
 	modelExplicit: boolean;
 	web: boolean;
 	webExplicit: boolean;
+	effort: EffortLevel | null;
+	effortExplicit: boolean;
 	agent: string | null;
 	agentExplicit: boolean;
 	outputSchema: string | null;
@@ -64,11 +67,13 @@ export type SessionConfiguration = {
 	outputFormat: OutputFormat;
 	model: string | null;
 	webEnabled: boolean;
+	effort: EffortLevel | null;
 	approvalExplicit: boolean;
 	sandboxExplicit: boolean;
 	outputExplicit: boolean;
 	modelExplicit: boolean;
 	webExplicit: boolean;
+	effortExplicit: boolean;
 };
 
 export type AgentSelection = {
@@ -88,6 +93,7 @@ export type FlagRequests = {
 	output: OutputFormat;
 	model?: string;
 	web: boolean;
+	effort?: EffortLevel;
 };
 
 export type ResolvedInvocation = {
@@ -119,6 +125,12 @@ function buildRequests(flags: ParsedShimFlags): FlagRequests {
 		requests.model = flags.model;
 	}
 
+	// Effort has no default: only an explicit --effort produces a request, so agents keep whatever
+	// their own config sets when the flag is absent.
+	if (flags.effortExplicit && flags.effort) {
+		requests.effort = flags.effort;
+	}
+
 	return requests;
 }
 
@@ -129,11 +141,13 @@ function buildSession(flags: ParsedShimFlags): SessionConfiguration {
 		outputFormat: flags.output,
 		model: flags.model,
 		webEnabled: flags.web,
+		effort: flags.effort,
 		approvalExplicit: flags.approvalExplicit,
 		sandboxExplicit: flags.sandboxExplicit,
 		outputExplicit: flags.outputExplicit,
 		modelExplicit: flags.modelExplicit,
 		webExplicit: flags.webExplicit,
+		effortExplicit: flags.effortExplicit,
 	};
 }
 

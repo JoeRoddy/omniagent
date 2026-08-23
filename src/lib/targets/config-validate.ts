@@ -14,6 +14,7 @@ import type {
 } from "./config-types.js";
 import {
 	APPROVAL_POLICIES,
+	EFFORT_LEVELS,
 	OUTPUT_FORMATS,
 	PASSTHROUGH_COLLISION_SOURCES,
 	SANDBOX_MODES,
@@ -316,6 +317,9 @@ function validateCliDefinition(
 			}
 			if (cli.flags.output !== undefined) {
 				validateFlagMap(cli.flags.output, `${label}.flags.output`, OUTPUT_FORMATS, errors);
+			}
+			if (cli.flags.effort !== undefined) {
+				validateFlagMap(cli.flags.effort, `${label}.flags.effort`, EFFORT_LEVELS, errors);
 			}
 			if (cli.flags.model !== undefined) {
 				if (!isPlainObject(cli.flags.model)) {

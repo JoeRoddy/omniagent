@@ -166,8 +166,14 @@ export function translateInvocation(
 	const args: string[] = [...(base.args ?? [])];
 
 	const { requests } = invocation;
-	const { approvalExplicit, modelExplicit, outputExplicit, sandboxExplicit, webExplicit } =
-		invocation.session;
+	const {
+		approvalExplicit,
+		effortExplicit,
+		modelExplicit,
+		outputExplicit,
+		sandboxExplicit,
+		webExplicit,
+	} = invocation.session;
 	const sandboxDerivedExplicit =
 		approvalExplicit && requests.approval === "yolo" && !sandboxExplicit;
 	const sandboxWarnExplicit = sandboxExplicit || sandboxDerivedExplicit;
@@ -182,6 +188,10 @@ export function translateInvocation(
 	const modeAllowedForWeb = modeAllowed(flags?.web?.modes, mode);
 	const mappedWeb =
 		flags?.web && modeAllowedForWeb ? (requests.web ? flags.web.on : flags.web.off) : undefined;
+	// No requested effort means no effort arguments at all, so the agent's own default stands.
+	const mappedEffort = requests.effort
+		? resolveFlagMapValue(flags?.effort, mode, requests.effort)
+		: undefined;
 	const { promptArgs, position } = buildPromptArgs(invocation, cli, warnings);
 	const suppressed = resolvePassthroughSuppression(invocation, cli, {
 		mode: {
@@ -220,6 +230,11 @@ export function translateInvocation(
 			active: mappedWeb !== undefined && mappedWeb !== null,
 			explicit: webExplicit,
 			label: "explicit shared --web setting",
+		},
+		effort: {
+			active: mappedEffort !== undefined && mappedEffort !== null,
+			explicit: effortExplicit,
+			label: "explicit shared --effort level",
 		},
 		structuredOutput: {
 			active: (invocation.structuredOutput?.args.length ?? 0) > 0,
@@ -273,6 +288,14 @@ export function translateInvocation(
 			}
 		} else if (!suppressed.has("web")) {
 			args.push(...mappedWeb);
+		}
+	}
+
+	if (requests.effort) {
+		if (mappedEffort === undefined || mappedEffort === null) {
+			warnings.push(formatWarning(invocation.agent.id, "--effort", requests.effort));
+		} else if (!suppressed.has("effort")) {
+			args.push(...mappedEffort);
 		}
 	}
 

@@ -62,6 +62,10 @@ function resolveExpectedPaths(baseDir: string, caseId: string) {
 	};
 }
 
+function hasRecordedBaseline(paths: ReturnType<typeof resolveExpectedPaths>): boolean {
+	return existsSync(paths.stdout) && existsSync(paths.stderr) && existsSync(paths.trace);
+}
+
 function extractTrace(stderr: string): { trace: TracePayload | null; cleaned: string } {
 	let trace: TracePayload | null = null;
 	const lines = stderr.split(/\r?\n/);
@@ -331,6 +335,15 @@ SUITE("CLI shim e2e", () => {
 					continue;
 				}
 
+				// A case added since the last recording session has nothing to compare against yet.
+				if (
+					!RECORD_BASELINE &&
+					!hasRecordedBaseline(resolveExpectedPaths(expectedDir, testCase.id))
+				) {
+					it.skip(`${agent.agentId} ${testCase.id} (no baseline recorded; run OA_E2E_RECORD_BASELINE=1)`, () => {});
+					continue;
+				}
+
 				const testTimeout = (agent.timeoutMs ?? DEFAULT_TIMEOUT_MS) + 10_000;
 
 				it(
@@ -369,7 +382,7 @@ SUITE("CLI shim e2e", () => {
 
 						const args = ensureCodexModel(agent, testCase.buildArgs(agent));
 						const passthrough = [
-							...(agent.passthroughDefaults ?? []),
+							...(testCase.omitPassthroughDefaults ? [] : (agent.passthroughDefaults ?? [])),
 							...(testCase.buildPassthrough?.(agent) ?? []),
 						];
 						const fullArgs = ["--agent", agent.agentId, "--trace-translate", ...args];

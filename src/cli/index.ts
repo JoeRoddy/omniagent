@@ -49,10 +49,10 @@ const KNOWN_COMMANDS = new Set([
 ]);
 const SHIM_CAPABILITIES = [
 	"Capabilities by agent:",
-	"  codex: approval, sandbox, output, model, web, output-schema",
-	"  claude: approval, output, model, output-schema",
-	"  agy: approval, sandbox, model, output-schema (fallback) (alias: gemini)",
-	"  copilot: approval, model, output-schema (fallback)",
+	"  codex: approval, sandbox, output, model, web, effort, output-schema",
+	"  claude: approval, output, model, effort, output-schema",
+	"  agy: approval, sandbox, model, effort, output-schema (fallback) (alias: gemini)",
+	"  copilot: approval, model, effort, output-schema (fallback)",
 	"Unsupported shared flags for a selected agent emit a warning and are ignored.",
 	"--output-schema is one-shot only; agents without native support use a prompt-based",
 	"fallback with client-side validation and retries (--output-schema-retries, default 2).",
@@ -179,6 +179,11 @@ export function runCli(argv = process.argv, options: RunCliOptions = {}) {
 					.option("web", {
 						type: "string",
 						describe: "Enable or disable web access (on/off/true/false/1/0).",
+					})
+					.option("effort", {
+						type: "string",
+						describe:
+							"Reasoning effort level (low, medium, high, xhigh, max); unset keeps the agent default.",
 					})
 					.option("agent", {
 						type: "string",

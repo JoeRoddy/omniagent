@@ -40,6 +40,7 @@ export const copilotTarget: TargetDefinition = {
 				{ option: "--allow-all-tools", sources: ["approval"] },
 				{ option: "--output-format", sources: ["output"] },
 				{ option: "--model", sources: ["model"] },
+				{ option: "--reasoning-effort", sources: ["effort"] },
 				{ option: "--silent", sources: ["structuredOutput"], modes: ["one-shot"] },
 			],
 		},
@@ -61,6 +62,16 @@ export const copilotTarget: TargetDefinition = {
 				},
 			},
 			model: { flag: ["--model"] },
+			// Copilot's ladder stops at xhigh, so the shared max level maps down to it.
+			effort: {
+				values: {
+					low: ["--reasoning-effort", "low"],
+					medium: ["--reasoning-effort", "medium"],
+					high: ["--reasoning-effort", "high"],
+					xhigh: ["--reasoning-effort", "xhigh"],
+					max: ["--reasoning-effort", "xhigh"],
+				},
+			},
 			structuredOutputFallback: {
 				args: ["--silent"],
 				extraction: { type: "text" },

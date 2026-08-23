@@ -14,6 +14,11 @@ export type SandboxMode = (typeof SANDBOX_MODES)[number];
 export const OUTPUT_FORMATS = ["text", "json", "stream-json"] as const;
 export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
 
+// Canonical effort ladder. Targets map these onto their own reasoning-effort surface and declare
+// which levels they support; unset means "emit nothing" so agent-side defaults keep applying.
+export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
 export type InvocationMode = "interactive" | "one-shot";
 
 export const PASSTHROUGH_COLLISION_SOURCES = [
@@ -24,6 +29,7 @@ export const PASSTHROUGH_COLLISION_SOURCES = [
 	"output",
 	"model",
 	"web",
+	"effort",
 	"structuredOutput",
 ] as const;
 export type PassthroughCollisionSource = (typeof PASSTHROUGH_COLLISION_SOURCES)[number];
@@ -215,6 +221,7 @@ export type TargetCliDefinition = {
 		output?: FlagMap<OutputFormat>;
 		model?: { flag: string[]; modes?: InvocationMode[] };
 		web?: { on?: string[] | null; off?: string[] | null; modes?: InvocationMode[] };
+		effort?: FlagMap<EffortLevel>;
 		structuredOutput?: StructuredOutputSpec;
 		structuredOutputFallback?: StructuredOutputFallbackSpec;
 	};
@@ -240,11 +247,13 @@ export type TranslationInvocation = {
 		outputFormat: OutputFormat;
 		model: string | null;
 		webEnabled: boolean;
+		effort: EffortLevel | null;
 		approvalExplicit: boolean;
 		sandboxExplicit: boolean;
 		outputExplicit: boolean;
 		modelExplicit: boolean;
 		webExplicit: boolean;
+		effortExplicit: boolean;
 	};
 	requests: {
 		approval: ApprovalPolicy;
@@ -252,6 +261,7 @@ export type TranslationInvocation = {
 		output: OutputFormat;
 		model?: string;
 		web: boolean;
+		effort?: EffortLevel;
 	};
 	passthrough: {
 		hasDelimiter: boolean;

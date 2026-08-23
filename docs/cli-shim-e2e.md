@@ -7,7 +7,8 @@ This suite treats the real agent CLIs as the ground truth. It records their stdo
 then verifies the shim produces identical output and invokes the expected command/args.
 
 ## What it covers
-- Shared shim flags are translated into agent-specific argv (approval/sandbox/output/model/web).
+- Shared shim flags are translated into agent-specific argv
+  (approval/sandbox/output/model/web/effort).
 - One-shot vs interactive command shapes and prompt placement.
 - Passthrough ordering relative to the prompt.
 - Translation trace matches the expected invocation for each case.
@@ -29,6 +30,13 @@ then verifies the shim produces identical output and invokes the expected comman
 
 The trace is emitted as a single stderr line:
 `OA_TRANSLATION={...}`.
+
+## Adding a case
+A case with no recorded baseline is skipped in compare mode
+(`no baseline recorded; run OA_E2E_RECORD_BASELINE=1`) rather than failing, so a new shared case
+can land before its baselines exist. Set `omitPassthroughDefaults: true` on a case that drives a
+shared flag an agent config also pins through `passthroughDefaults` (codex pins reasoning effort
+that way), otherwise the shim rejects the run as a passthrough/shared-flag conflict.
 
 ## Prereqs
 - Build before running E2E: `npm run build`
