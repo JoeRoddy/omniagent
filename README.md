@@ -243,6 +243,15 @@ agent's native surface):
 omniagent -p "Refactor this module" --agent codex --effort xhigh --json
 ```
 
+The flags reached for most often have short forms — `-p` (prompt), `-a` (agent), `-m` (model), and
+`-e` (effort) — and a target can declare nicknames for its model ids, so there is no id to memorize.
+An unrecognized value is forwarded untouched, so official ids keep working and a newly released one
+works right away:
+
+```bash
+omniagent -p "Refactor this module" -a codex -m sol -e xhigh   # -> codex -m gpt-5.6-sol
+```
+
 The shim also unifies structured outputs: pass a JSON schema (file path or inline JSON) with
 `--output-schema`, and stdout is exactly the schema-conforming JSON regardless of agent. Agents
 with native schema support (claude, codex) enforce it server-side; all others get a prompt-based

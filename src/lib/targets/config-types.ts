@@ -219,7 +219,12 @@ export type TargetCliDefinition = {
 		approval?: FlagMap<ApprovalPolicy>;
 		sandbox?: FlagMap<SandboxMode>;
 		output?: FlagMap<OutputFormat>;
-		model?: { flag: string[]; modes?: InvocationMode[] };
+		// `aliases` maps a memorable nickname to the model id this target's CLI actually accepts, so
+		// `--model sol` can resolve to `gpt-5.6-sol`. Any target may declare its own table; a value with
+		// no matching entry is forwarded verbatim, so an id released after the table was written still
+		// reaches the agent. A key does shadow a model whose real id is that same string, so prefer keys
+		// that are unlikely to become real ids.
+		model?: { flag: string[]; modes?: InvocationMode[]; aliases?: Record<string, string> };
 		web?: { on?: string[] | null; off?: string[] | null; modes?: InvocationMode[] };
 		effort?: FlagMap<EffortLevel>;
 		structuredOutput?: StructuredOutputSpec;

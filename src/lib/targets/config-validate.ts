@@ -73,6 +73,33 @@ function validateStringArray(
 	}
 }
 
+function validateStringRecord(value: unknown, label: string, errors: string[]): void {
+	if (!isPlainObject(value)) {
+		errors.push(`${label} must be an object mapping strings to strings.`);
+		return;
+	}
+	const seen = new Map<string, string>();
+	for (const [key, entry] of Object.entries(value)) {
+		const normalizedKey = normalizeString(key);
+		if (!normalizedKey) {
+			errors.push(`${label} has an empty key.`);
+			continue;
+		}
+		if (!normalizeString(entry)) {
+			errors.push(`${label}.${normalizedKey} must be a non-empty string.`);
+		}
+		// Lookups are case-insensitive, so two keys differing only in case would make the winner
+		// depend on declaration order.
+		const lowered = normalizedKey.toLowerCase();
+		const existing = seen.get(lowered);
+		if (existing) {
+			errors.push(`${label} has duplicate keys "${existing}" and "${normalizedKey}".`);
+			continue;
+		}
+		seen.set(lowered, normalizedKey);
+	}
+}
+
 function validateFlagMapValues(
 	value: unknown,
 	label: string,
@@ -333,6 +360,9 @@ function validateCliDefinition(
 								errors.push(`${label}.flags.model.modes has unsupported mode "${mode}".`);
 							}
 						}
+					}
+					if (cli.flags.model.aliases !== undefined) {
+						validateStringRecord(cli.flags.model.aliases, `${label}.flags.model.aliases`, errors);
 					}
 				}
 			}

@@ -97,7 +97,12 @@ export const codexTarget: TargetDefinition = {
 					},
 				},
 			},
-			model: { flag: ["-m"] },
+			// Codex takes a raw model id and has no shorthand of its own, so the nicknames live here.
+			// Repoint an entry when the underlying id moves; an unlisted value is forwarded untouched.
+			model: {
+				flag: ["-m"],
+				aliases: { sol: "gpt-5.6-sol" },
+			},
 			web: { on: ["--search"], off: ["-c", 'web_search="disabled"'] },
 			// Codex has no reasoning-effort flag; the level rides on a config override, and codex
 			// does not validate it locally (an unknown value only fails at the API).

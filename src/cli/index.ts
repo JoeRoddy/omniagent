@@ -98,11 +98,40 @@ function isCommandInvocation(args: string[]): boolean {
 	return KNOWN_COMMANDS.has(command);
 }
 
+// Short flags that take a value, so an attached form like `-acodex` can be recognized below.
+const VALUE_TAKING_SHORT_FLAGS = new Set(["p", "m", "a", "e"]);
+
+// yargs-parser has no attached-value syntax for short options: it splits `-acodex` into a group of
+// single-character flags, and .strict() then rejects them — even though parseShimFlags accepts the
+// attached form and is the authoritative parser for shim invocations. Rewrite those tokens to the
+// `-a=codex` form the gate does understand; the shim still receives the original argv. Anything after
+// `--` is passthrough and belongs to the agent, so it is copied verbatim.
+//
+// The value has to stay in one token. Splitting it into `-a` plus the value lets yargs read a value
+// that begins with a dash as another option, so `-p--help` would print help instead of treating
+// "--help" as the prompt, and `-m-foo` would be rejected as a flag group.
+function expandAttachedShortFlags(args: string[]): string[] {
+	const expanded: string[] = [];
+	for (const [index, arg] of args.entries()) {
+		if (arg === "--") {
+			expanded.push(...args.slice(index));
+			return expanded;
+		}
+		const match = /^-([A-Za-z])(.+)$/.exec(arg);
+		if (match && VALUE_TAKING_SHORT_FLAGS.has(match[1]) && !match[2].startsWith("=")) {
+			expanded.push(`-${match[1]}=${match[2]}`);
+			continue;
+		}
+		expanded.push(arg);
+	}
+	return expanded;
+}
+
 export function runCli(argv = process.argv, options: RunCliOptions = {}) {
 	const args = hideBin(argv);
 	let handledFailure = false;
 
-	return yargs(args)
+	return yargs(expandAttachedShortFlags(args))
 		.scriptName("omniagent")
 		.version(VERSION)
 		.help()
@@ -181,11 +210,13 @@ export function runCli(argv = process.argv, options: RunCliOptions = {}) {
 						describe: "Enable or disable web access (on/off/true/false/1/0).",
 					})
 					.option("effort", {
+						alias: "e",
 						type: "string",
 						describe:
 							"Reasoning effort level (low, medium, high, xhigh, max); unset keeps the agent default.",
 					})
 					.option("agent", {
+						alias: "a",
 						type: "string",
 						describe: "Select the agent (built-in id or configured alias).",
 					})

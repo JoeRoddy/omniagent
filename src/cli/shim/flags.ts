@@ -230,11 +230,16 @@ export function parseShimFlags(argv: string[]): ParsedShimFlags {
 			webExplicit = true;
 			continue;
 		}
-		if (arg === "--effort") {
+		if (arg === "-e" || arg === "--effort") {
 			const [value, nextIndex] = readFlagValue(preArgs, index, "--effort");
 			effort = normalizeEnum(value, EFFORT_LEVELS, "--effort");
 			effortExplicit = true;
 			index = nextIndex;
+			continue;
+		}
+		if (arg.startsWith("-e") && arg !== "-e") {
+			effort = normalizeEnum(arg.slice(2), EFFORT_LEVELS, "--effort");
+			effortExplicit = true;
 			continue;
 		}
 		if (arg.startsWith("--effort=")) {
@@ -242,12 +247,17 @@ export function parseShimFlags(argv: string[]): ParsedShimFlags {
 			effortExplicit = true;
 			continue;
 		}
-		if (arg === "--agent") {
+		if (arg === "-a" || arg === "--agent") {
 			const [value, nextIndex] = readFlagValue(preArgs, index, "--agent");
 			const normalized = normalizeValue(value, "--agent").toLowerCase();
 			agent = normalized;
 			agentExplicit = true;
 			index = nextIndex;
+			continue;
+		}
+		if (arg.startsWith("-a") && arg !== "-a") {
+			agent = normalizeValue(arg.slice(2), "--agent").toLowerCase();
+			agentExplicit = true;
 			continue;
 		}
 		if (arg.startsWith("--agent=")) {
