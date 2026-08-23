@@ -1,6 +1,8 @@
 import {
 	APPROVAL_POLICIES,
 	type ApprovalPolicy,
+	EFFORT_LEVELS,
+	type EffortLevel,
 	OUTPUT_FORMATS,
 	type OutputFormat,
 	SANDBOX_MODES,
@@ -15,6 +17,8 @@ import {
 export {
 	APPROVAL_POLICIES,
 	type ApprovalPolicy,
+	EFFORT_LEVELS,
+	type EffortLevel,
 	OUTPUT_FORMATS,
 	type OutputFormat,
 	SANDBOX_MODES,

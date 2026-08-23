@@ -40,6 +40,13 @@ export const codexTarget: TargetDefinition = {
 					sources: ["web"],
 				},
 				{ option: "--config", valuePrefix: "web_search=", sources: ["web"] },
+				{
+					option: "-c",
+					valuePrefix: "model_reasoning_effort=",
+					allowAttachedValue: true,
+					sources: ["effort"],
+				},
+				{ option: "--config", valuePrefix: "model_reasoning_effort=", sources: ["effort"] },
 				// Keep recognizing the legacy toggle when users pass it through explicitly.
 				{ option: "--disable", value: "web_search_request", sources: ["web"] },
 				{
@@ -92,6 +99,17 @@ export const codexTarget: TargetDefinition = {
 			},
 			model: { flag: ["-m"] },
 			web: { on: ["--search"], off: ["-c", 'web_search="disabled"'] },
+			// Codex has no reasoning-effort flag; the level rides on a config override, and codex
+			// does not validate it locally (an unknown value only fails at the API).
+			effort: {
+				values: {
+					low: ["-c", 'model_reasoning_effort="low"'],
+					medium: ["-c", 'model_reasoning_effort="medium"'],
+					high: ["-c", 'model_reasoning_effort="high"'],
+					xhigh: ["-c", 'model_reasoning_effort="xhigh"'],
+					max: ["-c", 'model_reasoning_effort="max"'],
+				},
+			},
 			structuredOutput: {
 				delivery: "file",
 				flag: ["--output-schema"],

@@ -39,9 +39,18 @@ const SUITE = ENABLE_E2E && CLI_EXISTS ? describe : describe.skip;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const TRACE_PREFIX = "OA_TRANSLATION=";
 const JSON_CASES = new Set(["output-json", "output-flag-json", "output-stream-json"]);
-// Structured-output runs involve nondeterministic temp paths and model output, so they are
-// asserted structurally instead of against recorded baselines.
-const STRUCTURED_CASES = new Set(["output-schema-inline"]);
+// Cases declare their own assertion mode; every other case is baseline-backed and must have its
+// artifacts committed. Deriving the sets from the definitions keeps the runner from quietly
+// exempting anything on its own.
+const STRUCTURED_CASES = new Set(
+	SHARED_CASES.filter((testCase) => testCase.assertion === "structured").map(
+		(testCase) => testCase.id,
+	),
+);
+const TRACE_CASES = new Set(
+	SHARED_CASES.filter((testCase) => testCase.assertion === "trace").map((testCase) => testCase.id),
+);
+const BASELINE_EXEMPT_CASES = new Set([...STRUCTURED_CASES, ...TRACE_CASES]);
 
 if (ENABLE_E2E && !CLI_EXISTS) {
 	console.warn("dist/cli.js not found. Run the build before E2E tests.");
@@ -60,6 +69,10 @@ function resolveExpectedPaths(baseDir: string, caseId: string) {
 		stderr: path.join(baseDir, `${caseId}.stderr.txt`),
 		trace: path.join(baseDir, `${caseId}.trace.json`),
 	};
+}
+
+function hasRecordedBaseline(paths: ReturnType<typeof resolveExpectedPaths>): boolean {
+	return existsSync(paths.stdout) && existsSync(paths.stderr) && existsSync(paths.trace);
 }
 
 function extractTrace(stderr: string): { trace: TracePayload | null; cleaned: string } {
@@ -326,8 +339,8 @@ SUITE("CLI shim e2e", () => {
 					continue;
 				}
 
-				if (RECORD_BASELINE && STRUCTURED_CASES.has(testCase.id)) {
-					it.skip(`${agent.agentId} ${testCase.id} (no baseline; asserted structurally)`, () => {});
+				if (RECORD_BASELINE && BASELINE_EXEMPT_CASES.has(testCase.id)) {
+					it.skip(`${agent.agentId} ${testCase.id} (no baseline; asserted from the run itself)`, () => {});
 					continue;
 				}
 
@@ -345,6 +358,16 @@ SUITE("CLI shim e2e", () => {
 						}
 
 						const expectedPaths = resolveExpectedPaths(expectedDir, testCase.id);
+
+						if (
+							!RECORD_BASELINE &&
+							!BASELINE_EXEMPT_CASES.has(testCase.id) &&
+							!hasRecordedBaseline(expectedPaths)
+						) {
+							throw new Error(
+								`Missing baseline for ${agent.agentId} ${testCase.id}. Record it with OA_E2E_RECORD_BASELINE=1, or declare an assertion mode on the case.`,
+							);
+						}
 
 						if (RECORD_BASELINE) {
 							const result = spawnSync(expectedInvocation.command, expectedInvocation.args, {
@@ -369,7 +392,7 @@ SUITE("CLI shim e2e", () => {
 
 						const args = ensureCodexModel(agent, testCase.buildArgs(agent));
 						const passthrough = [
-							...(agent.passthroughDefaults ?? []),
+							...(testCase.omitPassthroughDefaults ? [] : (agent.passthroughDefaults ?? [])),
 							...(testCase.buildPassthrough?.(agent) ?? []),
 						];
 						const fullArgs = ["--agent", agent.agentId, "--trace-translate", ...args];
@@ -404,6 +427,13 @@ SUITE("CLI shim e2e", () => {
 							expect(payload).toEqual({ answer: 5 });
 							expect(trace.command).toBe(expectedInvocation.command);
 							expect(normalizeTempPaths(trace.args)).toEqual(expectedInvocation.args);
+							return;
+						}
+
+						if (TRACE_CASES.has(testCase.id)) {
+							expect(trace.command).toBe(expectedInvocation.command);
+							expect(trace.args).toEqual(expectedInvocation.args);
+							expect(trace.warnings ?? []).toEqual(expectedInvocation.warnings ?? []);
 							return;
 						}
 

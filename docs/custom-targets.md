@@ -258,7 +258,7 @@ cli: {
 }
 ```
 
-`sources` accepts `mode`, `prompt`, `approval`, `sandbox`, `output`, `model`, `web`, and
+`sources` accepts `mode`, `prompt`, `approval`, `sandbox`, `output`, `model`, `web`, `effort`, and
 `structuredOutput`. Rules without `modes` apply to both interactive and one-shot invocations.
 Declare aliases as separate rules. When `value` is present, both `--flag value` and
 `--flag=value` match only that exact value; this is appropriate for repeatable keyed options.
@@ -273,8 +273,36 @@ options supplied entirely after `--` remain the target CLI's responsibility. Tar
 custom `cli.translate` function cannot declare these rules because the translator owns argument
 provenance and collision behavior itself. Custom translators receive resolved shared values in
 `invocation.requests` and can distinguish defaults from explicit requests through
-`approvalExplicit`, `sandboxExplicit`, `outputExplicit`, `modelExplicit`, and `webExplicit` on
-`invocation.session`.
+`approvalExplicit`, `sandboxExplicit`, `outputExplicit`, `modelExplicit`, `webExplicit`, and
+`effortExplicit` on `invocation.session`.
+
+## Reasoning effort (`cli.flags.effort`)
+
+`cli.flags.effort` is a value map from the shared ladder (`low`, `medium`, `high`, `xhigh`, `max`)
+onto target-native arguments. Declare only the levels the target actually supports; map a level
+the target lacks onto its nearest neighbour, or set it to `null` to warn and ignore it.
+
+```ts
+cli: {
+	flags: {
+		effort: {
+			values: {
+				low: ["--reasoning", "low"],
+				medium: ["--reasoning", "medium"],
+				high: ["--reasoning", "high"],
+				xhigh: ["--reasoning", "max"],
+				// This target has no level above max, so the shared max maps onto the same value.
+				max: ["--reasoning", "max"],
+			},
+		},
+	},
+}
+```
+
+Omit `cli.flags.effort` entirely and `--effort` warns and is ignored for that target. A target
+that declares it still emits nothing when the flag is absent, so the agent's own configured
+default keeps applying. Use `byMode` instead of `values` when the native surface differs between
+interactive and one-shot invocations.
 
 ## Structured output (`cli.flags.structuredOutput`)
 

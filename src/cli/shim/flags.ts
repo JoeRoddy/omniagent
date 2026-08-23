@@ -2,6 +2,8 @@ import { InvalidUsageError } from "./errors.js";
 import {
 	APPROVAL_POLICIES,
 	type ApprovalPolicy,
+	EFFORT_LEVELS,
+	type EffortLevel,
 	OUTPUT_FORMATS,
 	type OutputFormat,
 	type ParsedShimFlags,
@@ -96,6 +98,8 @@ export function parseShimFlags(argv: string[]): ParsedShimFlags {
 	let modelExplicit = false;
 	let web = false;
 	let webExplicit = false;
+	let effort: EffortLevel | null = null;
+	let effortExplicit = false;
 	let agent: string | null = null;
 	let agentExplicit = false;
 	let outputSchema: string | null = null;
@@ -226,6 +230,18 @@ export function parseShimFlags(argv: string[]): ParsedShimFlags {
 			webExplicit = true;
 			continue;
 		}
+		if (arg === "--effort") {
+			const [value, nextIndex] = readFlagValue(preArgs, index, "--effort");
+			effort = normalizeEnum(value, EFFORT_LEVELS, "--effort");
+			effortExplicit = true;
+			index = nextIndex;
+			continue;
+		}
+		if (arg.startsWith("--effort=")) {
+			effort = normalizeEnum(arg.slice("--effort=".length), EFFORT_LEVELS, "--effort");
+			effortExplicit = true;
+			continue;
+		}
 		if (arg === "--agent") {
 			const [value, nextIndex] = readFlagValue(preArgs, index, "--agent");
 			const normalized = normalizeValue(value, "--agent").toLowerCase();
@@ -310,6 +326,8 @@ export function parseShimFlags(argv: string[]): ParsedShimFlags {
 		modelExplicit,
 		web,
 		webExplicit,
+		effort,
+		effortExplicit,
 		agent,
 		agentExplicit,
 		outputSchema,

@@ -13,6 +13,16 @@ export type ShimCase = {
 	id: string;
 	buildArgs: (agent: AgentE2EConfig) => string[];
 	buildPassthrough?: (agent: AgentE2EConfig) => string[];
+	// A case that drives a shared flag the agent config also pins through passthrough has to drop
+	// those defaults, otherwise the shim rejects the run as a passthrough/shared-flag conflict.
+	omitPassthroughDefaults?: boolean;
+	// How the case is verified. Omitted means it compares against recorded stdout/stderr baselines,
+	// and the suite fails if those artifacts are missing. Declare an assertion mode only when a
+	// baseline cannot be recorded reliably:
+	//   "structured" - parses the run's stdout payload and asserts the translated argv.
+	//   "trace"      - asserts only the translated argv, for flags whose baseline is unrecordable.
+	// Exemptions live here rather than in the runner so a deleted baseline still fails loudly.
+	assertion?: "structured" | "trace";
 	skipWhen?: (agent: AgentE2EConfig) => string | null;
 };
 
@@ -65,6 +75,14 @@ export const SHARED_CASES: ShimCase[] = [
 		buildArgs: () => ["-p", PROMPT, "--web", "on"],
 	},
 	{
+		id: "effort-high",
+		buildArgs: () => ["-p", PROMPT, "--effort", "high"],
+		omitPassthroughDefaults: true,
+		// The committed codex baselines pin a model this repo can no longer record against, so the
+		// effort mapping is asserted from the translated argv instead of recorded agent output.
+		assertion: "trace",
+	},
+	{
 		id: "model",
 		buildArgs: (agent) => ["-p", PROMPT, "--model", agent.model ?? ""],
 		skipWhen: (agent) => (agent.model ? null : "model not configured"),
@@ -81,5 +99,7 @@ export const SHARED_CASES: ShimCase[] = [
 	{
 		id: "output-schema-inline",
 		buildArgs: () => ["-p", STRUCTURED_PROMPT, "--output-schema", STRUCTURED_SCHEMA],
+		// Structured runs involve nondeterministic temp paths and model output.
+		assertion: "structured",
 	},
 ];

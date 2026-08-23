@@ -26,6 +26,7 @@ export const claudeTarget: TargetDefinition = {
 				{ option: "--print", sources: ["prompt"], modes: ["one-shot"] },
 				{ option: "--dangerously-skip-permissions", sources: ["approval"] },
 				{ option: "--model", sources: ["model"] },
+				{ option: "--effort", sources: ["effort"] },
 				{ option: "--output-format", sources: ["output", "structuredOutput"] },
 				{
 					option: "--json-schema",
@@ -52,6 +53,15 @@ export const claudeTarget: TargetDefinition = {
 				},
 			},
 			model: { flag: ["--model"] },
+			effort: {
+				values: {
+					low: ["--effort", "low"],
+					medium: ["--effort", "medium"],
+					high: ["--effort", "high"],
+					xhigh: ["--effort", "xhigh"],
+					max: ["--effort", "max"],
+				},
+			},
 			structuredOutput: {
 				delivery: "inline",
 				flag: ["--json-schema"],

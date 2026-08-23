@@ -1,7 +1,7 @@
 import {
 	type AgentE2EConfig,
 	PROMPT,
-	type SHARED_CASES,
+	SHARED_CASES,
 	STRUCTURED_PROMPT,
 	STRUCTURED_SCHEMA,
 } from "./cases.js";
@@ -37,6 +37,22 @@ function withWarnings(
 
 function collectPassthrough(agent: AgentE2EConfig, extra: string[] = []): string[] {
 	return [...(agent.passthroughDefaults ?? []), ...extra];
+}
+
+const OMITS_PASSTHROUGH_DEFAULTS = new Set(
+	SHARED_CASES.filter((testCase) => testCase.omitPassthroughDefaults).map(
+		(testCase) => testCase.id,
+	),
+);
+
+function resolvePassthrough(caseId: CaseId, agent: AgentE2EConfig): string[] {
+	if (caseId === "passthrough") {
+		return collectPassthrough(agent, agent.passthroughArgs ?? []);
+	}
+	if (OMITS_PASSTHROUGH_DEFAULTS.has(caseId)) {
+		return [];
+	}
+	return collectPassthrough(agent);
 }
 
 function resolveApproval(caseId: CaseId): ApprovalValue {
@@ -94,10 +110,7 @@ function buildFlagPromptInvocation(
 }
 
 function buildCodex(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation | null {
-	const passthrough =
-		caseId === "passthrough"
-			? collectPassthrough(agent, agent.passthroughArgs ?? [])
-			: collectPassthrough(agent);
+	const passthrough = resolvePassthrough(caseId, agent);
 	const approval = resolveApproval(caseId);
 	const sandbox = resolveSandbox(caseId);
 	const output = resolveOutput(caseId);
@@ -135,6 +148,10 @@ function buildCodex(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation |
 		flags.push("-c", 'web_search="disabled"');
 	}
 
+	if (caseId === "effort-high") {
+		flags.push("-c", 'model_reasoning_effort="high"');
+	}
+
 	if (caseId === "output-schema-inline") {
 		flags.push(
 			"--output-schema",
@@ -158,6 +175,7 @@ function buildCodex(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation |
 		caseId !== "output-json" &&
 		caseId !== "output-flag-json" &&
 		caseId !== "output-stream-json" &&
+		caseId !== "effort-high" &&
 		caseId !== "model" &&
 		caseId !== "passthrough"
 	) {
@@ -168,10 +186,7 @@ function buildCodex(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation |
 }
 
 function buildClaude(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation | null {
-	const passthrough =
-		caseId === "passthrough"
-			? collectPassthrough(agent, agent.passthroughArgs ?? [])
-			: collectPassthrough(agent);
+	const passthrough = resolvePassthrough(caseId, agent);
 	let flags: string[] = [];
 	let prompt = PROMPT;
 	const warnings: string[] = [];
@@ -199,6 +214,9 @@ function buildClaude(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation 
 		case "web-on":
 			warnings.push(formatWarning(agent.agentId, "--web", "on"));
 			break;
+		case "effort-high":
+			flags = ["--effort", "high"];
+			break;
 		case "model":
 			if (!agent.model) {
 				return null;
@@ -220,10 +238,7 @@ function buildClaude(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation 
 }
 
 function buildAgy(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation | null {
-	const passthrough =
-		caseId === "passthrough"
-			? collectPassthrough(agent, agent.passthroughArgs ?? [])
-			: collectPassthrough(agent);
+	const passthrough = resolvePassthrough(caseId, agent);
 	let flags: string[] = ["--sandbox"];
 	const warnings: string[] = [];
 
@@ -249,6 +264,9 @@ function buildAgy(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation | n
 		case "web-on":
 			warnings.push(formatWarning(agent.agentId, "--web", "on"));
 			break;
+		case "effort-high":
+			flags = ["--sandbox", "--effort", "high"];
+			break;
 		case "model":
 			if (!agent.model) {
 				return null;
@@ -266,10 +284,7 @@ function buildAgy(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation | n
 }
 
 function buildCopilot(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation | null {
-	const passthrough =
-		caseId === "passthrough"
-			? collectPassthrough(agent, agent.passthroughArgs ?? [])
-			: collectPassthrough(agent);
+	const passthrough = resolvePassthrough(caseId, agent);
 	let flags: string[] = [];
 	const warnings: string[] = [];
 
@@ -295,6 +310,9 @@ function buildCopilot(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation
 			break;
 		case "web-on":
 			warnings.push(formatWarning(agent.agentId, "--web", "on"));
+			break;
+		case "effort-high":
+			flags = ["--reasoning-effort", "high"];
 			break;
 		case "model":
 			if (!agent.model) {

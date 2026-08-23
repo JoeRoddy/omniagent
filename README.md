@@ -235,6 +235,14 @@ Example usage:
 ./code-review.sh codex
 ```
 
+Shared flags cover what would otherwise be re-learned per CLI — approval, sandbox, output format,
+model, web access, and reasoning effort (`--effort low|medium|high|xhigh|max`, mapped onto each
+agent's native surface):
+
+```bash
+omniagent -p "Refactor this module" --agent codex --effort xhigh --json
+```
+
 The shim also unifies structured outputs: pass a JSON schema (file path or inline JSON) with
 `--output-schema`, and stdout is exactly the schema-conforming JSON regardless of agent. Agents
 with native schema support (claude, codex) enforce it server-side; all others get a prompt-based

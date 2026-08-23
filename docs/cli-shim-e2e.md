@@ -7,7 +7,8 @@ This suite treats the real agent CLIs as the ground truth. It records their stdo
 then verifies the shim produces identical output and invokes the expected command/args.
 
 ## What it covers
-- Shared shim flags are translated into agent-specific argv (approval/sandbox/output/model/web).
+- Shared shim flags are translated into agent-specific argv
+  (approval/sandbox/output/model/web/effort).
 - One-shot vs interactive command shapes and prompt placement.
 - Passthrough ordering relative to the prompt.
 - Translation trace matches the expected invocation for each case.
@@ -29,6 +30,23 @@ then verifies the shim produces identical output and invokes the expected comman
 
 The trace is emitted as a single stderr line:
 `OA_TRANSLATION={...}`.
+
+## Adding a case
+A case is baseline-backed by default: compare mode reads its recorded stdout/stderr and **fails**
+when those artifacts are missing, so a deleted or unrecorded baseline can never quietly disable
+coverage. Record the artifacts with `OA_E2E_RECORD_BASELINE=1` before the case lands.
+
+When a baseline genuinely cannot be recorded, declare an `assertion` mode on the case instead —
+the exemption then lives in `cases.ts` where it is reviewable, not in the runner:
+
+- `assertion: "structured"` parses the run's stdout payload and asserts the translated argv.
+  Used by `output-schema-inline`, whose temp paths and model output are nondeterministic.
+- `assertion: "trace"` asserts only the translated argv and warnings. Used by `effort-high`,
+  because the committed codex baselines pin a model this repo can no longer record against.
+
+Set `omitPassthroughDefaults: true` on a case that drives a shared flag an agent config also pins
+through `passthroughDefaults` (codex pins reasoning effort that way), otherwise the shim rejects
+the run as a passthrough/shared-flag conflict.
 
 ## Prereqs
 - Build before running E2E: `npm run build`
