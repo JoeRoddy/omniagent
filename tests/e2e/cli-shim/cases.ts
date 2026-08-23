@@ -2,6 +2,9 @@ export type AgentE2EConfig = {
 	agentId: string;
 	cliCommand: string;
 	model?: string | null;
+	// Declared by a target whose definition ships a model alias table, so the shared harness never
+	// needs to know which agents have one.
+	modelAlias?: { alias: string; resolved: string };
 	requiredEnv?: string[];
 	passthroughDefaults?: string[];
 	passthroughArgs?: string[];
@@ -86,6 +89,14 @@ export const SHARED_CASES: ShimCase[] = [
 		id: "model",
 		buildArgs: (agent) => ["-p", PROMPT, "--model", agent.model ?? ""],
 		skipWhen: (agent) => (agent.model ? null : "model not configured"),
+	},
+	{
+		id: "model-alias",
+		buildArgs: (agent) => ["-p", PROMPT, "-m", agent.modelAlias?.alias ?? ""],
+		skipWhen: (agent) => (agent.modelAlias ? null : "no model aliases declared"),
+		// The alias expansion is a translation concern, so it is asserted from the argv rather than
+		// from recorded agent output.
+		assertion: "trace",
 	},
 	{
 		id: "passthrough",

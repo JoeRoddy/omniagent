@@ -25,11 +25,56 @@ You can set `defaultAgent` in `agents/omniagent.config.*` to avoid repeating `--
 - `--approval <prompt|auto-edit|yolo>` (aliases: `--auto-edit`, `--yolo`)
 - `--sandbox <workspace-write|off>`
 - `--output <text|json|stream-json>` (aliases: `--json`, `--stream-json`)
-- `--model <name>`
+- `--model <name>` / `-m` (see [Model aliases](#model-aliases))
 - `--web <on|off|true|false|1|0>` (bare `--web` enables)
-- `--effort <low|medium|high|xhigh|max>` (reasoning effort; unset keeps the agent's own default)
+- `--effort <low|medium|high|xhigh|max>` / `-e` (reasoning effort; unset keeps the agent's own default)
 - `--output-schema <path-or-json>` (JSON schema file path or inline JSON object; one-shot only)
 - `--output-schema-retries <n>` (0-10, default 2; max retries for prompt-based fallback runs)
+
+### Short forms
+
+`-p` (prompt), `-a` (agent), `-m` (model), and `-e` (effort) are shorthand for their long forms, and
+each accepts an attached value:
+
+```bash
+omniagent -p "Summarize this repo" -a codex -m sol -e xhigh
+omniagent -phi -acodex -msol -exhigh          # attached form
+```
+
+`-a` is the shim's own flag, so it means `--agent` regardless of what the selected agent's CLI uses
+`-a` for. Behind `--`, an agent's native `-a` keeps its own meaning (on codex it is
+`--ask-for-approval`, which still conflicts with an explicit `--approval`).
+
+## Model aliases
+
+A target may declare nicknames for the model ids its CLI accepts, so `-m sol` resolves to the current
+official id:
+
+```bash
+omniagent -p "Refactor this module" -a codex -m sol   # -> codex -m gpt-5.6-sol
+```
+
+Resolution rules:
+
+- A value with no matching alias is forwarded **verbatim**, so official ids stay authoritative and a
+  newly released id works before omniagent knows about it.
+- Lookups are case-insensitive (`-m SOL` works).
+- Aliases apply only to the shared `--model` flag. Behind `--`, values pass through untouched.
+- `--trace-translate` shows the resolved id, which is how you confirm what an alias expanded to.
+
+Aliases are per target, because a nickname only means something relative to one CLI's model list.
+Each target declares its own table in its definition (`cli.flags.model.aliases`), and custom targets
+can declare one the same way — see [custom targets](./custom-targets.md).
+
+| Agent   | Aliases |
+|---------|---------|
+| codex   | `sol` -> `gpt-5.6-sol` |
+| claude  | None needed - the claude CLI resolves `opus`/`sonnet`/`haiku`/`fable` itself, and the shim forwards them untouched. |
+| agy     | None declared. |
+| copilot | None declared. |
+
+Updating an alias currently requires an omniagent release, since overriding a built-in target's
+`cli` block in config replaces it wholesale rather than merging into it.
 
 ## Shared-flag capability matrix
 

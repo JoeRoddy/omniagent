@@ -1,5 +1,10 @@
 import { InvalidUsageError } from "../../lib/agents/errors.js";
-import { buildRequests, buildSession, resolveAgentSelection } from "../../lib/agents/switch.js";
+import {
+	buildRequests,
+	buildSession,
+	resolveAgentSelection,
+	resolveModelAlias,
+} from "../../lib/agents/switch.js";
 import { parseShimFlags } from "./flags.js";
 import { planStructuredOutput } from "./structured-output.js";
 import type { ParsedShimFlags, ResolvedInvocation } from "./types.js";
@@ -52,8 +57,12 @@ export async function resolveInvocationFromFlags(
 	}
 
 	const agent = resolution.selection;
-	const session = buildSession(flags);
-	const requests = buildRequests(flags);
+	// Resolve the model nickname once, before anything downstream reads it, so the session, the
+	// translated argv, and the --trace-translate payload all report the same id.
+	const model = resolveModelAlias(target, flags.model);
+	const effectiveFlags = model === flags.model ? flags : { ...flags, model };
+	const session = buildSession(effectiveFlags);
+	const requests = buildRequests(effectiveFlags);
 	const structuredOutput = await planStructuredOutput({
 		rawSchema: flags.outputSchema,
 		mode,

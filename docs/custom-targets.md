@@ -304,6 +304,40 @@ that declares it still emits nothing when the flag is absent, so the agent's own
 default keeps applying. Use `byMode` instead of `values` when the native surface differs between
 interactive and one-shot invocations.
 
+## Model aliases (`cli.flags.model.aliases`)
+
+`cli.flags.model` declares the flag that carries a model id. Add `aliases` to give that target
+memorable nicknames for the ids its CLI accepts, so callers do not have to track exact id strings:
+
+```ts
+cli: {
+	flags: {
+		model: {
+			flag: ["--model"],
+			aliases: {
+				fast: "acme-small-3",
+				smart: "acme-large-3",
+			},
+		},
+	},
+}
+```
+
+Any target can declare a table; there is no built-in list of nicknames. Behavior:
+
+- Lookups are case-insensitive, and the resolved id is emitted exactly as declared.
+- A value that matches no alias is forwarded **verbatim**. This keeps official ids authoritative and
+  lets a newly released id work before the table knows about it, so an alias table can never block a
+  valid model.
+- Keys that differ only in case are rejected at config validation time, since the winner would
+  otherwise depend on declaration order.
+- Resolution happens once, before translation, so `--trace-translate` reports the resolved id.
+- Aliases apply only to the shared `--model` flag. A model id supplied after `--` passes through
+  untouched.
+
+Omit `aliases` and the value is always forwarded verbatim — the behavior before this key existed.
+Targets whose CLI already resolves its own shorthand (claude, for instance) need no table.
+
 ## Structured output (`cli.flags.structuredOutput`)
 
 Custom targets whose CLI supports schema-constrained responses can declare a

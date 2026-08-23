@@ -273,6 +273,82 @@ describe("target config validation", () => {
 		expect(validation.errors).toEqual([]);
 	});
 
+	it("allows a custom target to declare its own model aliases", () => {
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "custom-agent",
+					cli: {
+						modes: {
+							interactive: { command: "custom" },
+							oneShot: { command: "custom", args: ["run"] },
+						},
+						flags: {
+							model: { flag: ["--model"], aliases: { fast: "custom-fast-1" } },
+						},
+					},
+				},
+			],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(true);
+		expect(validation.errors).toEqual([]);
+	});
+
+	it("rejects malformed model aliases", () => {
+		const config = {
+			targets: [
+				{
+					id: "custom-agent",
+					cli: {
+						modes: {
+							interactive: { command: "custom" },
+							oneShot: { command: "custom", args: ["run"] },
+						},
+						flags: {
+							model: { flag: ["--model"], aliases: { fast: "  " } },
+						},
+					},
+				},
+			],
+		} as unknown as OmniagentConfig;
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(false);
+		expect(validation.errors).toContain(
+			"targets[0].cli.flags.model.aliases.fast must be a non-empty string.",
+		);
+	});
+
+	it("rejects model aliases that collide once lowercased", () => {
+		const config = {
+			targets: [
+				{
+					id: "custom-agent",
+					cli: {
+						modes: {
+							interactive: { command: "custom" },
+							oneShot: { command: "custom", args: ["run"] },
+						},
+						flags: {
+							model: { flag: ["--model"], aliases: { fast: "a-1", Fast: "b-2" } },
+						},
+					},
+				},
+			],
+		} as unknown as OmniagentConfig;
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(false);
+		expect(validation.errors).toContain(
+			'targets[0].cli.flags.model.aliases has duplicate keys "fast" and "Fast".',
+		);
+	});
+
 	it("allows target-aware passthrough collision rules", () => {
 		const config: OmniagentConfig = {
 			targets: [

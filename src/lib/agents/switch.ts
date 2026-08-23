@@ -134,6 +134,25 @@ function buildRequests(flags: ParsedShimFlags): FlagRequests {
 	return requests;
 }
 
+// Nicknames are declared per target (TargetCliDefinition.flags.model.aliases), never listed here, so
+// teaching a new agent its own shorthand is a target-definition change and never a change to this
+// engine. A value with no matching entry is returned untouched: the shim cannot tell a stale nickname
+// from a legitimate model id, and rewriting or rejecting one would break ids the agent already takes.
+function resolveModelAlias(target: ResolvedTarget, model: string | null): string | null {
+	const aliases = target.cli?.flags?.model?.aliases;
+	if (!model || !aliases) {
+		return model;
+	}
+
+	const key = normalizeKey(model);
+	for (const [alias, resolved] of Object.entries(aliases)) {
+		if (normalizeKey(alias) === key) {
+			return resolved.trim();
+		}
+	}
+	return model;
+}
+
 function buildSession(flags: ParsedShimFlags): SessionConfiguration {
 	return {
 		approvalPolicy: flags.approval,
@@ -229,4 +248,4 @@ export async function resolveAgentSelection(
 	return { resolution: { selection, targetId: resolvedId }, targetMap };
 }
 
-export { buildRequests, buildSession };
+export { buildRequests, buildSession, resolveModelAlias };

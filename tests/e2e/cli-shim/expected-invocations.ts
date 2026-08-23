@@ -140,6 +140,13 @@ function buildCodex(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation |
 		flags.push("-m", agent.model);
 	}
 
+	if (caseId === "model-alias") {
+		if (!agent.modelAlias) {
+			return null;
+		}
+		flags.push("-m", agent.modelAlias.resolved);
+	}
+
 	if (agent.model && !flags.includes("-m")) {
 		flags.push("-m", agent.model);
 	}
@@ -177,6 +184,7 @@ function buildCodex(caseId: CaseId, agent: AgentE2EConfig): ExpectedInvocation |
 		caseId !== "output-stream-json" &&
 		caseId !== "effort-high" &&
 		caseId !== "model" &&
+		caseId !== "model-alias" &&
 		caseId !== "passthrough"
 	) {
 		return null;

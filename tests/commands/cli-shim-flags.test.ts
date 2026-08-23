@@ -9,6 +9,7 @@ import {
 	resolveInvocationFromFlags,
 	runShim,
 } from "../../src/cli/shim/index.js";
+import { resolveModelAlias } from "../../src/lib/agents/switch.js";
 import type { TargetCliDefinition } from "../../src/lib/targets/config-types.js";
 
 type InvocationOptions = {
@@ -623,5 +624,138 @@ describe("CLI shim --effort flag", () => {
 		expect(result.args.filter((arg) => arg.startsWith("model_reasoning_effort="))).toEqual([
 			'model_reasoning_effort="low"',
 		]);
+	});
+});
+
+describe("CLI shim short flags", () => {
+	it("accepts -a and -e as shorthand for --agent and --effort", () => {
+		expect(parseShimFlags(["-a", "codex"]).agent).toBe("codex");
+		expect(parseShimFlags(["-a", "codex"]).agentExplicit).toBe(true);
+		expect(parseShimFlags(["-e", "xhigh"]).effort).toBe("xhigh");
+		expect(parseShimFlags(["-e", "xhigh"]).effortExplicit).toBe(true);
+	});
+
+	it("accepts attached values, matching -p and -m", () => {
+		expect(parseShimFlags(["-acodex"]).agent).toBe("codex");
+		expect(parseShimFlags(["-ehigh"]).effort).toBe("high");
+
+		const combined = parseShimFlags(["-phi", "-acodex", "-msol", "-exhigh"]);
+		expect(combined.prompt).toBe("hi");
+		expect(combined.agent).toBe("codex");
+		expect(combined.model).toBe("sol");
+		expect(combined.effort).toBe("xhigh");
+	});
+
+	it("normalizes short-flag values exactly like the long forms", () => {
+		expect(parseShimFlags(["-a", "CODEX"]).agent).toBe(parseShimFlags(["--agent", "CODEX"]).agent);
+		expect(parseShimFlags(["-e", "MAX"]).effort).toBe(parseShimFlags(["--effort", "MAX"]).effort);
+	});
+
+	it("does not shadow the long flags that share a leading letter", () => {
+		expect(parseShimFlags(["--approval", "yolo"]).approval).toBe("yolo");
+		expect(parseShimFlags(["--auto-edit"]).approval).toBe("auto-edit");
+		expect(parseShimFlags(["--agent", "codex"]).agent).toBe("codex");
+		expect(parseShimFlags(["--effort=high"]).effort).toBe("high");
+		expect(parseShimFlags(["--agent", "codex"]).effort).toBeNull();
+	});
+
+	it("reuses the long-form validation for bad short-flag values", () => {
+		expect(() => parseShimFlags(["-e", "ultra"])).toThrowError(/Invalid value for --effort/);
+		expect(() => parseShimFlags(["-eultra"])).toThrowError(/Invalid value for --effort/);
+		expect(() => parseShimFlags(["-e"])).toThrowError(/Missing value for --effort/);
+		expect(() => parseShimFlags(["-a"])).toThrowError(/Missing value for --agent/);
+		expect(() => parseShimFlags(["-e", "--json"])).toThrowError(/Missing value for --effort/);
+	});
+
+	it("resolves -a to the same invocation as --agent", async () => {
+		const short = await buildInvocation(["-a", "codex", "-p", "hi", "-e", "high"]);
+		const long = await buildInvocation(["--agent", "codex", "-p", "hi", "--effort", "high"]);
+
+		expect(buildAgentArgs(short).args).toEqual(buildAgentArgs(long).args);
+	});
+});
+
+describe("CLI shim model aliases", () => {
+	function modelValue(args: string[], flag: string): string | undefined {
+		const index = args.lastIndexOf(flag);
+		return index === -1 ? undefined : args[index + 1];
+	}
+
+	it("expands an alias declared by the target", async () => {
+		const invocation = await buildInvocation(["--agent", "codex", "-p", "hi", "-m", "sol"]);
+		const result = buildAgentArgs(invocation);
+
+		expect(invocation.requests.model).toBe("gpt-5.6-sol");
+		expect(invocation.session.model).toBe("gpt-5.6-sol");
+		expect(modelValue(result.args, "-m")).toBe("gpt-5.6-sol");
+		expect(result.warnings).toEqual([]);
+	});
+
+	it("matches an alias regardless of case", async () => {
+		const invocation = await buildInvocation(["--agent", "codex", "-p", "hi", "-m", "SOL"]);
+
+		expect(invocation.requests.model).toBe("gpt-5.6-sol");
+	});
+
+	it("forwards an official model id untouched", async () => {
+		const invocation = await buildInvocation(["--agent", "codex", "-p", "hi", "-m", "gpt-5.6-sol"]);
+
+		expect(invocation.requests.model).toBe("gpt-5.6-sol");
+		expect(modelValue(buildAgentArgs(invocation).args, "-m")).toBe("gpt-5.6-sol");
+	});
+
+	it("forwards an unrecognized value untouched so new ids work without a release", async () => {
+		const invocation = await buildInvocation([
+			"--agent",
+			"codex",
+			"-p",
+			"hi",
+			"-m",
+			"gpt-9-unreleased",
+		]);
+
+		expect(invocation.requests.model).toBe("gpt-9-unreleased");
+		expect(modelValue(buildAgentArgs(invocation).args, "-m")).toBe("gpt-9-unreleased");
+	});
+
+	it("leaves a target that declares no aliases alone", async () => {
+		// Claude resolves its own shorthand, so the shim must not rewrite it.
+		const invocation = await buildInvocation(["--agent", "claude", "-p", "hi", "-m", "opus"]);
+
+		expect(invocation.requests.model).toBe("opus");
+		expect(modelValue(buildAgentArgs(invocation).args, "--model")).toBe("opus");
+	});
+
+	it("resolves aliases from any target's own table, not a built-in list", async () => {
+		// The table is part of the target API: a target the shim has never heard of gets the same
+		// treatment as codex, purely from what its own definition declares.
+		const invocation = await buildInvocation(["--agent", "codex", "-p", "hi", "-m", "zippy"]);
+		const customCli: TargetCliDefinition = {
+			modes: {
+				interactive: { command: "custom" },
+				oneShot: { command: "custom", args: ["run"] },
+			},
+			prompt: { type: "positional", position: "last" },
+			flags: { model: { flag: ["--model"], aliases: { zippy: "custom-model-9" } } },
+		};
+		const target = { ...invocation.target, id: "custom", cli: customCli };
+		const model = resolveModelAlias(target, "zippy");
+		const result = buildAgentArgs({
+			...invocation,
+			agent: { ...invocation.agent, id: "custom" },
+			target,
+			requests: { ...invocation.requests, model: model ?? undefined },
+		});
+
+		expect(model).toBe("custom-model-9");
+		expect(modelValue(result.args, "--model")).toBe("custom-model-9");
+	});
+
+	it("passes an alias through untouched behind the -- delimiter", async () => {
+		const invocation = await buildInvocation(["--agent", "codex", "-p", "hi", "--", "-m", "sol"]);
+		const result = buildAgentArgs(invocation);
+
+		expect(invocation.requests.model).toBeUndefined();
+		expect(modelValue(result.args, "-m")).toBe("sol");
 	});
 });
