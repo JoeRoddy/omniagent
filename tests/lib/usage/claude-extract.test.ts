@@ -58,16 +58,33 @@ Current week
 		await rm(homeDir, { recursive: true, force: true });
 	});
 
-	it("uses Claude API rate-limit headers before starting the TUI probe", async () => {
+	it("uses Claude's OAuth usage API before starting the TUI probe", async () => {
 		const { extractClaudeUsage } = await import("../../../src/lib/usage/claude.js");
 		const now = new Date("2026-05-18T12:00:00.000Z");
 		fetchMock.mockResolvedValue({
 			status: 200,
-			headers: new Headers({
-				"anthropic-ratelimit-unified-5h-utilization": "0.12",
-				"anthropic-ratelimit-unified-5h-reset": String(now.getTime() / 1000 + 30 * 60),
-				"anthropic-ratelimit-unified-7d-utilization": "0.42",
-				"anthropic-ratelimit-unified-7d-reset": String(now.getTime() / 1000 + 5 * 24 * 60 * 60),
+			json: async () => ({
+				limits: [
+					{
+						kind: "session",
+						group: "session",
+						percent: 12,
+						resets_at: new Date(now.getTime() + 30 * 60_000).toISOString(),
+					},
+					{
+						kind: "weekly_all",
+						group: "weekly",
+						percent: 42,
+						resets_at: new Date(now.getTime() + 5 * 24 * 60 * 60_000).toISOString(),
+					},
+					{
+						kind: "weekly_scoped",
+						group: "weekly",
+						percent: 18,
+						resets_at: new Date(now.getTime() + 5 * 24 * 60 * 60_000).toISOString(),
+						scope: { model: { id: null, display_name: "Fable" }, surface: null },
+					},
+				],
 			}),
 		});
 
@@ -75,9 +92,9 @@ Current week
 
 		expect(ptyMock.runPtyScenario).not.toHaveBeenCalled();
 		expect(fetchMock).toHaveBeenCalledWith(
-			"https://api.anthropic.com/v1/messages",
+			"https://api.anthropic.com/api/oauth/usage",
 			expect.objectContaining({
-				method: "POST",
+				method: "GET",
 				headers: expect.objectContaining({
 					authorization: "Bearer test-token-value-12345",
 					"anthropic-beta": "oauth-2025-04-20",
@@ -87,8 +104,10 @@ Current week
 		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual([
 			"current_session:hourly",
 			"current_week:weekly",
+			"fable:weekly",
 		]);
-		expect(result.limits.map((limit) => limit.percentUsed)).toEqual([12, 42]);
+		expect(result.limits.map((limit) => limit.percentUsed)).toEqual([12, 42, 18]);
+		expect(result.limits[2]?.modelLabel).toBe("Fable");
 	});
 
 	it("falls back to the TUI probe when API headers are unavailable", async () => {
@@ -96,6 +115,7 @@ Current week
 		fetchMock.mockResolvedValue({
 			status: 200,
 			headers: new Headers(),
+			json: async () => ({}),
 		});
 
 		const result = await extractClaudeUsage(
@@ -115,6 +135,7 @@ Current week
 		fetchMock.mockResolvedValue({
 			status: 200,
 			headers: new Headers(),
+			json: async () => ({}),
 		});
 		ptyMock.runPtyScenario.mockResolvedValueOnce({
 			command: "claude",
@@ -159,6 +180,7 @@ Current week
 		fetchMock.mockResolvedValue({
 			status: 200,
 			headers: new Headers(),
+			json: async () => ({}),
 		});
 		ptyMock.runPtyScenario.mockResolvedValueOnce({
 			command: "claude",

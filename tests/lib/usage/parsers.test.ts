@@ -1,6 +1,7 @@
 import { parseAgyUsage } from "../../../src/lib/usage/agy.js";
 import {
 	buildClaudeApiUsageResult,
+	buildClaudeOAuthUsageResult,
 	buildClaudeUsageLimits,
 	extractClaudeAccessToken,
 	parseClaudeUsage,
@@ -606,6 +607,56 @@ GPT-5.3-Codex-Spark Weekly limit:
 });
 
 describe("Claude usage parser", () => {
+	it("builds aggregate and Fable limits from Claude's OAuth usage payload", () => {
+		const result = buildClaudeOAuthUsageResult(
+			{
+				limits: [
+					{
+						kind: "session",
+						group: "session",
+						percent: 100,
+						resets_at: "2026-09-02T18:49:59.851227+00:00",
+					},
+					{
+						kind: "weekly_all",
+						group: "weekly",
+						percent: 26,
+						resets_at: "2026-09-03T13:59:59.851249+00:00",
+					},
+					{
+						kind: "weekly_scoped",
+						group: "weekly",
+						percent: 34,
+						resets_at: "2026-09-03T13:59:59.851435+00:00",
+						scope: {
+							model: { id: null, display_name: "Fable" },
+							surface: null,
+						},
+					},
+				],
+			},
+			{
+				targetId: "claude",
+				displayName: "Claude Code",
+				command: "claude",
+				now: new Date("2026-09-02T16:00:00.000Z"),
+			},
+		);
+
+		expect(result.limits).toHaveLength(3);
+		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual([
+			"current_session:hourly",
+			"current_week:weekly",
+			"fable:weekly",
+		]);
+		expect(result.limits[2]).toMatchObject({
+			modelLabel: "Fable",
+			percentUsed: 34,
+			percentRemaining: 66,
+			resetAt: "2026-09-03T13:59:59.851Z",
+		});
+	});
+
 	it("builds Claude usage limits from Anthropic rate-limit headers", () => {
 		const now = new Date("2026-05-18T12:00:00.000Z");
 		const headers = new Headers({
@@ -679,6 +730,8 @@ Current week
 			currentSessionResets: "3pm",
 			currentWeekUsed: "64% used",
 			currentWeekResets: "May 25 at 9am",
+			currentWeekFableUsed: "",
+			currentWeekFableResets: "",
 		});
 	});
 
@@ -701,6 +754,44 @@ Current week (Sonnet only)
 			currentSessionResets: "2:10pm (America/New_York)",
 			currentWeekUsed: "14% used",
 			currentWeekResets: "Jun 11 at 10am (America/New_York)",
+			currentWeekFableUsed: "",
+			currentWeekFableResets: "",
+		});
+	});
+
+	it("parses and normalizes Claude's Fable-specific weekly tier", () => {
+		const parsed = parseClaudeUsage(`
+Current session
+  100% used
+  Resets 2:50pm (America/New_York)
+
+Current week (all models)
+  26% used
+  Resets Sep 3 at 10am (America/New_York)
+
+Current week (Fable)
+  34% used
+  Resets Sep 3 at 10am (America/New_York)
+
+Usage credits
+  69% used
+  $69.08 / $100.00 spent · Resets Oct 1 (America/New_York)
+`);
+
+		expect(parsed.currentWeekFableUsed).toBe("34% used");
+		expect(parsed.currentWeekFableResets).toBe("Sep 3 at 10am (America/New_York)");
+
+		const limits = buildClaudeUsageLimits(parsed, {
+			targetId: "claude",
+			now: new Date("2026-09-02T12:00:00.000Z"),
+		});
+		expect(limits[2]).toMatchObject({
+			id: "claude.fable.weekly",
+			scope: "fable",
+			window: "weekly",
+			modelLabel: "Fable",
+			percentUsed: 34,
+			percentRemaining: 66,
 		});
 	});
 
@@ -711,6 +802,8 @@ Current week (Sonnet only)
 				currentSessionResets: "",
 				currentWeekUsed: "64% used",
 				currentWeekResets: "May 25 at 9am",
+				currentWeekFableUsed: "",
+				currentWeekFableResets: "",
 			},
 			{ targetId: "claude", now: new Date("2026-05-18T12:00:00.000Z") },
 		);

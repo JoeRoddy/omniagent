@@ -14,6 +14,7 @@ import type {
 const execFileAsync = promisify(execFile);
 const CLAUDE_CODE_KEYCHAIN_SERVICE = "Claude Code-credentials";
 const CLAUDE_CODE_CREDENTIALS_PATH = [".claude", ".credentials.json"];
+const CLAUDE_OAUTH_USAGE_API_URL = "https://api.anthropic.com/api/oauth/usage";
 const CLAUDE_USAGE_API_URL = "https://api.anthropic.com/v1/messages";
 const CLAUDE_USAGE_API_TIMEOUT_MS = 10_000;
 const CLAUDE_USAGE_API_HEADERS = {
@@ -33,6 +34,8 @@ export type ParsedClaudeUsage = {
 	currentSessionResets: string;
 	currentWeekUsed: string;
 	currentWeekResets: string;
+	currentWeekFableUsed: string;
+	currentWeekFableResets: string;
 };
 
 export async function extractClaudeUsage(
@@ -113,6 +116,24 @@ async function extractClaudeUsageFromApi(
 		throw new Error("Claude Code OAuth token was not available.");
 	}
 
+	try {
+		const response = await fetchClaudeOAuthUsage(token, context.signal);
+		if (response.status >= 400) {
+			throw new Error(`Claude OAuth usage API returned HTTP ${response.status}.`);
+		}
+
+		return buildClaudeOAuthUsageResult(await response.json(), {
+			targetId: context.targetId,
+			displayName: context.displayName,
+			now: context.now,
+			command,
+		});
+	} catch (error) {
+		if (context.signal.aborted) {
+			throw error;
+		}
+	}
+
 	const response = await fetchClaudeUsageHeaders(token, context.signal);
 	if (response.status >= 400) {
 		throw new Error(`Claude usage API returned HTTP ${response.status}.`);
@@ -140,6 +161,47 @@ type ClaudeUsageApiResponse = {
 	status: number;
 	headers: ClaudeUsageHeaders;
 };
+
+type ClaudeOAuthUsageApiResponse = {
+	status: number;
+	json: () => Promise<unknown>;
+};
+
+export function buildClaudeOAuthUsageResult(
+	payload: unknown,
+	context: ClaudeApiUsageContext,
+): UsageExtractionResult {
+	const record = asRecord(payload);
+	if (record == null) {
+		throw new Error("Claude OAuth usage API returned an invalid payload.");
+	}
+
+	const limits = Array.isArray(record.limits)
+		? record.limits.flatMap((limit) => parseClaudeOAuthLimit(limit, context))
+		: [];
+
+	appendLegacyClaudeOAuthLimit(limits, record.five_hour, {
+		...context,
+		scope: "current_session",
+		window: "session",
+	});
+	appendLegacyClaudeOAuthLimit(limits, record.seven_day, {
+		...context,
+		scope: "current_week",
+		window: "weekly",
+	});
+
+	if (limits.length === 0) {
+		throw new Error("Claude OAuth usage API response did not include usage limits.");
+	}
+
+	return {
+		targetId: context.targetId,
+		displayName: context.displayName,
+		command: context.command,
+		limits,
+	};
+}
 
 export function buildClaudeApiUsageResult(
 	headers: ClaudeUsageHeaders,
@@ -258,10 +320,46 @@ async function readClaudeAccessTokenFromKeychain(signal: AbortSignal): Promise<s
 	return null;
 }
 
+async function fetchClaudeOAuthUsage(
+	token: string,
+	parentSignal: AbortSignal,
+): Promise<ClaudeOAuthUsageApiResponse> {
+	return fetchClaudeApi(
+		CLAUDE_OAUTH_USAGE_API_URL,
+		{
+			method: "GET",
+			headers: {
+				...CLAUDE_USAGE_API_HEADERS,
+				authorization: `Bearer ${token}`,
+			},
+		},
+		parentSignal,
+	);
+}
+
 async function fetchClaudeUsageHeaders(
 	token: string,
 	parentSignal: AbortSignal,
 ): Promise<ClaudeUsageApiResponse> {
+	return fetchClaudeApi(
+		CLAUDE_USAGE_API_URL,
+		{
+			method: "POST",
+			headers: {
+				...CLAUDE_USAGE_API_HEADERS,
+				authorization: `Bearer ${token}`,
+			},
+			body: JSON.stringify(CLAUDE_USAGE_API_BODY),
+		},
+		parentSignal,
+	);
+}
+
+async function fetchClaudeApi(
+	url: string,
+	request: RequestInit,
+	parentSignal: AbortSignal,
+): Promise<Response> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => {
 		controller.abort(new Error("Claude usage API request timed out."));
@@ -272,19 +370,10 @@ async function fetchClaudeUsageHeaders(
 	parentSignal.addEventListener("abort", abortFromParent, { once: true });
 
 	try {
-		const response = await fetch(CLAUDE_USAGE_API_URL, {
-			method: "POST",
-			headers: {
-				...CLAUDE_USAGE_API_HEADERS,
-				authorization: `Bearer ${token}`,
-			},
-			body: JSON.stringify(CLAUDE_USAGE_API_BODY),
+		return await fetch(url, {
+			...request,
 			signal: controller.signal,
 		});
-		return {
-			status: response.status,
-			headers: response.headers,
-		};
 	} finally {
 		clearTimeout(timeout);
 		parentSignal.removeEventListener("abort", abortFromParent);
@@ -310,10 +399,132 @@ function findAccessToken(value: unknown): string | null {
 	return null;
 }
 
+function parseClaudeOAuthLimit(
+	value: unknown,
+	context: ClaudeApiUsageContext,
+): NormalizedUsageLimit[] {
+	const record = asRecord(value);
+	const kind = stringValue(record?.kind);
+	const group = stringValue(record?.group);
+	const percentUsed = numberValue(record?.percent);
+	if (record == null || percentUsed == null) {
+		return [];
+	}
+
+	if (kind === "session" || group === "session") {
+		return [
+			makeClaudeApiUsageLimit({
+				targetId: context.targetId,
+				scope: "current_session",
+				window: "session",
+				percentUsed,
+				resetAt: isoDateValue(record.resets_at),
+				now: context.now,
+			}),
+		];
+	}
+
+	if (kind === "weekly_all") {
+		return [
+			makeClaudeApiUsageLimit({
+				targetId: context.targetId,
+				scope: "current_week",
+				window: "weekly",
+				percentUsed,
+				resetAt: isoDateValue(record.resets_at),
+				now: context.now,
+			}),
+		];
+	}
+
+	const model = asRecord(asRecord(record.scope)?.model);
+	const modelLabel = stringValue(model?.display_name);
+	const modelId = stringValue(model?.id);
+	if ((kind !== "weekly_scoped" && group !== "weekly") || (!modelLabel && !modelId)) {
+		return [];
+	}
+
+	const displayLabel = modelLabel ?? modelId;
+	if (displayLabel == null) {
+		return [];
+	}
+	return [
+		makeClaudeApiUsageLimit({
+			targetId: context.targetId,
+			scope: normalizeClaudeScope(displayLabel),
+			window: "weekly",
+			modelId: modelId ?? undefined,
+			modelLabel: displayLabel,
+			percentUsed,
+			resetAt: isoDateValue(record.resets_at),
+			now: context.now,
+		}),
+	];
+}
+
+function appendLegacyClaudeOAuthLimit(
+	limits: NormalizedUsageLimit[],
+	value: unknown,
+	options: ClaudeApiUsageContext & {
+		scope: string;
+		window: "session" | "weekly";
+	},
+): void {
+	if (limits.some((limit) => limit.scope === options.scope)) {
+		return;
+	}
+	const record = asRecord(value);
+	const percentUsed = numberValue(record?.utilization);
+	if (record == null || percentUsed == null) {
+		return;
+	}
+	limits.push(
+		makeClaudeApiUsageLimit({
+			targetId: options.targetId,
+			scope: options.scope,
+			window: options.window,
+			percentUsed,
+			resetAt: isoDateValue(record.resets_at),
+			now: options.now,
+		}),
+	);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+	return value != null && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function stringValue(value: unknown): string | null {
+	return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function numberValue(value: unknown): number | null {
+	return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function isoDateValue(value: unknown): string | null {
+	const raw = stringValue(value);
+	if (raw == null) {
+		return null;
+	}
+	const date = new Date(raw);
+	return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function normalizeClaudeScope(value: string): string {
+	const normalized = value
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "_")
+		.replace(/^_+|_+$/g, "");
+	return normalized || "weekly_scoped";
+}
+
 function makeClaudeApiUsageLimit(options: {
 	targetId: string;
 	scope: string;
 	window: "session" | "weekly";
+	modelId?: string;
+	modelLabel?: string;
 	percentUsed: number;
 	resetAt: string | null;
 	now: Date;
@@ -325,6 +536,8 @@ function makeClaudeApiUsageLimit(options: {
 		targetId: options.targetId,
 		scope: options.scope,
 		window: options.window,
+		modelId: options.modelId,
+		modelLabel: options.modelLabel,
 		percentUsed,
 		percentRemaining: 100 - percentUsed,
 		resetText,
@@ -369,7 +582,9 @@ function formatPercent(value: number): string {
 
 function hasClaudeUsageRows(snapshot: { raw: string; screen: string }): boolean {
 	const parsed = parseClaudeUsage(snapshot.screen, cleanControlOutput(snapshot.raw));
-	return Boolean(parsed.currentSessionUsed || parsed.currentWeekUsed);
+	return Boolean(
+		parsed.currentSessionUsed || parsed.currentWeekUsed || parsed.currentWeekFableUsed,
+	);
 }
 
 function hasClaudeUsageResult(snapshot: { raw: string; screen: string }): boolean {
@@ -405,6 +620,7 @@ export function buildClaudeUsageLimits(
 ): NormalizedUsageLimit[] {
 	const sessionUsed = parsePercentUsed(parsed.currentSessionUsed);
 	const weekUsed = parsePercentUsed(parsed.currentWeekUsed);
+	const fableUsed = parsePercentUsed(parsed.currentWeekFableUsed);
 	const limits: NormalizedUsageLimit[] = [];
 
 	if (parsed.currentSessionUsed.trim()) {
@@ -437,12 +653,32 @@ export function buildClaudeUsageLimits(
 		);
 	}
 
+	if (parsed.currentWeekFableUsed.trim()) {
+		limits.push(
+			makeUsageLimit({
+				targetId: context.targetId,
+				scope: "fable",
+				window: "weekly",
+				modelLabel: "Fable",
+				percentUsed: fableUsed,
+				percentRemaining: fableUsed == null ? null : 100 - fableUsed,
+				resetText: parsed.currentWeekFableResets,
+				raw: formatRaw(parsed.currentWeekFableUsed, parsed.currentWeekFableResets),
+				now: context.now,
+			}),
+		);
+	}
+
 	return limits;
 }
 
 export function parseClaudeUsage(screen: string, cleanedOutput = ""): ParsedClaudeUsage {
 	const fromScreen = parseClaudeLines(compactLines(screen));
-	if (fromScreen.currentSessionUsed || fromScreen.currentWeekUsed) {
+	if (
+		fromScreen.currentSessionUsed ||
+		fromScreen.currentWeekUsed ||
+		fromScreen.currentWeekFableUsed
+	) {
 		return fromScreen;
 	}
 	return parseClaudeLines(compactLines(cleanedOutput));
@@ -454,8 +690,10 @@ function parseClaudeLines(lines: string[]): ParsedClaudeUsage {
 		currentSessionResets: "",
 		currentWeekUsed: "",
 		currentWeekResets: "",
+		currentWeekFableUsed: "",
+		currentWeekFableResets: "",
 	};
-	let section: "currentSession" | "currentWeek" | "" = "";
+	let section: "currentSession" | "currentWeek" | "currentWeekFable" | "" = "";
 
 	for (const line of lines) {
 		if (line === "Current session") {
@@ -464,7 +702,16 @@ function parseClaudeLines(lines: string[]): ParsedClaudeUsage {
 		}
 
 		if (line.startsWith("Current week")) {
-			section = shouldParseClaudeWeeklySection(line, values) ? "currentWeek" : "";
+			section = isClaudeFableWeeklySection(line)
+				? "currentWeekFable"
+				: shouldParseClaudeWeeklySection(line, values)
+					? "currentWeek"
+					: "";
+			continue;
+		}
+
+		if (line === "Usage credits") {
+			section = "";
 			continue;
 		}
 
@@ -476,8 +723,10 @@ function parseClaudeLines(lines: string[]): ParsedClaudeUsage {
 		if (usedMatch != null) {
 			if (section === "currentSession") {
 				values.currentSessionUsed = usedMatch[1];
-			} else {
+			} else if (section === "currentWeek") {
 				values.currentWeekUsed = usedMatch[1];
+			} else {
+				values.currentWeekFableUsed = usedMatch[1];
 			}
 			continue;
 		}
@@ -485,13 +734,19 @@ function parseClaudeLines(lines: string[]): ParsedClaudeUsage {
 		if (line.startsWith("Resets ")) {
 			if (section === "currentSession") {
 				values.currentSessionResets = line.slice("Resets ".length).trim();
-			} else {
+			} else if (section === "currentWeek") {
 				values.currentWeekResets = line.slice("Resets ".length).trim();
+			} else {
+				values.currentWeekFableResets = line.slice("Resets ".length).trim();
 			}
 		}
 	}
 
 	return values;
+}
+
+function isClaudeFableWeeklySection(line: string): boolean {
+	return /^Current week\s+\(Fable(?:\s+only)?\)$/i.test(line);
 }
 
 function shouldParseClaudeWeeklySection(line: string, values: ParsedClaudeUsage): boolean {
