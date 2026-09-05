@@ -2,6 +2,7 @@ import {
 	listClaudeFiles,
 	normalizeClaudeLine,
 	prefilterClaudeLine,
+	readClaudeTranscript,
 	resumeClaudeSession,
 } from "../../../history/claude.js";
 import type { TargetDefinition } from "../../config-types.js";
@@ -107,5 +108,6 @@ export const claudeTarget: TargetDefinition = {
 		prefilter: prefilterClaudeLine,
 		normalize: normalizeClaudeLine,
 		resume: resumeClaudeSession,
+		transcript: readClaudeTranscript,
 	},
 };

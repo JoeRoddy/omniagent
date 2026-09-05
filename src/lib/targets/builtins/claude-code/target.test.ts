@@ -119,5 +119,7 @@ describe("claude builtin target", () => {
 		expect(typeof claudeTarget.history?.prefilter).toBe("function");
 		expect(typeof claudeTarget.history?.normalize).toBe("function");
 		expect(typeof claudeTarget.history?.resume).toBe("function");
+		// The export command needs the full-fidelity reader; without it a chat log has no tool calls.
+		expect(typeof claudeTarget.history?.transcript).toBe("function");
 	});
 });

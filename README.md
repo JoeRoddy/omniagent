@@ -99,6 +99,12 @@ omniagent search merge conflict --print 2   # write one result's text to stdout
 omniagent search merge conflict --full --no-interactive
 omniagent search --limit 50 --json refactor
 
+# Export a past conversation as a chat log (ids come from `search --json`)
+omniagent export 5000f3fc-7e42-4dd8-b368-4587aa32b102
+omniagent export 5000f3fc --verbose           # every tool call's input and output
+omniagent export 5000f3fc --output chat.md    # write to a file
+omniagent export 5000f3fc --json
+
 # Shim mode (no subcommand)
 omniagent --agent codex
 omniagent -p "Summarize this repo" --agent codex --output json
@@ -107,6 +113,10 @@ omniagent -p "Summarize this repo" --agent codex --output json
 Large unbounded searches may automatically use a metadata-derived `--since` cutoff. The effective
 range is displayed; pass an explicit `--since`/`--until`, or use `--all-history` for an exhaustive
 scan. No index or cache is created.
+
+`export` prints one session as Markdown: user and assistant messages in order, with each run of
+tool calls collapsed to a single line of counts. `--verbose` expands every tool call with its full
+input and output.
 
 `usage` supports Codex, Claude, and Antigravity (`agy`; `gemini` works as an alias). Copilot
 is not supported for usage extraction yet. Usage extraction may launch agent TUIs and may incur

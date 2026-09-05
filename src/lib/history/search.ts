@@ -57,7 +57,7 @@ type QueuedFile = {
  * declared async iterable. Built-ins get this right by construction; a hand-written custom target
  * should degrade rather than crash with "undefined is not async iterable".
  */
-async function* toAsyncIterable<T>(value: unknown): AsyncGenerator<T> {
+export async function* toAsyncIterable<T>(value: unknown): AsyncGenerator<T> {
 	const resolved = (await value) as AsyncIterable<T> | Iterable<T> | null | undefined;
 	if (!resolved) {
 		return;
@@ -71,7 +71,7 @@ async function* toAsyncIterable<T>(value: unknown): AsyncGenerator<T> {
 	}
 }
 
-function isSearchRecord(value: unknown): value is SearchRecord {
+export function isSearchRecord(value: unknown): value is SearchRecord {
 	if (!value || typeof value !== "object") {
 		return false;
 	}

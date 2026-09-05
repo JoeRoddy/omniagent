@@ -712,6 +712,29 @@ describe("target config validation", () => {
 			"targets[0].history.prefilter must be a function when provided.",
 		);
 	});
+
+	it("rejects a non-function history transcript reader", () => {
+		const config: OmniagentConfig = {
+			targets: [
+				{
+					id: "exportable",
+					history: {
+						roles: ["user"],
+						listFiles: async function* () {},
+						normalize: () => null,
+						transcript: { read: true },
+					},
+				} as unknown as TargetDefinition,
+			],
+		};
+
+		const validation = validateTargetConfig({ config, builtIns: BUILTIN_TARGETS });
+
+		expect(validation.valid).toBe(false);
+		expect(validation.errors).toContain(
+			"targets[0].history.transcript must be a function when provided.",
+		);
+	});
 });
 
 describe("target resolution", () => {

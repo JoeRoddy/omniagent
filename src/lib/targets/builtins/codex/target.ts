@@ -2,6 +2,7 @@ import {
 	listCodexFiles,
 	normalizeCodexLine,
 	prefilterCodexLine,
+	readCodexTranscript,
 	resumeCodexSession,
 } from "../../../history/codex.js";
 import type { TargetDefinition } from "../../config-types.js";
@@ -165,5 +166,6 @@ export const codexTarget: TargetDefinition = {
 		prefilter: prefilterCodexLine,
 		normalize: normalizeCodexLine,
 		resume: resumeCodexSession,
+		transcript: readCodexTranscript,
 	},
 };

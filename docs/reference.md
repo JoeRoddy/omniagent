@@ -203,6 +203,73 @@ passed, so scripts and agents never hit a prompt. `--no-interactive` forces the 
 - Transcripts can contain secrets you pasted into a session. Human output shows only a window
   around the match, but `--json` includes full message text.
 
+## Export
+
+```bash
+npx omniagent@latest export 5000f3fc-7e42-4dd8-b368-4587aa32b102
+npx omniagent@latest export 5000f3fc --verbose
+npx omniagent@latest export 5000f3fc --output chat.md
+npx omniagent@latest export 5000f3fc --json
+npx omniagent@latest export 5000f3fc --only codex
+npx omniagent@latest search deploy --json | jq -r '.matches[0].sessionId'
+```
+
+Exports one past conversation as a chat log, read straight from the transcript the agent CLI
+wrote to disk. Like `search`, nothing is launched and no network request is made. Session ids are
+what `search --json` reports as `matches[].sessionId`; the id an agent prints in its own UI (a
+Claude Code session id, a Codex thread id) is the same value.
+
+The default output is Markdown that also reads well in a terminal:
+
+```markdown
+# Claude Code session 5000f3fc-7e42-4dd8-b368-4587aa32b102
+
+- Project: ~/Documents/dev/food-tracker (main)
+- Model: claude-fable-5-1
+- Started: 2026-09-05 00:59 · Ended: 2026-09-05 02:40
+- Messages: 5 user, 33 assistant · Tool calls: 89 (Bash ×60, Read ×14, Edit ×9, Grep ×4, Task ×2)
+- Resume: claude --resume 5000f3fc-7e42-4dd8-b368-4587aa32b102
+
+---
+
+**user** · 2026-09-05 00:59
+
+take a look around at this project and let me know what's happening
+
+**assistant** · 2026-09-05 01:00
+
+I'll survey the repo structure, package layout, and entry points, then summarize.
+
+⋯ 12 tool calls (Bash ×8, Read ×3, Grep ×1)
+
+**assistant** · 2026-09-05 01:02
+
+Here's what I found ...
+```
+
+- Collapsed by default: every run of tool activity between two messages becomes one `⋯ N tool
+  calls (...)` line, placed where it happened, with a `, K failed` suffix when a tool reported an
+  error. Thinking blocks are folded into the run.
+- `--verbose` expands each run: every tool call prints as `**tool call** <name>` with its full input
+  (pretty-printed JSON, or the raw script for agents that pass one), followed by `**tool result**`
+  with the complete output in a code fence. Readable thinking is printed as `**thinking**`.
+- `--json` emits `{ session, events, notes, errors }`. `events` mirrors the text view: messages plus
+  `tool_calls` groups by default, or the raw `message` / `tool_call` / `tool_result` / `thinking`
+  events with `--verbose`. Tool inputs are carried as the agent recorded them.
+- `--output <path>` (`-o`) writes the chat log to a file and prints a confirmation to stderr.
+- The id may be a prefix. A prefix that matches more than one session, or a full id present in two
+  agents' histories, is rejected with a list of the candidates; add characters or pass
+  `--only <target>`.
+- Subagent transcripts are not included. What the main conversation saw of them is in the `Task`
+  tool's input and result, so `--verbose` still shows the dispatch prompt and the report.
+- Only agents that declare a `history` capability are exportable. An agent with `history` but no
+  `transcript` reader exports messages only, and a note says so.
+- Notes go to stderr in both modes, keeping stdout a clean, redirectable chat log.
+- Exit codes: 0 on success, 1 when no session matches or a transcript could not be read, 2 for an
+  ambiguous id or invalid flag values, 130 when interrupted.
+- Transcripts can contain secrets you pasted into a session, and tool output can contain anything a
+  command printed. `--verbose` and `--json` reproduce it verbatim.
+
 ## Shim
 
 ```bash

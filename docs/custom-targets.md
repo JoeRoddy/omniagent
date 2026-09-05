@@ -117,9 +117,10 @@ extract: async (context) => ({
 
 ## Searchable history (`history`)
 
-A target that declares a `history` block becomes searchable by `omniagent search`. Everything
-agent-specific lives here — where transcripts are, what a message looks like, how to get back into
-a session — so adding a new agent never requires changing the search engine.
+A target that declares a `history` block becomes searchable by `omniagent search` and exportable
+by `omniagent export`. Everything agent-specific lives here — where transcripts are, what a message
+looks like, how to get back into a session — so adding a new agent never requires changing the
+search or export engines.
 
 ```ts
 export default {
@@ -168,6 +169,34 @@ export default {
           args: ["--session", record.sessionId],
           cwd: null,
         }),
+
+        // Optional full-fidelity reader for `omniagent export`. Yield every message, tool call,
+        // and tool result in file order; `meta` carries session facts as you learn them. Without
+        // this the export falls back to `normalize` / `scan.read` and contains messages only.
+        transcript: async function* (file, context) {
+          yield { kind: "meta", cwd: file.projectPath, gitBranch: null, model: null };
+          for (const record of await readRecords(file.path)) {
+            if (record.kind === "prompt") {
+              yield { kind: "message", role: "user", text: record.text, timestamp: record.at };
+            } else if (record.kind === "call") {
+              yield {
+                kind: "tool_call",
+                callId: record.id,
+                name: record.tool,
+                input: record.args,
+                timestamp: record.at,
+              };
+            } else if (record.kind === "call-result") {
+              yield {
+                kind: "tool_result",
+                callId: record.id,
+                output: record.text,
+                isError: record.failed,
+                timestamp: record.at,
+              };
+            }
+          }
+        },
       },
     },
   ],
@@ -218,6 +247,11 @@ history: {
 - Define exactly one reader: `normalize` for the line-oriented fast path, or `scan.read` for a
   custom store. Defining both is rejected; defining neither yields no records.
 - `resume` is optional.
+- `transcript(file, context)` is optional. It must yield `TranscriptEvent` values: `meta`
+  (`cwd`, `gitBranch`, `model`, each optional), `message` (`role` is `user` or `assistant`, `text`
+  non-empty), `tool_call` (`callId`, `name`, `input`), `tool_result` (`callId`, `output`,
+  `isError`), and `thinking` (`text`). Every event except `meta` carries `timestamp` as an ISO
+  string or `null`. Malformed events are skipped and reported in a note.
 - Every emitted record is runtime-validated: `agentId`, `sessionId`, and `sourcePath` are strings;
   `role` is `user`, `assistant`, or `agent`; `timestamp` and `cwd` are strings or `null`;
   `gitBranch` is optional, a string, or `null`; and `recordIndex` is a non-negative integer.

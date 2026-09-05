@@ -4,6 +4,7 @@ import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { devCommand } from "./commands/dev.js";
 import { echoCommand } from "./commands/echo.js";
+import { exportCommand } from "./commands/export.js";
 import { greetCommand } from "./commands/greet.js";
 import { helloCommand } from "./commands/hello.js";
 import { profilesCommand } from "./commands/profiles.js";
@@ -46,6 +47,7 @@ const KNOWN_COMMANDS = new Set([
 	"profiles",
 	"usage",
 	"search",
+	"export",
 ]);
 const SHIM_CAPABILITIES = [
 	"Capabilities by agent:",
@@ -78,6 +80,9 @@ function formatError(message: string, args: string[]) {
 		const command = args.find((arg) => !arg.startsWith("-"));
 		if (command === "greet") {
 			return "Error: Missing required argument: name";
+		}
+		if (command === "export") {
+			return "Error: Missing required argument: session-id";
 		}
 
 		return "Error: Missing required argument";
@@ -158,6 +163,7 @@ export function runCli(argv = process.argv, options: RunCliOptions = {}) {
 		.command(profilesCommand)
 		.command(usageCommand)
 		.command(searchCommand)
+		.command(exportCommand)
 		.command(
 			"$0",
 			"omniagent CLI",

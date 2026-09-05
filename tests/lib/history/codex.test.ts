@@ -5,6 +5,7 @@ import {
 	listCodexFiles,
 	normalizeCodexLine,
 	readCodexSessionMeta,
+	readCodexTranscript,
 	resumeCodexSession,
 } from "../../../src/lib/history/codex.js";
 import type {
@@ -12,6 +13,7 @@ import type {
 	HistoryFile,
 	HistoryRole,
 	SearchScope,
+	TranscriptEvent,
 } from "../../../src/lib/history/types.js";
 
 function context(overrides: Partial<HistoryContext> = {}): HistoryContext {
@@ -386,5 +388,190 @@ describe("resumeCodexSession", () => {
 		});
 
 		expect(resume).toEqual({ command: "codex", args: ["resume", "roll-1"], cwd: "/repo/alpha" });
+	});
+});
+
+describe("readCodexTranscript", () => {
+	let root: string;
+
+	beforeEach(async () => {
+		root = await mkdtemp(path.join(os.tmpdir(), "omniagent-codex-transcript-"));
+	});
+
+	afterEach(async () => {
+		await rm(root, { recursive: true, force: true });
+	});
+
+	const at = (index: number) => `2026-08-06T10:00:${String(index).padStart(2, "0")}.000Z`;
+	const line = (index: number, type: string, payload: Record<string, unknown>) =>
+		JSON.stringify({ timestamp: at(index), type, payload });
+
+	async function transcript(lines: string[]): Promise<TranscriptEvent[]> {
+		const filePath = path.join(root, "rollout.jsonl");
+		await writeFile(filePath, `${lines.join("\n")}\n`);
+		const events: TranscriptEvent[] = [];
+		for await (const event of readCodexTranscript(file({ path: filePath }), context())) {
+			events.push(event);
+		}
+		return events;
+	}
+
+	it("reads the current item_completed format with function calls and outputs", async () => {
+		const events = await transcript([
+			line(0, "session_meta", { id: "roll", cwd: "/work" }),
+			line(1, "turn_context", { model: "gpt-test", cwd: "/work" }),
+			line(2, "event_msg", {
+				type: "item_completed",
+				item: { type: "UserMessage", content: [{ type: "text", text: "list files" }] },
+			}),
+			line(3, "response_item", {
+				type: "message",
+				role: "developer",
+				content: [{ type: "input_text", text: "<permissions instructions>" }],
+			}),
+			line(4, "response_item", {
+				type: "function_call",
+				name: "exec_command",
+				arguments: '{"cmd":"ls"}',
+				call_id: "call_1",
+			}),
+			line(5, "event_msg", {
+				type: "item_completed",
+				item: { type: "CommandExecution", command: ["ls"], stdout: "a\nb" },
+			}),
+			line(6, "response_item", {
+				type: "function_call_output",
+				call_id: "call_1",
+				output: "a\nb\n",
+			}),
+			line(7, "event_msg", {
+				type: "item_completed",
+				item: { type: "AgentMessage", content: [{ type: "Text", text: "Two files." }] },
+			}),
+			line(8, "response_item", {
+				type: "message",
+				role: "assistant",
+				content: [{ type: "output_text", text: "Two files." }],
+			}),
+		]);
+
+		expect(events).toEqual([
+			{ kind: "meta", cwd: "/work" },
+			{ kind: "meta", model: "gpt-test", cwd: "/work" },
+			{ kind: "message", role: "user", text: "list files", timestamp: at(2) },
+			{
+				kind: "tool_call",
+				callId: "call_1",
+				name: "exec_command",
+				input: { cmd: "ls" },
+				timestamp: at(4),
+			},
+			{ kind: "tool_result", callId: "call_1", output: "a\nb\n", isError: false, timestamp: at(6) },
+			{ kind: "message", role: "assistant", text: "Two files.", timestamp: at(7) },
+		]);
+	});
+
+	it("reads the legacy event format and custom tool calls with block-array outputs", async () => {
+		const events = await transcript([
+			line(0, "session_meta", { id: "roll", cwd: "/work" }),
+			line(1, "event_msg", { type: "user_message", message: "fix it" }),
+			line(2, "response_item", {
+				type: "custom_tool_call",
+				name: "exec",
+				input: "const r = await tools.exec_command({ cmd: 'ls' });",
+				call_id: "call_9",
+				status: "completed",
+			}),
+			line(3, "response_item", {
+				type: "custom_tool_call_output",
+				call_id: "call_9",
+				output: [
+					{ type: "input_text", text: "Script completed\n" },
+					{ type: "input_text", text: "{}" },
+				],
+			}),
+			line(4, "event_msg", { type: "agent_message", message: "Fixed." }),
+		]);
+
+		expect(events.slice(1)).toEqual([
+			{ kind: "message", role: "user", text: "fix it", timestamp: at(1) },
+			{
+				kind: "tool_call",
+				callId: "call_9",
+				name: "exec",
+				input: "const r = await tools.exec_command({ cmd: 'ls' });",
+				timestamp: at(2),
+			},
+			{
+				kind: "tool_result",
+				callId: "call_9",
+				output: "Script completed\n{}",
+				isError: false,
+				timestamp: at(3),
+			},
+			{ kind: "message", role: "assistant", text: "Fixed.", timestamp: at(4) },
+		]);
+	});
+
+	it("keeps readable reasoning summaries and ignores encrypted-only reasoning", async () => {
+		const events = await transcript([
+			line(0, "response_item", { type: "reasoning", summary: [], encrypted_content: "xx" }),
+			line(1, "response_item", {
+				type: "reasoning",
+				summary: [{ type: "summary_text", text: "**Checking the schema**" }],
+			}),
+		]);
+
+		expect(events).toEqual([
+			{ kind: "thinking", text: "**Checking the schema**", timestamp: at(1) },
+		]);
+	});
+
+	it("treats unknown *_call items as tool calls named after their type", async () => {
+		const events = await transcript([
+			line(0, "response_item", {
+				type: "web_search_call",
+				id: "ws_1",
+				status: "completed",
+				action: { type: "search", query: "vitest globals" },
+			}),
+		]);
+
+		expect(events).toEqual([
+			{
+				kind: "tool_call",
+				callId: "ws_1",
+				name: "web_search",
+				input: { action: { type: "search", query: "vitest globals" } },
+				timestamp: at(0),
+			},
+		]);
+	});
+
+	it("keeps the raw string when function_call arguments are not JSON", async () => {
+		const events = await transcript([
+			line(0, "response_item", {
+				type: "function_call",
+				name: "shell",
+				arguments: "not json",
+				call_id: "c",
+			}),
+		]);
+
+		expect(events[0]).toEqual(expect.objectContaining({ kind: "tool_call", input: "not json" }));
+	});
+
+	it("uses the discovered project path when session_meta has no cwd", async () => {
+		const filePath = path.join(root, "rollout.jsonl");
+		await writeFile(filePath, `${line(0, "session_meta", { id: "roll" })}\n`);
+		const events: TranscriptEvent[] = [];
+		for await (const event of readCodexTranscript(
+			file({ path: filePath, projectPath: "/discovered" }),
+			context(),
+		)) {
+			events.push(event);
+		}
+
+		expect(events).toEqual([{ kind: "meta", cwd: "/discovered" }]);
 	});
 });

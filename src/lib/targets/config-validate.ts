@@ -542,6 +542,9 @@ function validateHistoryDefinition(
 	if (history.resume !== undefined && typeof history.resume !== "function") {
 		errors.push(`${label}.resume must be a function when provided.`);
 	}
+	if (history.transcript !== undefined && typeof history.transcript !== "function") {
+		errors.push(`${label}.transcript must be a function when provided.`);
+	}
 }
 
 function validateTemplate(

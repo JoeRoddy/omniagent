@@ -57,6 +57,25 @@ describe("README", () => {
 		expect(customTargets).toContain("normalize");
 	});
 
+	it("documents the export command surface", async () => {
+		const readme = await readFile(README_PATH, "utf8");
+		const reference = await readFile(REFERENCE_PATH, "utf8");
+		const customTargets = await readFile(CUSTOM_TARGETS_PATH, "utf8");
+		const docsIndex = await readFile(DOCS_INDEX_PATH, "utf8");
+
+		expect(readme).toContain("omniagent export");
+		expect(reference).toContain("## Export");
+		// Collapsed-by-default with a verbose expansion is the whole design of the command.
+		expect(reference).toContain("--verbose");
+		expect(reference).toContain("tool calls (");
+		expect(reference).toContain("--output");
+		expect(reference).toContain("--json");
+		expect(docsIndex).toContain("`export`");
+		// Adding an exportable agent stays a config-only change.
+		expect(customTargets).toContain("transcript");
+		expect(customTargets).toContain("tool_call");
+	});
+
 	it("keeps advanced templating details in docs pages", async () => {
 		const readme = await readFile(README_PATH, "utf8");
 		const templating = await readFile(TEMPLATING_PATH, "utf8");

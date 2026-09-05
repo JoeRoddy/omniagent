@@ -73,6 +73,49 @@ export type HistoryResume = {
 };
 
 /**
+ * One normalized event in a session transcript, in file order. This is what `omniagent export`
+ * renders, so unlike `SearchRecord` it keeps tool calls and tool results instead of dropping them.
+ * `meta` events carry session-level facts a reader learns as it goes; the engine merges them with
+ * first-non-null-wins semantics, so a reader may emit several.
+ */
+export type TranscriptEvent =
+	| {
+			kind: "meta";
+			cwd?: string | null;
+			gitBranch?: string | null;
+			model?: string | null;
+	  }
+	| {
+			kind: "message";
+			role: "user" | "assistant";
+			text: string;
+			timestamp: string | null;
+	  }
+	| {
+			kind: "tool_call";
+			/** Correlates with `tool_result.callId`; null when the agent records none. */
+			callId: string | null;
+			name: string;
+			/** The agent's own input shape: parsed JSON where possible, else the raw string. */
+			input: unknown;
+			timestamp: string | null;
+	  }
+	| {
+			kind: "tool_result";
+			callId: string | null;
+			output: string;
+			isError: boolean;
+			timestamp: string | null;
+	  }
+	| {
+			kind: "thinking";
+			text: string;
+			timestamp: string | null;
+	  };
+
+export type TranscriptEventKind = TranscriptEvent["kind"];
+
+/**
  * The per-target history capability. Everything agent-specific lives here — directory layout,
  * record shapes, resume verb — so the search engine never branches on target id.
  */
@@ -106,6 +149,12 @@ export type TargetHistoryDefinition = {
 	) => SearchRecord | null;
 	/** How to re-enter this session. Returning null means "not resumable". */
 	resume?: (record: SearchRecord) => HistoryResume | null;
+	/**
+	 * Full-fidelity reader for `omniagent export`: every message, tool call, tool result, and
+	 * thinking block of one transcript, in file order. Optional — without it the export engine
+	 * falls back to the search reader above and the chat log contains messages only.
+	 */
+	transcript?: (file: HistoryFile, context: HistoryContext) => AsyncIterable<TranscriptEvent>;
 };
 
 export type SearchHit = {

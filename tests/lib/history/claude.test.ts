@@ -3,9 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import {
 	cleanClaudeText,
+	extractClaudeUserText,
 	listClaudeFiles,
 	normalizeClaudeLine,
 	projectSlugMatches,
+	readClaudeTranscript,
 	resumeClaudeSession,
 	slugifyProjectPath,
 } from "../../../src/lib/history/claude.js";
@@ -14,6 +16,7 @@ import type {
 	HistoryFile,
 	HistoryRole,
 	SearchScope,
+	TranscriptEvent,
 } from "../../../src/lib/history/types.js";
 
 function context(overrides: Partial<HistoryContext> = {}): HistoryContext {
@@ -293,5 +296,194 @@ describe("resumeClaudeSession", () => {
 		});
 
 		expect(resume).toEqual({ command: "claude", args: ["--resume", "abc123"], cwd: "/repo/alpha" });
+	});
+});
+
+describe("extractClaudeUserText", () => {
+	it("renders slash commands the way they were typed", () => {
+		expect(
+			extractClaudeUserText(
+				"<command-name>/pr-prep</command-name><command-message>pr-prep</command-message><command-args>--fast</command-args>",
+			),
+		).toBe("/pr-prep --fast");
+		expect(
+			extractClaudeUserText(
+				"<command-name>/clear</command-name><command-message>clear</command-message><command-args></command-args>",
+			),
+		).toBe("/clear");
+	});
+
+	it("renders ! shell lines and still drops their captured output", () => {
+		expect(extractClaudeUserText("<bash-input>git status</bash-input>")).toBe("! git status");
+		expect(extractClaudeUserText("<bash-stdout>On branch main</bash-stdout>")).toBe("");
+		expect(extractClaudeUserText("<local-command-stdout>ok</local-command-stdout>")).toBe("");
+	});
+
+	it("otherwise applies the search cleaner", () => {
+		expect(extractClaudeUserText("<system-reminder>ignore</system-reminder>hello")).toBe("hello");
+		expect(extractClaudeUserText("<task-notification>done</task-notification>")).toBe("");
+		expect(extractClaudeUserText("  plain prompt  ")).toBe("plain prompt");
+	});
+});
+
+describe("readClaudeTranscript", () => {
+	let root: string;
+
+	beforeEach(async () => {
+		root = await mkdtemp(path.join(os.tmpdir(), "omniagent-claude-transcript-"));
+	});
+
+	afterEach(async () => {
+		await rm(root, { recursive: true, force: true });
+	});
+
+	const assistantBlock = (
+		block: unknown,
+		messageId = "msg_1",
+		timestamp = "2026-08-01T10:00:01.000Z",
+	) =>
+		JSON.stringify({
+			type: "assistant",
+			sessionId: "session",
+			cwd: "/repo",
+			gitBranch: "main",
+			timestamp,
+			message: { id: messageId, model: "claude-test", role: "assistant", content: [block] },
+		});
+
+	async function transcript(lines: string[]): Promise<TranscriptEvent[]> {
+		const filePath = path.join(root, "session.jsonl");
+		await writeFile(filePath, `${lines.join("\n")}\n`);
+		const events: TranscriptEvent[] = [];
+		for await (const event of readClaudeTranscript(file({ path: filePath }), context())) {
+			events.push(event);
+		}
+		return events;
+	}
+
+	it("emits session meta, then messages and tool events in file order", async () => {
+		const events = await transcript([
+			userRecord("hello there"),
+			assistantBlock({ type: "text", text: "Looking." }),
+			assistantBlock({ type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "ls" } }),
+			userRecord([{ type: "tool_result", tool_use_id: "toolu_1", content: "a\nb" }]),
+			assistantBlock({ type: "text", text: "Done." }, "msg_2", "2026-08-01T10:00:05.000Z"),
+		]);
+
+		expect(events).toEqual([
+			{ kind: "meta", cwd: "/repo" },
+			{ kind: "message", role: "user", text: "hello there", timestamp: "2026-08-01T10:00:00.000Z" },
+			// The user record above carries no branch; the first assistant record supplies it.
+			{ kind: "meta", gitBranch: "main", model: "claude-test" },
+			{
+				kind: "message",
+				role: "assistant",
+				text: "Looking.",
+				timestamp: "2026-08-01T10:00:01.000Z",
+			},
+			{
+				kind: "tool_call",
+				callId: "toolu_1",
+				name: "Bash",
+				input: { command: "ls" },
+				timestamp: "2026-08-01T10:00:01.000Z",
+			},
+			{
+				kind: "tool_result",
+				callId: "toolu_1",
+				output: "a\nb",
+				isError: false,
+				timestamp: "2026-08-01T10:00:00.000Z",
+			},
+			{ kind: "message", role: "assistant", text: "Done.", timestamp: "2026-08-01T10:00:05.000Z" },
+		]);
+	});
+
+	it("merges the text blocks of one API message and keeps separate messages apart", async () => {
+		const events = await transcript([
+			assistantBlock({ type: "text", text: "First half." }, "msg_1"),
+			assistantBlock({ type: "text", text: "Second half." }, "msg_1"),
+			assistantBlock({ type: "text", text: "Another message." }, "msg_2"),
+		]);
+
+		const messages = events.filter((event) => event.kind === "message");
+		expect(messages.map((event) => (event.kind === "message" ? event.text : ""))).toEqual([
+			"First half.\n\nSecond half.",
+			"Another message.",
+		]);
+	});
+
+	it("flags failed tool results and renders block-array results as text", async () => {
+		const events = await transcript([
+			userRecord([
+				{ type: "tool_result", tool_use_id: "toolu_1", content: "Exit code 1", is_error: true },
+			]),
+			userRecord([
+				{
+					type: "tool_result",
+					tool_use_id: "toolu_2",
+					content: [
+						{ type: "text", text: "line one" },
+						{ type: "tool_reference", tool_name: "WebFetch" },
+						{ type: "image", source: {} },
+					],
+				},
+			]),
+		]);
+
+		const results = events.filter((event) => event.kind === "tool_result");
+		expect(results).toEqual([
+			expect.objectContaining({ callId: "toolu_1", output: "Exit code 1", isError: true }),
+			expect.objectContaining({
+				callId: "toolu_2",
+				output: "line one\n[tool: WebFetch]\n[image]",
+				isError: false,
+			}),
+		]);
+	});
+
+	it("keeps readable thinking and drops empty signature-only shells", async () => {
+		const events = await transcript([
+			assistantBlock({ type: "thinking", thinking: "", signature: "abc" }),
+			assistantBlock({ type: "thinking", thinking: "Let me check the tests.", signature: "abc" }),
+		]);
+
+		expect(events.filter((event) => event.kind === "thinking")).toEqual([
+			expect.objectContaining({ text: "Let me check the tests." }),
+		]);
+	});
+
+	it("skips harness records, injected meta, and malformed lines", async () => {
+		const events = await transcript([
+			"not json at all",
+			JSON.stringify({ type: "attachment", attachment: { type: "skill_listing" } }),
+			JSON.stringify({ type: "system", subtype: "stop_hook_summary" }),
+			JSON.stringify({ type: "queue-operation", operation: "enqueue" }),
+			userRecord("Base directory for this skill", { isMeta: true }),
+			userRecord("<command-name>/clear</command-name><command-message>clear</command-message>"),
+			userRecord("real prompt"),
+		]);
+
+		expect(events.filter((event) => event.kind === "message")).toEqual([
+			expect.objectContaining({ role: "user", text: "/clear" }),
+			expect.objectContaining({ role: "user", text: "real prompt" }),
+		]);
+	});
+
+	it("falls back to the discovered project path when records omit a cwd", async () => {
+		const filePath = path.join(root, "session.jsonl");
+		await writeFile(
+			filePath,
+			`${JSON.stringify({ type: "user", timestamp: null, message: { role: "user", content: "hi" } })}\n`,
+		);
+		const events: TranscriptEvent[] = [];
+		for await (const event of readClaudeTranscript(
+			file({ path: filePath, projectPath: "/from/discovery" }),
+			context(),
+		)) {
+			events.push(event);
+		}
+
+		expect(events[0]).toEqual({ kind: "meta", cwd: "/from/discovery" });
 	});
 });

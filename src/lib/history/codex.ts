@@ -2,14 +2,15 @@ import type { Dirent, Stats } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { open, readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { readJsonlLines } from "./jsonl.js";
 import { type HistoryQuery, prefilterJsonLine } from "./query.js";
 import type {
 	HistoryContext,
 	HistoryFile,
 	HistoryResume,
-	HistoryRole,
 	SearchRecord,
 	SearchScope,
+	TranscriptEvent,
 } from "./types.js";
 
 const TRANSCRIPT_EXTENSION = ".jsonl";
@@ -214,6 +215,40 @@ function extractItemText(item: Record<string, unknown>): string {
 	return parts.join("");
 }
 
+export type CodexMessage = { role: "user" | "assistant"; text: string };
+
+/**
+ * Pulls the human or agent message out of an `event_msg` payload, across both encodings Codex
+ * has used. Returns null for every other event and for empty messages.
+ */
+export function extractCodexMessage(payload: Record<string, unknown>): CodexMessage | null {
+	let role: CodexMessage["role"] | null = null;
+	let text = "";
+
+	if (payload.type === "user_message" || payload.type === "agent_message") {
+		// Legacy shape, written by Codex through 2026-08-06.
+		role = payload.type === "user_message" ? "user" : "assistant";
+		text = typeof payload.message === "string" ? payload.message.trim() : "";
+	} else if (payload.type === "item_completed") {
+		// Current shape: messages arrive as completed thread items instead of bespoke events.
+		const item = payload.item as Record<string, unknown> | undefined;
+		const itemType = item?.type;
+		if (itemType === "UserMessage") {
+			role = "user";
+		} else if (itemType === "AgentMessage") {
+			role = "assistant";
+		}
+		if (role && item) {
+			text = extractItemText(item).trim();
+		}
+	}
+
+	if (role === null || text.length === 0) {
+		return null;
+	}
+	return { role, text };
+}
+
 export function normalizeCodexLine(
 	line: string,
 	file: HistoryFile,
@@ -237,39 +272,16 @@ export function normalizeCodexLine(
 		return null;
 	}
 
-	let role: HistoryRole | null = null;
-	let text = "";
-
-	if (payload.type === "user_message" || payload.type === "agent_message") {
-		// Legacy shape, written by Codex through 2026-08-06.
-		role = payload.type === "user_message" ? "user" : "assistant";
-		text = typeof payload.message === "string" ? payload.message.trim() : "";
-	} else if (payload.type === "item_completed") {
-		// Current shape: messages arrive as completed thread items instead of bespoke events.
-		const item = payload.item as Record<string, unknown> | undefined;
-		const itemType = item?.type;
-		if (itemType === "UserMessage") {
-			role = "user";
-		} else if (itemType === "AgentMessage") {
-			role = "assistant";
-		}
-		if (role && item) {
-			text = extractItemText(item).trim();
-		}
-	}
-
-	if (role === null || !context.roles.has(role)) {
-		return null;
-	}
-	if (text.length === 0) {
+	const message = extractCodexMessage(payload);
+	if (message === null || !context.roles.has(message.role)) {
 		return null;
 	}
 
 	return {
 		agentId: context.targetId,
-		role,
+		role: message.role,
 		timestamp: typeof record.timestamp === "string" ? record.timestamp : null,
-		text,
+		text: message.text,
 		sessionId: file.sessionId ?? "",
 		cwd: file.projectPath,
 		gitBranch: null,
@@ -284,4 +296,172 @@ export function resumeCodexSession(record: SearchRecord): HistoryResume | null {
 	}
 	// `codex resume` scopes to the current directory, so a hit from another project needs a cd.
 	return { command: "codex", args: ["resume", record.sessionId], cwd: record.cwd };
+}
+
+/** Fields on a `response_item` call that describe the record rather than the call itself. */
+const CALL_BOOKKEEPING = new Set([
+	"type",
+	"id",
+	"status",
+	"call_id",
+	"internal_chat_message_metadata_passthrough",
+]);
+
+function extractCodexOutput(output: unknown): string {
+	if (typeof output === "string") {
+		return output;
+	}
+	if (output === undefined || output === null) {
+		return "";
+	}
+	if (!Array.isArray(output)) {
+		return JSON.stringify(output);
+	}
+	const parts: string[] = [];
+	for (const block of output) {
+		if (block && typeof block === "object") {
+			const text = (block as { text?: unknown }).text;
+			if (typeof text === "string") {
+				parts.push(text);
+			}
+		}
+	}
+	return parts.join("");
+}
+
+/** `function_call.arguments` is a JSON-encoded string; show the object when it parses. */
+function parseArguments(value: unknown): unknown {
+	if (typeof value !== "string") {
+		return value;
+	}
+	try {
+		return JSON.parse(value) as unknown;
+	} catch {
+		return value;
+	}
+}
+
+function stripBookkeeping(payload: Record<string, unknown>): Record<string, unknown> {
+	const input: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(payload)) {
+		if (!CALL_BOOKKEEPING.has(key)) {
+			input[key] = value;
+		}
+	}
+	return input;
+}
+
+function optionalString(value: unknown): string | null {
+	return typeof value === "string" ? value : null;
+}
+
+/**
+ * Full-fidelity reader for `omniagent export`. Messages come from `event_msg` records exactly as
+ * they do for search. Tool calls come from `response_item` records — the model's actual calls and
+ * their outputs, paired by `call_id` — rather than from the `item_completed` CommandExecution and
+ * FileChange items, which describe the same work a second time and only exist in newer transcripts.
+ */
+export async function* readCodexTranscript(
+	file: HistoryFile,
+	context: HistoryContext,
+): AsyncGenerator<TranscriptEvent> {
+	let modelSent = false;
+
+	for await (const line of readJsonlLines(file.path, { signal: context.signal })) {
+		let record: Record<string, unknown>;
+		try {
+			record = JSON.parse(line.text) as Record<string, unknown>;
+		} catch {
+			continue;
+		}
+		if (!record || typeof record !== "object") {
+			continue;
+		}
+		const payload = record.payload as Record<string, unknown> | undefined;
+		if (!payload || typeof payload !== "object") {
+			continue;
+		}
+		const timestamp = optionalString(record.timestamp);
+
+		if (record.type === "session_meta") {
+			yield { kind: "meta", cwd: optionalString(payload.cwd) ?? file.projectPath };
+			continue;
+		}
+		if (record.type === "turn_context") {
+			if (!modelSent && typeof payload.model === "string") {
+				modelSent = true;
+				yield { kind: "meta", model: payload.model, cwd: optionalString(payload.cwd) };
+			}
+			continue;
+		}
+		if (record.type === "event_msg") {
+			const message = extractCodexMessage(payload);
+			if (message) {
+				yield { kind: "message", role: message.role, text: message.text, timestamp };
+			}
+			continue;
+		}
+		if (record.type !== "response_item" || typeof payload.type !== "string") {
+			continue;
+		}
+
+		const kind = payload.type;
+		if (kind === "reasoning") {
+			// Reasoning is stored encrypted; only the optional summaries are readable.
+			const summary = Array.isArray(payload.summary) ? payload.summary : [];
+			const text = summary
+				.map((entry) => (entry as { text?: unknown })?.text)
+				.filter((value): value is string => typeof value === "string")
+				.join("\n")
+				.trim();
+			if (text.length > 0) {
+				yield { kind: "thinking", text, timestamp };
+			}
+			continue;
+		}
+		if (kind === "function_call") {
+			yield {
+				kind: "tool_call",
+				callId: optionalString(payload.call_id),
+				name: optionalString(payload.name) ?? "function",
+				input: parseArguments(payload.arguments),
+				timestamp,
+			};
+			continue;
+		}
+		if (kind === "custom_tool_call") {
+			yield {
+				kind: "tool_call",
+				callId: optionalString(payload.call_id),
+				name: optionalString(payload.name) ?? "custom_tool",
+				input: payload.input,
+				timestamp,
+			};
+			continue;
+		}
+		if (kind.endsWith("_output")) {
+			// Codex records no error flag; failures are only visible in the output text.
+			yield {
+				kind: "tool_result",
+				callId: optionalString(payload.call_id),
+				output: extractCodexOutput(payload.output),
+				isError: false,
+				timestamp,
+			};
+			continue;
+		}
+		if (kind.endsWith("_call")) {
+			// web_search_call, local_shell_call, tool_search_call, and whatever comes next: the
+			// call type names the tool and everything else on the payload is its input.
+			yield {
+				kind: "tool_call",
+				callId: optionalString(payload.call_id) ?? optionalString(payload.id),
+				name: kind.slice(0, -"_call".length),
+				input: stripBookkeeping(payload),
+				timestamp,
+			};
+		}
+		// `message` items duplicate event_msg content (or are injected developer context) and
+		// `agent_message` items are multi-agent chatter; neither is part of this conversation.
+	}
 }

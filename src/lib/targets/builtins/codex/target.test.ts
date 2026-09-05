@@ -102,5 +102,7 @@ describe("codex builtin target", () => {
 		expect(typeof codexTarget.history?.prefilter).toBe("function");
 		expect(typeof codexTarget.history?.normalize).toBe("function");
 		expect(typeof codexTarget.history?.resume).toBe("function");
+		// The export command needs the full-fidelity reader; without it a chat log has no tool calls.
+		expect(typeof codexTarget.history?.transcript).toBe("function");
 	});
 });
