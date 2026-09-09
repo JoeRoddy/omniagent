@@ -123,6 +123,28 @@ Current week
 		);
 
 		expect(ptyMock.runPtyScenario).toHaveBeenCalledOnce();
+		const scenarioOptions = ptyMock.runPtyScenario.mock.calls[0]?.[0] as {
+			env?: NodeJS.ProcessEnv;
+			steps: Array<{
+				waitFor?: (snapshot: { raw: string; screen: string }) => boolean;
+				write?: string;
+			}>;
+		};
+		expect(scenarioOptions.env).toMatchObject({ CLAUDE_CODE_SAFE_MODE: "1" });
+		const readyStep = scenarioOptions.steps[0];
+		expect(
+			readyStep?.waitFor?.({
+				raw: "Claude Code",
+				screen: "Claude Code v2.1.266",
+			}),
+		).toBe(false);
+		expect(
+			readyStep?.waitFor?.({
+				raw: "Claude Code",
+				screen: "Claude Code v2.1.266\n\n❯ Try something",
+			}),
+		).toBe(true);
+		expect(scenarioOptions.steps[1]?.write).toBe("/usage\r");
 		expect(result.limits.map((limit) => `${limit.scope}:${limit.window}`)).toEqual([
 			"current_session:hourly",
 			"current_week:weekly",

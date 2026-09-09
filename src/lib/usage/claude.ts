@@ -62,15 +62,22 @@ async function extractClaudeUsageFromTui(
 		command,
 		args: context.launch?.args ?? ["--model", model],
 		cwd: context.repoRoot,
+		env: {
+			// Usage extraction only needs Claude's built-in /usage command. Safe mode keeps
+			// project/user hooks and plugins from delaying or blocking the probe at startup.
+			CLAUDE_CODE_SAFE_MODE: "1",
+		},
 		cols: 100,
 		rows: 40,
 		timeoutMs: context.launch?.timeoutMs ?? 60_000,
 		signal: context.signal,
 		debug: context.debug,
 		steps: [
-			{ waitFor: /Claude|>|❯/u, waitForSource: "screen", waitForTimeoutMs: 4_000 },
-			{ write: enterKey() },
-			{ waitFor: /Claude|>|❯/u, waitForSource: "screen", waitForTimeoutMs: 8_000 },
+			{
+				waitFor: hasClaudePrompt,
+				waitForSource: "screen",
+				waitForTimeoutMs: 15_000,
+			},
 			{ write: `/usage${enterKey()}` },
 			{
 				waitFor: hasClaudeUsageResult,
@@ -585,6 +592,10 @@ function hasClaudeUsageRows(snapshot: { raw: string; screen: string }): boolean 
 	return Boolean(
 		parsed.currentSessionUsed || parsed.currentWeekUsed || parsed.currentWeekFableUsed,
 	);
+}
+
+function hasClaudePrompt(snapshot: { raw: string; screen: string }): boolean {
+	return compactLines(snapshot.screen).some((line) => /^(?:❯|>)(?:\s|$)/u.test(line));
 }
 
 function hasClaudeUsageResult(snapshot: { raw: string; screen: string }): boolean {
